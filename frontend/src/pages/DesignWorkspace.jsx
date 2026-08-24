@@ -10,6 +10,7 @@ import {
   Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DocumentsList } from "@/components/DocumentsList";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -27,7 +28,7 @@ function NavItem({ icon: Icon, label, section, active, onClick, badge, tone }) {
     >
       {isActive && <span className="absolute left-0 w-[3px] h-4 rounded-full" style={{ background: "var(--c-action)" }} />}
       <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
-      <span className="truncate">{label}</span>
+      <span className="truncate" title={label}>{label}</span>
       {badge != null && (
         <span className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm" style={{ background: TONE[tone || "warning"].bg, color: TONE[tone || "warning"].fg }}>{badge}</span>
       )}
@@ -299,7 +300,13 @@ function SimpleSection({ title, children }) {
 
 /* ---------------- Right intelligence panel ---------------- */
 function IntelligencePanel({ p, measure }) {
-  const checks = measure ? measure.checks : p.measures.flatMap((m) => m.checks).slice(0, 6);
+  const checks = (() => {
+    const raw = measure ? measure.checks : p.measures.flatMap((m) => m.checks);
+    const seen = new Set();
+    const out = [];
+    for (const c of raw) { if (!seen.has(c.label)) { seen.add(c.label); out.push(c); } }
+    return measure ? out : out.slice(0, 8);
+  })();
   const completion = measure ? measure.completion : p.completion;
   const intel = measure
     ? [
@@ -350,8 +357,8 @@ function IntelligencePanel({ p, measure }) {
         <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-3">Project Intelligence</div>
         {intel.map(([k, v]) => (
           <div key={k} className="flex items-baseline justify-between gap-3 py-1.5 border-b border-border/60 last:border-0">
-            <span className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground">{k}</span>
-            <span className="text-[12px] font-mono-tech text-right">{v}</span>
+            <span className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground shrink-0">{k}</span>
+            <span className="text-[12px] font-mono-tech text-right truncate max-w-[170px]" title={String(v)}>{v}</span>
           </div>
         ))}
       </div>
@@ -520,7 +527,7 @@ export default function DesignWorkspace() {
           </SimpleSection>
         );
       case "evidence":
-        return <SimpleSection title="Evidence"><p className="text-[13px] text-muted-foreground">Upload BBA certificates, commissioning sheets and product datasheets. Drag files here to attach.</p><div className="mt-4 border border-dashed border-border rounded-sm h-28 flex items-center justify-center text-[12px] text-muted-foreground">Drop files or click to browse</div></SimpleSection>;
+        return <DocumentsList projectId={id} />;
       default:
         return <MeasureCards measures={p.measures} onOpen={setSection} />;
     }

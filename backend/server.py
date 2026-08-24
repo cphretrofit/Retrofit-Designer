@@ -1,9 +1,16 @@
-from fastapi import FastAPI, APIRouter, HTTPException
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Header, Query, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ReturnDocument
 import os
+import io
+import uuid
+import json
+import re
+import asyncio
 import logging
+import requests
 from pathlib import Path
 from pydantic import BaseModel
 from typing import List, Optional, Any, Dict
@@ -593,8 +600,344 @@ async def update_project_field(project_id: str, payload: FieldUpdate):
 @api_router.post("/reseed")
 async def reseed():
     await db.projects.delete_many({})
+    await db.documents.delete_many({})
+    await db.import_jobs.delete_many({})
+    await db.counters.delete_many({})
     await seed()
     return {"status": "reseeded"}
+
+
+# ---------------- Object storage ----------------
+EMERGENT_LLM_KEY = os.environ.get("EMERGENT_LLM_KEY")
+STORAGE_BASE = (os.environ.get("INTEGRATION_PROXY_URL") or "").strip() or "https://integrations.emergentagent.com"
+STORAGE_URL = STORAGE_BASE.rstrip("/") + "/objstore/api/v1/storage"
+APP_NAME = "orthograph"
+_storage_key = None
+
+
+def init_storage(force: bool = False):
+    global _storage_key
+    if _storage_key and not force:
+        return _storage_key
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_LLM_KEY}, timeout=30)
+    resp.raise_for_status()
+    _storage_key = resp.json()["storage_key"]
+    return _storage_key
+
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(f"{STORAGE_URL}/objects/{path}",
+                        headers={"X-Storage-Key": key, "Content-Type": content_type},
+                        data=data, timeout=120)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(f"{STORAGE_URL}/objects/{path}", headers={"X-Storage-Key": key}, timeout=60)
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+
+def extract_pdf_text(data: bytes) -> str:
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join((p.extract_text() or "") for p in reader.pages)
+    except Exception as e:
+        logger.warning("PDF text extraction failed: %s", e)
+        return ""
+
+
+# ---------------- AI extraction (Claude Sonnet 4.6) ----------------
+EXTRACT_SYSTEM = """You are a PAS 2035:2023 retrofit design assistant for UK domestic properties.
+You are given the raw text of several retrofit documents (RdSAP assessment / site notes, scope of works, ASHP survey, job card and any datasheets).
+Extract and DRAFT a retrofit design to approximately 75% completion. Return ONLY valid JSON (no markdown, no prose).
+
+Rules:
+- Use the exact values found in the documents. Where a value is missing or you make a sensible PAS 2035 default assumption, still fill it in BUT add an entry to itemsBeforeIssue describing what must be confirmed (severity "info_required" for missing data, "warning" for an assumption, "critical" for a defect/risk).
+- measures[].code must be one of: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT.
+- Only include measures that the documents say are being installed for THIS property.
+- U-values in W/m2K as numbers. Omit (null) targetU/existingU/calculatedU for non-fabric measures (ASHP, SOLAR, VENT).
+- calculatedU is the AS-DESIGNED U-value. Set it to null unless the documents state an actual calculated/assessed as-built value that differs from the target. NEVER copy targetU into calculatedU.
+- epcBefore and epcAfter MUST be an EPC band with optional SAP score like "D (68)" or "C (72)", or "—" if unknown. Never write a sentence in these fields; put any explanation in itemsBeforeIssue instead.
+- Keep measures[].name concise (max ~22 characters).
+
+Return this exact JSON shape:
+{
+  "name": "short property name e.g. '13 South Croft'",
+  "address": "full address",
+  "town": "town/city",
+  "client": "client / housing provider",
+  "designStage": "Concept Design | Technical Design",
+  "revision": "P01",
+  "epcBefore": "e.g. 'D (68)'",
+  "epcAfter": "e.g. 'C (72)'",
+  "property": {
+    "type": "", "age": "", "floorArea": "e.g. '48.7 m2'", "storeys": 1,
+    "occupancy": "", "orientation": "",
+    "existingConstruction": {
+      "Wall Construction": "", "Existing Thickness": "", "Existing Insulation": "",
+      "Condition": "", "Roof Construction": "", "Floor Construction": "", "Proposed Measure": ""
+    }
+  },
+  "measures": [
+    {"code":"LOFT","name":"Loft Insulation","system":"...","targetU":0.16,"existingU":0.68,"calculatedU":0.15,
+     "layers":[{"material":"","thickness":"","lambda":""}],
+     "rates":[{"room":"","value":"","note":""}]}
+  ],
+  "itemsBeforeIssue": [{"text":"...","measure":"CODE or QA","severity":"info_required|warning|critical"}]
+}
+"""
+
+
+async def call_claude(prompt: str) -> dict:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage
+    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                   system_message=EXTRACT_SYSTEM).with_model("anthropic", "claude-sonnet-4-6")
+    resp = await chat.send_message(UserMessage(text=prompt))
+    text = resp if isinstance(resp, str) else str(resp)
+    t = text.strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*", "", t).strip()
+        if t.endswith("```"):
+            t = t[:-3].strip()
+    s, e = t.find("{"), t.rfind("}")
+    return json.loads(t[s:e + 1])
+
+
+PAS_MAP = {"EWI": "B2", "IWI": "B4", "SWI": "B2", "LOFT": "B9", "RIR": "B9", "UFI": "B5",
+           "WIN": "B3", "DOORS": "B3", "ASHP": "H", "SOLAR": "M", "VENT": "F1"}
+SERVICE_CODES = {"ASHP", "SOLAR", "VENT"}
+JN_BY_CODE = {
+    "EWI": EWI_JN, "IWI": WIN_JN, "SWI": EWI_JN,
+    "LOFT": ["Eaves ventilation", "Loft hatch", "Water tank"],
+    "RIR": ["Ridge", "Eaves", "Rafter junction"],
+    "UFI": ["Perimeter", "Service penetrations"],
+    "WIN": WIN_JN, "DOORS": ["Threshold", "Head", "Reveal"],
+}
+BUILD_BY_CODE = {"EWI": EWI_BUILD, "IWI": IWI_BUILD, "SWI": EWI_BUILD, "LOFT": LOFT_BUILD}
+
+
+def ai_to_measure(m: dict) -> dict:
+    code = (m.get("code") or "EWI").upper()
+    name = m.get("name") or code
+    system = m.get("system") or ""
+    pas = PAS_MAP.get(code, "")
+    if code in SERVICE_CODES:
+        comp = int(m.get("completion") or 70)
+        return mk_service(code, name, pas, system, comp, IMG["ashp"],
+                          [{"label": "System assessed against survey", "status": "pass"},
+                           {"label": "Commissioning evidence uploaded", "status": "warn"}],
+                          rates=m.get("rates") or [])
+    target = m.get("targetU")
+    existing = m.get("existingU")
+    calc = m.get("calculatedU")
+    comp = int(m.get("completion") or (75 if target else 60))
+    build = m.get("layers")
+    if build:
+        build = [{"no": f"{i+1:02d}", "material": l.get("material", ""),
+                  "thickness": str(l.get("thickness", "")), "lambda": str(l.get("lambda", "—") or "—")}
+                 for i, l in enumerate(build)]
+    else:
+        build = BUILD_BY_CODE.get(code, [])
+    jn = JN_BY_CODE.get(code, EWI_JN)
+    img = IMG["loft"] if code in ("LOFT", "RIR") else (IMG["terrace_alt"] if code in ("WIN", "DOORS") else IMG["ewi_1"])
+    return mk_fabric(code, name, pas, system, target, existing, calc, comp, img, build, jn)
+
+
+def ai_build_project(ai: dict, ref: str) -> dict:
+    measures = [ai_to_measure(m) for m in (ai.get("measures") or [])]
+    if not measures:
+        measures = [measure_for("EWI", 60)]
+    codes = {m["code"] for m in measures}
+    comps = [m["completion"] for m in measures]
+    overall = min(78, int(sum(comps) / len(comps))) if comps else 60
+
+    def has(*cs):
+        return any(c in codes for c in cs)
+    elements = [
+        {"key": "roof", "label": "Roof", "measure": "Loft / roof insulation" if has("LOFT", "RIR") else "Retain existing", "status": "designed" if has("LOFT", "RIR") else "retained"},
+        {"key": "walls", "label": "Walls", "measure": ("External wall insulation" if "EWI" in codes else "Internal wall insulation" if has("IWI", "SWI") else "Retain existing"), "status": "designed" if has("EWI", "IWI", "SWI") else "retained"},
+        {"key": "windows", "label": "Windows", "measure": "Replacement windows" if "WIN" in codes else "Retain existing", "status": "designed" if "WIN" in codes else "retained"},
+        {"key": "doors", "label": "Doors", "measure": "Replacement doors" if has("DOORS", "WIN") else "Retain existing", "status": "designed" if has("DOORS", "WIN") else "retained"},
+        {"key": "floor", "label": "Floor", "measure": "Underfloor insulation" if "UFI" in codes else "Retain existing", "status": "designed" if "UFI" in codes else "retained"},
+        {"key": "ventilation", "label": "Ventilation", "measure": "Ventilation upgrade" if "VENT" in codes else "Retain existing", "status": "designed" if "VENT" in codes else "retained"},
+        {"key": "heating", "label": "Heating", "measure": "Air source heat pump" if "ASHP" in codes else "Retain existing", "status": "designed" if "ASHP" in codes else "retained"},
+        {"key": "renewables", "label": "Renewables", "measure": "Solar PV" if "SOLAR" in codes else "Not in scope", "status": "designed" if "SOLAR" in codes else "not_started"},
+    ]
+    breakdown = [
+        {"label": "Property Data", "value": _clamp(overall + 15)},
+        {"label": "Measures", "value": _clamp(overall + 12)},
+        {"label": "Specifications", "value": _clamp(overall)},
+        {"label": "Calculations", "value": _clamp(overall + 5)},
+        {"label": "Junctions", "value": _clamp(overall - 12)},
+        {"label": "Evidence", "value": _clamp(overall - 8)},
+        {"label": "QA", "value": _clamp(overall - 15)},
+    ]
+    items = ai.get("itemsBeforeIssue") or []
+    for m in measures:
+        for o in m.get("outstanding", [])[:1]:
+            items.append({"text": f"{o} — {m['name']}", "measure": m["code"], "severity": "warning"})
+    if not items:
+        items = [{"text": "Final QA sign-off by coordinator", "measure": "QA", "severity": "info_required"}]
+
+    ewi = next((m for m in measures if m["code"] in ("EWI", "IWI", "SWI")), None)
+    drawings = [{"ref": j["detail"], "title": f"{ewi['code']} — {j['name']}", "scale": "1:5",
+                 "revision": "P02" if j["status"] == "pass" else "P01"} for j in (ewi["junctions"][:5] if ewi else [])]
+
+    prop_in = ai.get("property") or {}
+    ec = prop_in.get("existingConstruction") or {}
+    return {
+        "id": str(uuid.uuid4()), "ref": ref,
+        "name": ai.get("name") or "New Project", "address": ai.get("address") or "",
+        "town": ai.get("town") or "", "client": ai.get("client") or "",
+        "designStage": ai.get("designStage") or "Concept Design", "revision": ai.get("revision") or "P01",
+        "status": "in_progress", "completion": overall, "actionsRequired": len(items),
+        "designTime": 18, "assessor": "AI Draft", "coordinator": "—", "designer": "AI Draft",
+        "measureSummary": " + ".join(m["name"].split()[0] for m in measures) or "Retrofit",
+        "epcBefore": ai.get("epcBefore") or "—", "epcAfter": ai.get("epcAfter") or "—",
+        "updatedAt": datetime.now(timezone.utc).isoformat(), "heroImage": IMG["colourful_terrace"],
+        "source": "ai_import",
+        "property": {
+            "type": prop_in.get("type") or "—", "age": prop_in.get("age") or "—",
+            "floorArea": prop_in.get("floorArea") or "—", "storeys": prop_in.get("storeys") or 1,
+            "occupancy": prop_in.get("occupancy") or "—", "orientation": prop_in.get("orientation") or "—",
+            "existingConstruction": {
+                "Wall Construction": ec.get("Wall Construction") or "—",
+                "Existing Thickness": ec.get("Existing Thickness") or "—",
+                "Existing Insulation": ec.get("Existing Insulation") or "—",
+                "Condition": ec.get("Condition") or "—",
+                "Roof Construction": ec.get("Roof Construction") or "—",
+                "Floor Construction": ec.get("Floor Construction") or "—",
+                "Proposed Measure": ec.get("Proposed Measure") or ai.get("measureSummary") or "—",
+            },
+            "elements": elements,
+        },
+        "readiness": {"overall": overall, "breakdown": breakdown},
+        "itemsBeforeIssue": items, "measures": measures,
+        "designPack": {"photos": [], "drawings": drawings},
+    }
+
+
+async def next_ref():
+    doc = await db.counters.find_one_and_update(
+        {"_id": "project_ref"}, {"$inc": {"seq": 1}},
+        upsert=True, return_document=ReturnDocument.AFTER,
+    )
+    return f"RTF-2026-{159 + doc['seq']:04d}"
+
+
+TEXT_LIMIT = {"ASHP Survey": 8000, "Datasheet": 4000}
+
+
+async def process_import_job(job_id: str, prompt: str, doc_ids: list):
+    try:
+        ai = await call_claude(prompt)
+        ref = await next_ref()
+        project = ai_build_project(ai, ref)
+        doc = dict(project)
+        doc["_id"] = project["id"]
+        await db.projects.insert_one(doc)
+        await db.documents.update_many({"id": {"$in": doc_ids}}, {"$set": {"project_id": project["id"]}})
+        await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "project_id": project["id"]}})
+    except Exception as e:
+        logger.exception("AI import job failed")
+        await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)}})
+
+
+@api_router.post("/projects/import")
+async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...)):
+    if not EMERGENT_LLM_KEY:
+        raise HTTPException(status_code=500, detail="AI key not configured")
+    doc_ids = []
+    parts = []
+    for f, dtype in zip(files, types):
+        data = await f.read()
+        ext = f.filename.rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else "bin"
+        path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
+        stored = None
+        try:
+            stored = (await asyncio.to_thread(put_object, path, data, f.content_type or "application/pdf"))["path"]
+        except Exception as e:
+            logger.warning("storage put failed: %s", e)
+        rec = {
+            "id": str(uuid.uuid4()), "project_id": None, "storage_path": stored,
+            "original_filename": f.filename, "content_type": f.content_type or "application/pdf",
+            "doc_type": dtype, "size": len(data), "is_deleted": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.documents.insert_one(dict(rec))
+        doc_ids.append(rec["id"])
+        text = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+        limit = TEXT_LIMIT.get(dtype, 12000)
+        if text.strip():
+            parts.append(f"=== DOCUMENT: {dtype} ({f.filename}) ===\n{text[:limit]}")
+        else:
+            parts.append(f"=== DOCUMENT: {dtype} ({f.filename}) === [no extractable text — image-only PDF]")
+
+    prompt = "Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts)
+    job_id = str(uuid.uuid4())
+    await db.import_jobs.insert_one({
+        "id": job_id, "status": "processing", "project_id": None,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    asyncio.create_task(process_import_job(job_id, prompt, doc_ids))
+    return {"job_id": job_id, "status": "processing"}
+
+
+@api_router.get("/import-jobs/{job_id}")
+async def import_job_status(job_id: str):
+    job = await db.import_jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@api_router.post("/projects/{project_id}/documents")
+async def add_documents(project_id: str, files: List[UploadFile] = File(...), types: List[str] = Form(...)):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    out = []
+    for f, dtype in zip(files, types):
+        data = await f.read()
+        ext = f.filename.rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else "bin"
+        path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
+        stored = None
+        try:
+            stored = (await asyncio.to_thread(put_object, path, data, f.content_type or "application/octet-stream"))["path"]
+        except Exception as e:
+            logger.warning("storage put failed: %s", e)
+        rec = {"id": str(uuid.uuid4()), "project_id": project_id, "storage_path": stored,
+               "original_filename": f.filename, "content_type": f.content_type or "application/octet-stream",
+               "doc_type": dtype, "size": len(data), "is_deleted": False,
+               "created_at": datetime.now(timezone.utc).isoformat()}
+        await db.documents.insert_one(dict(rec))
+        rec.pop("_id", None)
+        out.append(rec)
+    return {"added": out}
+
+
+@api_router.get("/projects/{project_id}/documents")
+async def list_documents(project_id: str):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": False}, {"_id": 0}).to_list(1000)
+    return sorted(docs, key=lambda d: d.get("created_at", ""))
+
+
+@api_router.get("/documents/{doc_id}/download")
+async def download_document(doc_id: str):
+    rec = await db.documents.find_one({"id": doc_id, "is_deleted": False})
+    if not rec or not rec.get("storage_path"):
+        raise HTTPException(status_code=404, detail="Document not found")
+    data, ctype = get_object(rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type", ctype),
+                    headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename","file")}"'})
 
 
 app.include_router(api_router)
@@ -611,6 +954,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await seed()
+    try:
+        init_storage()
+        logger.info("Storage initialized")
+    except Exception as e:
+        logger.error("Storage init failed: %s", e)
 
 
 @app.on_event("shutdown")

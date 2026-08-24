@@ -7,6 +7,7 @@ import Dashboard from "@/pages/Dashboard";
 import ProjectOverview from "@/pages/ProjectOverview";
 import DesignWorkspace from "@/pages/DesignWorkspace";
 import DesignPack from "@/pages/DesignPack";
+import ImportProject from "@/pages/ImportProject";
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
         <Toaster position="bottom-right" />
         <Routes>
           <Route path="/" element={<Dashboard />} />
+          <Route path="/import" element={<ImportProject />} />
           <Route path="/project/:id" element={<ProjectOverview />} />
           <Route path="/project/:id/design" element={<DesignWorkspace />} />
           <Route path="/project/:id/design/:section" element={<DesignWorkspace />} />

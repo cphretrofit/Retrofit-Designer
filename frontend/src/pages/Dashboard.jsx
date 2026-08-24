@@ -39,7 +39,7 @@ export default function Dashboard() {
             <h1 className="font-display font-300 text-3xl tracking-tight">Design Command Centre</h1>
           </div>
           <button
-            onClick={() => navigate("/project/RTF-2026-0142")}
+            onClick={() => navigate("/import")}
             className="flex items-center gap-2 h-9 px-4 bg-primary text-primary-foreground rounded-sm text-[13px] font-medium hover:opacity-90 transition-opacity"
             data-testid="new-project-button"
           >
