@@ -1,0 +1,7 @@
+.App { min-height: 100vh; }
+
+@media print {
+  header { display: none !important; }
+  body { background: #fff !important; }
+  .no-print { display: none !important; }
+}

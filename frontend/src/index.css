@@ -1,0 +1,150 @@
+@import url('https://fonts.googleapis.com/css2?family=Chivo:wght@300;400;500;700;800;900&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 0 0% 100%;
+        --foreground: 240 10% 4%;
+        --card: 0 0% 100%;
+        --card-foreground: 240 10% 4%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 240 10% 4%;
+        --primary: 222 100% 50%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 240 5% 96%;
+        --secondary-foreground: 240 6% 10%;
+        --muted: 240 5% 96%;
+        --muted-foreground: 240 4% 42%;
+        --accent: 240 5% 96%;
+        --accent-foreground: 240 6% 10%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 240 6% 90%;
+        --input: 240 6% 90%;
+        --ring: 222 100% 50%;
+        --radius: 0.25rem;
+
+        --surface: 240 5% 96%;
+        --surface-2: 240 5% 98%;
+
+        --c-action: #0055FF;
+        --c-selected: #E0E7FF;
+        --c-selected-fg: #1E3A8A;
+        --c-pass: #16A34A;
+        --c-pass-bg: #ECFDF3;
+        --c-warning: #B45309;
+        --c-warning-bg: #FEF6E7;
+        --c-critical: #DC2626;
+        --c-critical-bg: #FEECEC;
+        --c-info: #0891B2;
+        --c-info-bg: #ECFBFE;
+        --c-approved: #059669;
+        --c-approved-bg: #ECFDF3;
+        --c-draft: #71717A;
+        --c-draft-bg: #F4F4F5;
+        --grid-line: rgba(9, 9, 11, 0.04);
+    }
+
+    .dark {
+        --background: 240 10% 4%;
+        --foreground: 0 0% 98%;
+        --card: 240 8% 7%;
+        --card-foreground: 0 0% 98%;
+        --popover: 240 8% 8%;
+        --popover-foreground: 0 0% 98%;
+        --primary: 217 91% 60%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 240 6% 12%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 240 6% 12%;
+        --muted-foreground: 240 5% 65%;
+        --accent: 240 6% 14%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 6% 16%;
+        --input: 240 6% 16%;
+        --ring: 217 91% 60%;
+
+        --surface: 240 8% 9%;
+        --surface-2: 240 8% 7%;
+
+        --c-action: #3B82F6;
+        --c-selected: #1E3A8A;
+        --c-selected-fg: #BFDBFE;
+        --c-pass: #22C55E;
+        --c-pass-bg: #0C2417;
+        --c-warning: #FBBF24;
+        --c-warning-bg: #2A2008;
+        --c-critical: #EF4444;
+        --c-critical-bg: #2A0F0F;
+        --c-info: #22D3EE;
+        --c-info-bg: #06232A;
+        --c-approved: #10B981;
+        --c-approved-bg: #0C2417;
+        --c-draft: #A1A1AA;
+        --c-draft-bg: #1A1A1E;
+        --grid-line: rgba(255, 255, 255, 0.035);
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+    body {
+        @apply bg-background text-foreground;
+        font-family: 'Inter', -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    }
+    h1, h2, h3, h4, h5 {
+        font-family: 'Chivo', -apple-system, sans-serif;
+    }
+    ::selection {
+        background: var(--c-action);
+        color: #fff;
+    }
+}
+
+@layer utilities {
+    .font-display { font-family: 'Chivo', sans-serif; }
+    .font-mono-tech { font-family: 'JetBrains Mono', monospace; font-feature-settings: "tnum"; }
+    .tnum { font-variant-numeric: tabular-nums; }
+
+    .grid-bg {
+        background-image:
+            linear-gradient(var(--grid-line) 1px, transparent 1px),
+            linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+        background-size: 28px 28px;
+    }
+    .dot-bg {
+        background-image: radial-gradient(var(--grid-line) 1px, transparent 1px);
+        background-size: 22px 22px;
+    }
+
+    .anim-in {
+        animation: animIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+    }
+    @keyframes animIn {
+        from { opacity: 0; transform: translateY(6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    .anim-panel {
+        animation: panelIn 0.22s ease-out both;
+    }
+    @keyframes panelIn {
+        from { opacity: 0; transform: translateX(8px); }
+        to { opacity: 1; transform: translateX(0); }
+    }
+
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+    .thin-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 4px; }
+    .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+}

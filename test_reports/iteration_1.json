@@ -1,0 +1,43 @@
+{
+  "summary": "Tested backend (12 pytest cases across /api/, /api/dashboard, /api/projects, /api/projects/{id}, PATCH field) and all 5 flagship frontend screens end-to-end via Playwright on the public URL. Hero project RTF-2026-0142 flows all work: dashboard KPIs (42/8/3/47min), 8 project rows, project overview (readiness ring 82%, property diagram + element detail, readiness breakdown, 3 items before issue, existing construction), design workspace (left nav, 3 measure cards, EWI detail with 5-row wall build-up, calculated U 0.28 with PASS, junction manager 4/6 resolved), junction resolve -> status update + 'Window Reveal detail resolved' toast persisted via PATCH, focus mode hides nav, theme toggle sets html.dark, command palette via button and Ctrl+K navigating to selected project, and multi-page typeset Design Pack. One CRITICAL crash found: 6 of the 8 seeded projects have no property/measures/readiness/designPack data, so ProjectOverview, DesignWorkspace and DesignPack all white-screen for them.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PATCH /api/projects/{id}/field", "issue": "Empty path ({\"path\": \"\", \"value\": \"x\"}) returns 500 Internal Server Error instead of 400/422. No validation on `path` (min_length / allowed-prefix). Arbitrary dotted paths can also overwrite any field incl. id/ref — no allow-list."},
+      {"endpoint": "GET /api/dashboard", "issue": "Stats are partially hardcoded (activeProjects=42, avgDesignTime=47, max(...,8)/max(...,3)) rather than derived from data — acceptable for demo but will not reflect real data changes."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProjectOverview / DesignWorkspace / DesignPack", "issue": "White screen crash for the 6 'light' seeded projects (RTF-2026-0151, 0149, 0147, 0144, 0140, 0136). PageError: \"Cannot read properties of undefined (reading 'elements')\" at ProjectOverview (p.property.elements) and \"...reading 'map'\" on the pack route. 6 of 8 dashboard rows are therefore dead ends. Fix: seed property/measures/readiness/itemsBeforeIssue/designPack for all projects, or add optional-chaining + graceful empty state.", "selector": "[data-testid=\"project-row-RTF-2026-0151\"]", "priority": "CRITICAL"},
+      {"component": "Dashboard KPI cards", "issue": "KPI tiles have no data-testid, so stat values cannot be asserted robustly (had to fall back to text scraping).", "selector": "n/a", "priority": "LOW"},
+      {"component": "CommandPalette", "issue": "Radix console error on every open: 'DialogContent requires a DialogTitle for the component to be accessible' — add a VisuallyHidden DialogTitle.", "selector": "[data-testid=\"open-command-palette\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Design Pack cover page", "issues": ["Large empty vertical gap (~450px) between the title block and the cover photograph; cover page feels unbalanced at 1920x1080."]},
+      {"screen": "Design Pack for RTF-2026-0138", "issues": ["designPack.photos and drawings are empty arrays in seed data, so photo schedule / drawing register sections render empty for this project."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "CRITICAL: prevent white-screen for the 6 light projects — seed full property/measures/readiness/designPack or guard with optional chaining + empty state on ProjectOverview, DesignWorkspace, DesignPack.",
+    "Validate `path` in PATCH /api/projects/{id}/field (reject empty/unknown paths with 400/422; restrict to an allow-list) instead of 500.",
+    "Add data-testid to Dashboard KPI values (e.g. kpi-active-projects).",
+    "Add VisuallyHidden DialogTitle to the command palette dialog.",
+    "Tighten Design Pack cover page vertical rhythm; populate designPack for non-hero projects."
+  ],
+  "critical_code_review_comments": [
+    "ProjectOverview.jsx L31 dereferences p.property.elements with no guard — any project document lacking `property` crashes the route (real for 6 of 8 seeded docs).",
+    "server.py PATCH endpoint passes user-supplied `path` straight into a Mongo $set — unvalidated field-path injection and 500 on empty string.",
+    "DesignWorkspace.jsx is 599 lines; consider splitting the measure detail / junction manager into separate components."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "92% (11/12)", "frontend": "85% (hero flows 100%, non-hero project routes crash)"},
+  "seed_data_creation": "None created; used auto-seeded projects. PATCH tests restored original values (designStage, measures.0.junctions.2.status back to 'warn').",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "N/A — no auth in app; /app/memory/test_credentials.md not required",
+  "context_for_next_testing_agent": "Backend regression suite at /app/backend/tests/backend_test.py (run: pytest /app/backend/tests/backend_test.py). All hero-project (RTF-2026-0142) UI flows verified working including junction resolve persistence, focus mode, theme, command palette, design pack. Retest the 6 light projects (RTF-2026-0151/0149/0147/0144/0140/0136) on /project/{id}, /project/{id}/design/overview and /project/{id}/pack after the fix, plus the empty-path PATCH validation test.",
+  "rca_of_the_issue": "LIGHT_PROJECTS in server.py are seeded with only summary fields (no property/measures/readiness/itemsBeforeIssue/designPack). GET /api/projects/{id} returns those partial docs, and ProjectOverview/DesignWorkspace/DesignPack assume the hero-shaped schema, so React throws TypeError during render and the whole route white-screens. Reproduce: open '/' and click any project row other than 12 Oak Street or 1 Marion Roberts Court."
+}

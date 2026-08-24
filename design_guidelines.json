@@ -1,0 +1,106 @@
+{
+  "theme": "Professional Light Mode AND Technical Dark Mode (Architectural / Engineered, Precise, Minimal)",
+  "typography": {
+    "primary_font": "Inter",
+    "heading_font": "Chivo",
+    "monospace_font": "JetBrains Mono",
+    "scale": {
+      "h1": "text-4xl tracking-tight font-light",
+      "h2": "text-2xl tracking-tight font-medium",
+      "h3": "text-xl font-medium",
+      "h4": "text-xs tracking-[0.2em] uppercase font-semibold",
+      "body": "text-sm text-muted-foreground",
+      "technical_values": "font-mono text-sm tabular-nums"
+    },
+    "font_imports": "@import url('https://fonts.googleapis.com/css2?family=Chivo:wght@300;400;500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');"
+  },
+  "colors": {
+    "light": {
+      "background": "#FFFFFF",
+      "surface": "#F4F4F5",
+      "border": "#E4E4E7",
+      "text_primary": "#09090B",
+      "text_secondary": "#52525B",
+      "accents": {
+        "primary_action": "#0055FF",
+        "selected": "#E0E7FF",
+        "pass": "#16A34A",
+        "warning": "#F59E0B",
+        "critical": "#DC2626",
+        "info_required": "#06B6D4",
+        "approved": "#059669",
+        "draft": "#71717A"
+      }
+    },
+    "dark": {
+      "background": "#0A0A0A",
+      "surface": "#18181B",
+      "border": "#27272A",
+      "text_primary": "#FAFAFA",
+      "text_secondary": "#A1A1AA",
+      "accents": {
+        "primary_action": "#3B82F6",
+        "selected": "#1E3A8A",
+        "pass": "#22C55E",
+        "warning": "#FBBF24",
+        "critical": "#EF4444",
+        "info_required": "#22D3EE",
+        "approved": "#10B981",
+        "draft": "#A1A1AA"
+      }
+    }
+  },
+  "visual_enhancers": {
+    "borders_dividers": "Hairline 1px borders (border-border), no rounded-xl/2xl. Max border-radius of 4px (rounded-sm) for a sharp, technical look.",
+    "shadows": "Minimal. Use 1px borders instead of box-shadows. Elevated states (like dropdowns) use subtle shadow-sm.",
+    "micro_interactions": "150-250ms smooth transitions (transition-all duration-200 ease-out). No flashy bounce animations.",
+    "spacing": "Dense technical grids, 4px/8px baseline (gap-2, gap-4). Efficient use of space for tables and property values.",
+    "icons": "lucide-react, 16px to 20px sizes, stroke-width 1.5 for a fine, drafted look."
+  },
+  "layouts": {
+    "dashboard": "Modular, F-pattern. Top KPIs, high-density tables for recent projects. Command palette on CMD/CTRL+K.",
+    "workspace": "3-column layout: Left navigation (Project/Measure/Design/QA), Center dense workspace (label-value pairs, tables), Right context/Intelligence panel (Checks, scores, status).",
+    "measure_design": "Compact technical tables (Layer, Material, Thickness, U-value). Big readout for calculated vs target U-values.",
+    "document_preview": "Professionally typeset, architectural document vibe. Elegant numbering, technical drawing aesthetics."
+  },
+  "components": {
+    "technical_tables": "Compact, border-collapse, font-mono for values, right-aligned numbers.",
+    "status_chips": "Small, uppercase, font-medium, padding x-2 y-0.5, specific semantic background colors with high contrast text.",
+    "field_value_pairs": "Flex row, label on left (text-muted-foreground), value on right (font-medium or font-mono).",
+    "readiness_meters": "Slim progress bars (h-1), color-coded by completeness and QA pass/fail.",
+    "command_palette": "CMD/CTRL+K shortcut, floating modal, blur backdrop, fast keyboard navigation."
+  },
+  "image_urls": {
+    "blueprint_graphics": {
+      "url": "https://images.unsplash.com/photo-1721244654346-9be0c0129e36?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHw0fHxtaW5pbWFsaXN0JTIwYXJjaGl0ZWN0dXJhbCUyMGJsdWVwcmludCUyMGdyYXBoaWN8ZW58MHx8fHwxNzg3NTgyMzY4fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Architectural blueprint of a building plan"
+    },
+    "insulation_photo": {
+      "url": "https://images.pexels.com/photos/36574965/pexels-photo-36574965.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Building under construction with blue insulating wrap"
+    },
+    "architecture_rendering": {
+      "url": "https://images.unsplash.com/photo-1483366774565-c783b9f70e2c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDJ8MHwxfHNlYXJjaHwxfHxhcmNoaXRlY3R1cmFsJTIwYnVpbGRpbmclMjByZW5kZXJpbmd8ZW58MHx8fHwxNzg3NTgyMzY3fDA&ixlib=rb-4.1.0&q=85",
+      "description": "Concrete building worm's-eye view photography"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Prioritize technical accuracy and tabular presentation.",
+    "Avoid oversized padding. Use dense padding (p-2, p-3) for structural elements.",
+    "Use JetBrains Mono or a similar monospace font for all U-values, thicknesses, and technical specs.",
+    "Implement the 3-column layout strictly for the main workspace.",
+    "Use semantic colors exactly as specified for status markers (Pass, Warn, Critical, Draft).",
+    "Ensure dark mode is intentionally designed with #0A0A0A backgrounds and distinct borders, not just a color inversion.",
+    "Implement a command palette triggered by CMD/K.",
+    "Use HTML/Tailwind for layouts, and heavily customized Shadcn components for interactive bits.",
+    "Add data-testid attributes to all interactive and key informational elements."
+  ],
+  "UNIVERSAL GUIDELINES FOR MAIN AGENT": [
+    "Do not use random gradients or excessive rounded corners.",
+    "Avoid 'AI startup' clichés; this is a serious engineering tool.",
+    "Maintain high contrast for readability.",
+    "Use clear visual hierarchy: Project > Section > Subsection > Component > Field > Supporting Info.",
+    "Every interaction needs subtle micro-animations (150-250ms).",
+    "Do not use complete transparent backgrounds for overlays."
+  ]
+}
