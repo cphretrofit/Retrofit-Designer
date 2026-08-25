@@ -547,6 +547,13 @@ class FieldUpdate(BaseModel):
     value: Any
 
 
+PARTNERS = ["Aran Group", "Sustainable Building Services", "Everwarm", "Westville Insulation", "E.ON Solutions", "Bell Group"]
+
+
+def _partner_for(ref: str) -> str:
+    return PARTNERS[sum(ord(c) for c in (ref or "x")) % len(PARTNERS)]
+
+
 @api_router.get("/")
 async def root():
     return {"service": "Retrofit Design Platform", "status": "ok"}
@@ -560,6 +567,7 @@ async def dashboard():
         p.pop("measures", None)
         p.pop("designPack", None)
         p.pop("readiness", None)
+        p["partner"] = _partner_for(p.get("ref"))
     ready_qa = sum(1 for p in projects if p.get("status") == "ready_for_qa")
     attention = sum(1 for p in projects if p.get("status") == "require_attention")
     return {
@@ -576,6 +584,8 @@ async def dashboard():
 @api_router.get("/projects")
 async def list_projects():
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
+    for p in projects:
+        p["partner"] = _partner_for(p.get("ref"))
     return sorted(projects, key=lambda x: x.get("updatedAt", ""), reverse=True)
 
 
@@ -587,7 +597,10 @@ async def get_project(project_id: str):
     return doc
 
 
-ALLOWED_PATCH_PREFIXES = ("designStage", "revision", "status", "measures.", "readiness.", "itemsBeforeIssue")
+ALLOWED_PATCH_PREFIXES = ("designStage", "revision", "status", "name", "client", "assessor",
+                          "coordinator", "designer", "town", "address", "measureSummary",
+                          "epcBefore", "epcAfter", "property.", "measures.", "readiness.",
+                          "heatLoss.", "itemsBeforeIssue")
 
 
 @api_router.patch("/projects/{project_id}/field")
@@ -1179,6 +1192,39 @@ async def extract_photos_endpoint(project_id: str, file: Optional[UploadFile] = 
     return {"added": len(photos), "photos": photos}
 
 
+class PhotosUpdate(BaseModel):
+    photos: list = []
+
+
+@api_router.post("/projects/{project_id}/items/confirm-all")
+async def confirm_all_items(project_id: str, payload: Optional[ItemConfirm] = None):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    items = proj.get("itemsBeforeIssue") or []
+    confirmed = True if payload is None else payload.confirmed
+    who = (proj.get("coordinator") or "").strip() or "Retrofit Coordinator"
+    now = datetime.now(timezone.utc).isoformat()
+    for it in items:
+        if confirmed:
+            it["confirmedBy"] = who
+            it["confirmedAt"] = now
+        else:
+            it.pop("confirmedBy", None)
+            it.pop("confirmedAt", None)
+    await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
+    return {"itemsBeforeIssue": items}
+
+
+@api_router.put("/projects/{project_id}/photos")
+async def update_photos(project_id: str, payload: PhotosUpdate):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"designPack.photos": payload.photos}})
+    return {"photos": payload.photos}
+
+
 @api_router.get("/projects/{project_id}/documents")
 async def list_documents(project_id: str):
     proj = await db.projects.find_one({"id": project_id})
@@ -1693,7 +1739,8 @@ async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    photos = (p.get("designPack") or {}).get("photos") or []
+    photos = [ph for ph in ((p.get("designPack") or {}).get("photos") or []) if ph.get("included", True)]
+    photos.sort(key=lambda ph: ph.get("order", 1e9))
     photo_uris = []
     for ph in photos[:24]:
         u = ph.get("url") or ""

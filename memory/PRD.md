@@ -69,6 +69,12 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Change my password**: added `/account/password` screen (current/new/confirm) reachable from the user menu, wired to `POST /api/auth/change-password`. Verified: wrong-current→400, success→200, old password stops working, new works.
 - **Property search** on the Design Command Centre: a search box in the Recent Projects panel filters across ALL projects by name, ref, town, address, measure and status, with a live count and empty state. Verified: "ashp"→3, "norwich"→1, no-match empty state.
 
+### Phase 13 — Dashboard filters, editable fields, photo curation, confirm-all (2026-06-25)
+- **Dashboard**: status quick-filter chips (Requires Attention / Ready for QA / In Progress / Approved) + delivery-partner dropdown (partner derived deterministically per ref, shown in each row), combined with search (AND) + Clear.
+- **Editable fields**: `Field` component now inline-editable (pencil → input → save) wired to `PATCH /projects/{id}/field`; ALLOWED_PATCH_PREFIXES widened (property.*, personnel, epc, measureSummary, heatLoss.). Applied to Survey + Existing Construction.
+- **Photo curation**: workspace Photos section lets designers Include/Exclude and reorder survey photos (`PUT /projects/{id}/photos`); the PDF filters `included!=False` and sorts by `order`.
+- **Confirm-all**: `POST /projects/{id}/items/confirm-all` confirms the whole pre-issue register at once (button on Project Overview, shown when unconfirmed items exist). All verified (curl + browser).
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

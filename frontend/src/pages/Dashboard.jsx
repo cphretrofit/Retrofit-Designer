@@ -24,6 +24,8 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [allProjects, setAllProjects] = useState([]);
   const [q, setQ] = useState("");
+  const [sf, setSf] = useState(null);
+  const [pf, setPf] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => { getDashboard().then(setData).catch(() => {}); }, []);
@@ -32,12 +34,16 @@ export default function Dashboard() {
   const stats = data?.stats;
   const projects = data?.projects || [];
   const ql = q.trim().toLowerCase();
-  const list = ql
-    ? allProjects.filter((p) =>
-        [p.name, p.ref, p.town, p.address, p.measureSummary, p.status]
-          .filter(Boolean)
-          .some((s) => String(s).toLowerCase().includes(ql)))
-    : projects;
+  const partners = [...new Set(allProjects.map((p) => p.partner).filter(Boolean))].sort();
+  const filtersOn = ql || sf || pf;
+  const base = filtersOn ? allProjects : projects;
+  const list = base.filter((p) => {
+    const okQ = !ql || [p.name, p.ref, p.town, p.address, p.measureSummary, p.status]
+      .filter(Boolean).some((s) => String(s).toLowerCase().includes(ql));
+    const okS = !sf || p.status === sf;
+    const okP = !pf || p.partner === pf;
+    return okQ && okS && okP;
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -90,6 +96,18 @@ export default function Dashboard() {
             </div>
             <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap" data-testid="project-count">{list.length} {ql ? "found" : "shown"}</span>
           </div>
+          <div className="flex items-center gap-2 px-5 py-2.5 border-b border-border flex-wrap" data-testid="dashboard-filters">
+            {[["require_attention", "Requires Attention"], ["ready_for_qa", "Ready for QA"], ["in_progress", "In Progress"], ["approved", "Approved"]].map(([v, l]) => (
+              <button key={v} onClick={() => setSf(sf === v ? null : v)} data-testid={`filter-status-${v}`}
+                className={cn("text-[11px] px-2.5 h-7 rounded-sm border transition-colors", sf === v ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary")}>{l}</button>
+            ))}
+            <select value={pf || ""} onChange={(e) => setPf(e.target.value || null)} data-testid="filter-partner"
+              className="ml-auto h-7 px-2 bg-background border border-border rounded-sm text-[11.5px] text-muted-foreground outline-none">
+              <option value="">All partners</option>
+              {partners.map((pn) => <option key={pn} value={pn}>{pn}</option>)}
+            </select>
+            {(sf || pf) && <button onClick={() => { setSf(null); setPf(null); }} data-testid="filter-clear" className="text-[11px] text-muted-foreground hover:text-foreground">Clear</button>}
+          </div>
           <div className="grid grid-cols-[1.6fr_1fr_1.1fr_0.9fr_auto] px-5 h-9 items-center text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground border-b border-border">
             <span>Property</span>
             <span className="hidden md:block">Measures</span>
@@ -114,7 +132,7 @@ export default function Dashboard() {
                     </span>
                   )}
                 </div>
-                <div className="text-[11.5px] text-muted-foreground font-mono mt-0.5">{p.ref} · {p.town}</div>
+                <div className="text-[11.5px] text-muted-foreground font-mono mt-0.5">{p.ref} · {p.town}{p.partner ? ` · ${p.partner}` : ""}</div>
               </div>
               <div className="hidden md:block text-[12px] text-muted-foreground truncate pr-4">{p.measureSummary}</div>
               <div className="pr-6">

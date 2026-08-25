@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, confirmItem, API } from "@/lib/api";
+import { getProject, confirmItem, confirmAllItems, API } from "@/lib/api";
 import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
@@ -189,8 +189,15 @@ export default function ProjectOverview() {
                 ))}
               </div>
               <div className="mt-6 pt-5 border-t border-border">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-3">
-                  {p.itemsBeforeIssue.length} Items Before Issue
+                <div className="flex items-center justify-between mb-3">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{p.itemsBeforeIssue.length} Items Before Issue</div>
+                  {p.itemsBeforeIssue.some((it) => !it.confirmedBy) && (
+                    <button data-testid="confirm-all-btn"
+                      onClick={async () => { try { const d = await confirmAllItems(id); setP((prev) => ({ ...prev, itemsBeforeIssue: d.itemsBeforeIssue })); toast.success("All items confirmed"); } catch { toast.error("Could not confirm all"); } }}
+                      className="flex items-center gap-1.5 text-[11px] px-2.5 h-7 border border-border rounded-sm hover:bg-secondary transition-colors">
+                      <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Confirm all
+                    </button>
+                  )}
                 </div>
                 <ol className="space-y-2.5">
                   {p.itemsBeforeIssue.map((it, i) => {

@@ -1,4 +1,6 @@
 import { cn } from "@/lib/utils";
+import { useState } from "react";
+import { Pencil, Check, X } from "lucide-react";
 
 export const TONE = {
   pass: { bg: "var(--c-pass-bg)", fg: "var(--c-pass)" },
@@ -48,11 +50,34 @@ export function StatusChip({ status, tone, children, className }) {
   );
 }
 
-export function Field({ label, value, mono = true, className }) {
+export function Field({ label, value, mono = true, className, path, onSave }) {
+  const editable = !!(path && onSave);
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value ?? "");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try { await onSave(path, val); setEditing(false); } finally { setBusy(false); }
+  };
   return (
-    <div className={cn("flex items-baseline justify-between gap-4 py-2 border-b border-border/70", className)}>
+    <div className={cn("flex items-baseline justify-between gap-4 py-2 border-b border-border/70 group", className)}>
       <span className="text-[12px] text-muted-foreground uppercase tracking-[0.08em]">{label}</span>
-      <span className={cn("text-sm text-foreground text-right", mono && "font-mono-tech")}>{value}</span>
+      {editing ? (
+        <span className="flex items-center gap-1.5">
+          <input value={val} onChange={(e) => setVal(e.target.value)} data-testid={`edit-input-${path}`} autoFocus
+            className="h-7 px-2 bg-background border border-border rounded-sm text-sm text-right w-44 outline-none focus:border-foreground/40" />
+          <button onClick={save} disabled={busy} data-testid={`edit-save-${path}`} style={{ color: "var(--c-pass)" }}><Check className="h-3.5 w-3.5" /></button>
+          <button onClick={() => { setEditing(false); setVal(value ?? ""); }} className="text-muted-foreground"><X className="h-3.5 w-3.5" /></button>
+        </span>
+      ) : (
+        <span className="flex items-center gap-2">
+          <span className={cn("text-sm text-foreground text-right", mono && "font-mono-tech")}>{value}</span>
+          {editable && (
+            <button onClick={() => { setVal(value ?? ""); setEditing(true); }} data-testid={`edit-${path}`}
+              className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity"><Pencil className="h-3 w-3" /></button>
+          )}
+        </span>
+      )}
     </div>
   );
 }

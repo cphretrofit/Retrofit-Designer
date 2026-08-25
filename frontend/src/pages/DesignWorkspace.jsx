@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject } from "@/lib/api";
-import { mediaUrl } from "@/lib/api";
+import { getProject, updateField, updatePhotos, mediaUrl } from "@/lib/api";
+import { ChevronUp, ChevronDown } from "lucide-react";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
 import { toast } from "sonner";
@@ -399,6 +399,23 @@ export default function DesignWorkspace() {
     toast.success(`${name} detail resolved`, { description: "Design check updated." });
   };
 
+  const saveField = async (path, value) => {
+    await updateField(id, { path, value });
+    setP((prev) => {
+      const n = structuredClone(prev);
+      const parts = path.split(".");
+      let o = n;
+      for (let k = 0; k < parts.length - 1; k++) o = o[parts[k]];
+      o[parts[parts.length - 1]] = value;
+      return n;
+    });
+    toast.success("Saved", { description: "Design value updated." });
+  };
+  const savePhotos = async (next) => {
+    setP((prev) => { const n = structuredClone(prev); n.designPack.photos = next; return n; });
+    try { await updatePhotos(id, next); } catch { toast.error("Could not save photos"); }
+  };
+
   const ewi = p.measures.find((m) => m.code === "EWI");
   const renderCenter = () => {
     if (activeMeasure) return <MeasureDetail m={activeMeasure} onJunctionSave={onJunctionSave} />;
@@ -408,19 +425,19 @@ export default function DesignWorkspace() {
       case "existing-construction":
         return (
           <SimpleSection title="Existing Construction">
-            {Object.entries(p.property.existingConstruction).map(([k, v]) => <Field key={k} label={k} value={v} mono={false} />)}
+            {Object.entries(p.property.existingConstruction).map(([k, v]) => <Field key={k} label={k} value={v} mono={false} path={`property.existingConstruction.${k}`} onSave={saveField} />)}
           </SimpleSection>
         );
       case "survey":
         return (
           <div className="anim-in space-y-4">
             <SimpleSection title="Survey Details">
-              <Field label="Property Type" value={p.property.type} mono={false} />
-              <Field label="Age Band" value={p.property.age} mono={false} />
-              <Field label="Floor Area" value={p.property.floorArea} />
-              <Field label="Storeys" value={p.property.storeys} />
-              <Field label="Occupancy" value={p.property.occupancy} mono={false} />
-              <Field label="Orientation" value={p.property.orientation} mono={false} />
+              <Field label="Property Type" value={p.property.type} mono={false} path="property.type" onSave={saveField} />
+              <Field label="Age Band" value={p.property.age} mono={false} path="property.age" onSave={saveField} />
+              <Field label="Floor Area" value={p.property.floorArea} path="property.floorArea" onSave={saveField} />
+              <Field label="Storeys" value={p.property.storeys} path="property.storeys" onSave={saveField} />
+              <Field label="Occupancy" value={p.property.occupancy} mono={false} path="property.occupancy" onSave={saveField} />
+              <Field label="Orientation" value={p.property.orientation} mono={false} path="property.orientation" onSave={saveField} />
             </SimpleSection>
             {p.windowSchedule?.length > 0 && (
               <div className="border border-border rounded-sm bg-card max-w-2xl">
@@ -444,20 +461,40 @@ export default function DesignWorkspace() {
             )}
           </div>
         );
-      case "photos":
+      case "photos": {
+        const photos = p.designPack.photos || [];
+        const move = (i, d) => { const n = structuredClone(photos); const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; savePhotos(n); };
+        const toggle = (i) => { const n = structuredClone(photos); n[i].included = n[i].included === false; savePhotos(n); };
+        const incCount = photos.filter((x) => x.included !== false).length;
         return (
-          <div className="anim-in grid sm:grid-cols-2 gap-4">
-            {(p.designPack.photos || []).map((ph) => (
-              <figure key={ph.fig} className="border border-border rounded-sm bg-card overflow-hidden">
-                <div className="aspect-[4/3] overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" /></div>
-                <figcaption className="p-3">
-                  <div className="flex items-center gap-2"><span className="font-mono text-[10px] text-muted-foreground">FIG {ph.fig}</span><span className="text-[13px] font-medium">{ph.caption}</span></div>
-                  <p className="text-[12px] text-muted-foreground mt-1 leading-snug">{ph.observation}</p>
-                </figcaption>
-              </figure>
-            ))}
+          <div className="anim-in">
+            <div className="text-[12px] text-muted-foreground mb-4" data-testid="photo-curation-summary">{incCount} of {photos.length} photos included in the Design Pack — toggle to include/exclude, reorder with the arrows.</div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              {photos.map((ph, i) => {
+                const inc = ph.included !== false;
+                return (
+                  <figure key={ph.url || ph.fig} className={cn("border rounded-sm bg-card overflow-hidden transition-opacity", inc ? "border-border" : "border-dashed border-border opacity-50")} data-testid={`photo-card-${i}`}>
+                    <div className="aspect-[4/3] overflow-hidden relative">
+                      <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" />
+                      <div className="absolute top-2 right-2 flex gap-1">
+                        <button onClick={() => move(i, -1)} data-testid={`photo-up-${i}`} className="h-6 w-6 flex items-center justify-center bg-background/90 border border-border rounded-sm hover:bg-background"><ChevronUp className="h-3.5 w-3.5" /></button>
+                        <button onClick={() => move(i, 1)} data-testid={`photo-down-${i}`} className="h-6 w-6 flex items-center justify-center bg-background/90 border border-border rounded-sm hover:bg-background"><ChevronDown className="h-3.5 w-3.5" /></button>
+                      </div>
+                    </div>
+                    <figcaption className="p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0"><span className="font-mono text-[10px] text-muted-foreground">FIG {ph.fig}</span><span className="text-[13px] font-medium truncate">{ph.caption}</span></div>
+                        <button onClick={() => toggle(i)} data-testid={`photo-toggle-${i}`} className={cn("text-[11px] px-2 h-6 rounded-sm border shrink-0", inc ? "border-border text-muted-foreground hover:bg-secondary" : "bg-primary text-primary-foreground border-primary")}>{inc ? "Exclude" : "Include"}</button>
+                      </div>
+                      <p className="text-[12px] text-muted-foreground mt-1 leading-snug">{ph.observation}</p>
+                    </figcaption>
+                  </figure>
+                );
+              })}
+            </div>
           </div>
         );
+      }
       case "specifications":
         return (
           <div className="anim-in space-y-4">
