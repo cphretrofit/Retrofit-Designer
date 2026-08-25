@@ -95,6 +95,7 @@ pymupdf==1.28.2
 pyparsing==3.3.2
 pypdf==6.16.2
 pyphen==0.18.1
+pytesseract==0.3.13
 pytest==9.1.1
 pytest-xdist==3.8.0
 python-dateutil==2.9.0.post0

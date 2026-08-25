@@ -1,4 +1,4 @@
-"""Backend API tests for Retrofit Design Platform (PAS 2035) — no auth."""
+"""Backend API tests for Retrofit Design Platform (PAS 2035) — JWT cookie auth required."""
 import os
 
 import pytest
@@ -13,10 +13,17 @@ BASE_URL = base_url.rstrip("/")
 HERO = "RTF-2026-0142"
 
 
+CREDS = {"email": "it@cphretrofit.co.uk", "password": ";hyaB1cZdA1RZk%6"}
+
+
 @pytest.fixture(scope="module")
 def api():
+    """Authenticated session (all /api routes are behind JWT cookie auth)."""
     s = requests.Session()
     s.headers.update({"Content-Type": "application/json"})
+    r = s.post(f"{BASE_URL}/api/auth/login", json=CREDS, timeout=30)
+    if r.status_code != 200:
+        pytest.fail(f"login failed {r.status_code}: {r.text[:300]}")
     return s
 
 

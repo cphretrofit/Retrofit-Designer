@@ -80,6 +80,13 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Bulk photo actions**: Photos section adds "Include all" / "Exclude all" buttons and true HTML5 drag-to-reorder (up/down arrows retained), all persisting via `PUT /projects/{id}/photos`.
 - **Global ⌘K**: CommandPalette mounted once in `App.js` (auth-gated via `useAuth`), so ⌘K jumps to any property from any page (workspace, pack, templates). Verified opens on workspace.
 
+### Phase 15 — Editable partner, build-up layer CRUD, OCR import, persisted AI jobs (2026-06-25)
+- **Editable delivery partner**: partner is now a real editable project field (`PartnerEditor` chip on Project Overview → `PATCH /projects/{id}/field` path `partner`). `_resolve_partner` returns the stored value (incl. "" for intentionally unassigned) and only falls back to the deterministic hash when unset — so a partner can be reassigned/cleared and the Dashboard partner filter reflects real allocations.
+- **Build-up layer add/remove**: measure detail Wall Build-up gains "Add layer" + per-row delete (visible on hover/focus), rewriting `measures.{i}.buildup` as a whole array; rows re-number 01.. automatically. Fabric measures with no layers now show the table so the first layer can be added.
+- **OCR fallback**: `extract_pdf_text` now OCRs scanned/photographed PDFs when embedded text is sparse (<200 chars) — PyMuPDF rasterises pages @200dpi → Tesseract (`_ocr_pdf`, deps: `tesseract-ocr`, `pytesseract`, `Pillow`). Verified: recovered text from an image-only PDF that pypdf returned empty for.
+- **Persisted/resumable AI import jobs**: `import_project` stores uploads to object storage + records job `inputs` and `attempts` in `db.import_jobs`; `run_import_job` reads inputs from the DB (not an in-memory payload). On startup, `processing` jobs are resumed (`asyncio.create_task`) or marked `error` after 3 attempts / if inputs are missing — an in-flight import is no longer lost on backend restart.
+- **Hardening (from iteration_5)**: field allow-list split into exact scalar set + dotted prefixes (rejects `partnerZZZ`/`statusfoo`); import now short-circuits to `error` with a friendly message when no readable content is extracted (fixes phantom "Unknown Property" projects from unreadable uploads). Tested end-to-end (iteration_5: frontend 100%, backend fixes verified via curl).
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

@@ -22,7 +22,12 @@ FILES = [
 
 @pytest.fixture(scope="module")
 def api():
+    """Authenticated session (all /api routes are behind JWT cookie auth)."""
     s = requests.Session()
+    r = s.post(f"{BASE_URL}/api/auth/login",
+               json={"email": "it@cphretrofit.co.uk", "password": ";hyaB1cZdA1RZk%6"}, timeout=30)
+    if r.status_code != 200:
+        pytest.fail(f"login failed {r.status_code}: {r.text[:300]}")
     return s
 
 

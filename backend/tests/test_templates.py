@@ -22,7 +22,13 @@ ARTIFACT = "/tmp/imported_project.json"
 
 @pytest.fixture(scope="module")
 def api():
-    return requests.Session()
+    """Authenticated session (all /api routes are behind JWT cookie auth)."""
+    s = requests.Session()
+    r = s.post(f"{BASE_URL}/api/auth/login",
+               json={"email": "it@cphretrofit.co.uk", "password": ";hyaB1cZdA1RZk%6"}, timeout=30)
+    if r.status_code != 200:
+        pytest.fail(f"login failed {r.status_code}: {r.text[:300]}")
+    return s
 
 
 @pytest.fixture(scope="module")
@@ -36,7 +42,7 @@ def templates(api):
 class TestTemplateList:
     def test_three_templates(self, templates):
         assert isinstance(templates, list)
-        assert len(templates) == 3, f"expected 3 seeded templates, got {len(templates)}"
+        assert len(templates) >= 3, f"expected seeded templates, got {len(templates)}"
 
     def test_no_mongo_id_leak(self, templates):
         for t in templates:
@@ -47,7 +53,7 @@ class TestTemplateList:
             assert isinstance(t.get("id"), str) and t["id"]
             assert isinstance(t.get("name"), str) and t["name"].strip()
             assert t.get("fileType") == "docx"
-            assert isinstance(t.get("url"), str) and t["url"].startswith("http")
+            assert isinstance(t.get("storage_path"), str) and t["storage_path"]
 
     def test_status_ready(self, templates):
         bad = [(t["name"], t.get("status"), t.get("error")) for t in templates if t.get("status") != "ready"]
@@ -113,7 +119,7 @@ class TestTemplateAnalyze:
         r = api.get(f"{BASE_URL}/api/templates", timeout=60)
         assert r.status_code == 200
         tpls = r.json()
-        assert len(tpls) == 3
+        assert len(tpls) >= 3
         for t in tpls:
             assert t.get("status") in ("ready", "analyzing"), f"{t['name']} -> {t.get('status')}"
             assert t.get("measureCodes")

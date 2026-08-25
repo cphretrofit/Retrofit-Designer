@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, confirmItem, confirmAllItems, API } from "@/lib/api";
+import { getProject, confirmItem, confirmAllItems, updateField, API } from "@/lib/api";
 import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
 import { toast } from "sonner";
 import {
-  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers, Camera, Loader2,
+  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers, Camera, Loader2, Truck, Check, X,
 } from "lucide-react";
 
 const MARK = {
@@ -19,6 +19,42 @@ const MARK = {
 };
 const SEV = { critical: AlertTriangle, warning: AlertTriangle, info_required: Info };
 const SEV_COLOR = { critical: "var(--c-critical)", warning: "var(--c-warning)", info_required: "var(--c-info)" };
+
+const KNOWN_PARTNERS = ["Aran Group", "Sustainable Building Services", "Everwarm", "Westville Insulation", "E.ON Solutions", "Bell Group"];
+
+function PartnerEditor({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value ?? "");
+  const [busy, setBusy] = useState(false);
+  const commit = async () => {
+    if (busy) return;
+    setBusy(true);
+    try { await onSave((val || "").trim()); setEditing(false); } finally { setBusy(false); }
+  };
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <input list="partner-options" autoFocus value={val} disabled={busy} placeholder="Delivery partner"
+          onChange={(e) => setVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setEditing(false); setVal(value ?? ""); } }}
+          data-testid="partner-input"
+          className="h-7 px-2 bg-background border rounded-sm text-[12px] w-52 outline-none" style={{ borderColor: "var(--c-action)" }} />
+        <datalist id="partner-options">{KNOWN_PARTNERS.map((pn) => <option key={pn} value={pn} />)}</datalist>
+        <button onClick={commit} disabled={busy} data-testid="partner-save" style={{ color: "var(--c-pass)" }}><Check className="h-4 w-4" /></button>
+        <button onClick={() => { setEditing(false); setVal(value ?? ""); }} className="text-muted-foreground"><X className="h-4 w-4" /></button>
+      </span>
+    );
+  }
+  return (
+    <button onClick={() => { setVal(value ?? ""); setEditing(true); }} data-testid="partner-editor"
+      title="Edit delivery partner"
+      className="group inline-flex items-center gap-2 h-7 pl-2 pr-3 rounded-sm border border-border bg-secondary/50 hover:bg-secondary hover:border-foreground/20 transition-colors">
+      <Truck className="h-3.5 w-3.5 text-muted-foreground shrink-0" strokeWidth={1.75} />
+      <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground shrink-0">Partner</span>
+      <span className="text-[12px] font-medium truncate max-w-[220px]" data-testid="partner-value">{value || "Unassigned"}</span>
+    </button>
+  );
+}
 
 export default function ProjectOverview() {
   const { id } = useParams();
@@ -59,6 +95,12 @@ export default function ProjectOverview() {
     } catch {
       toast.error("Could not update item");
     }
+  };
+
+  const savePartner = async (value) => {
+    await updateField(id, { path: "partner", value });
+    setP((prev) => ({ ...prev, partner: value }));
+    toast.success("Delivery partner updated");
   };
 
   if (!p) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: "Loading…" }]} /></div>;
@@ -115,6 +157,7 @@ export default function ProjectOverview() {
                 {uploading ? "Importing photos…" : "Import survey photos"}
               </button>
               <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={onPhotosFile} data-testid="import-photos-input" />
+              <PartnerEditor value={p.partner} onSave={savePartner} />
             </div>
           </div>
           <div className="flex items-center gap-8">

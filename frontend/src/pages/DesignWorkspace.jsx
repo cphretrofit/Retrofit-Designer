@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
@@ -101,6 +101,10 @@ function EditableCell({ value, onSave, numeric = false, align = "left", testid, 
 
 function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
   const fp = (suffix) => `measures.${mi}.${suffix}`;
+  const buildup = m.buildup || [];
+  const renum = (arr) => arr.map((l, i) => ({ ...l, no: String(i + 1).padStart(2, "0") }));
+  const addLayer = () => onSaveField(fp("buildup"), renum([...buildup, { material: "New layer", thickness: 0, lambda: null }]));
+  const removeLayer = (li) => onSaveField(fp("buildup"), renum(buildup.filter((_, i) => i !== li)));
   const [sel, setSel] = useState(m.junctions?.[0]?.name || null);
   const junction = m.junctions?.find((j) => j.name === sel);
   const pass = m.calculatedU != null && m.targetU != null && m.calculatedU <= m.targetU;
@@ -135,9 +139,14 @@ function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
 
       <div className="grid lg:grid-cols-[1.4fr_1fr] gap-5">
         {/* build-up table + U-value */}
-        {m.buildup?.length > 0 && (
+        {(buildup.length > 0 || m.targetU != null) && (
           <section className="border border-border rounded-sm bg-card">
-            <div className="px-4 h-10 flex items-center border-b border-border text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Wall Build-up</div>
+            <div className="px-4 h-10 flex items-center justify-between border-b border-border">
+              <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Wall Build-up</span>
+              <button onClick={addLayer} data-testid="buildup-add-layer" className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add layer
+              </button>
+            </div>
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground border-b border-border">
@@ -145,17 +154,24 @@ function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
                   <th className="text-left font-normal py-2">Material</th>
                   <th className="text-right font-normal py-2">Thk (mm)</th>
                   <th className="text-right font-normal px-4 py-2">λ (W/mK)</th>
+                  <th className="w-8"></th>
                 </tr>
               </thead>
               <tbody className="font-mono-tech">
-                {m.buildup.map((l, li) => (
-                  <tr key={l.no ?? li} className="border-b border-border/60 last:border-0 hover:bg-secondary/40 transition-colors">
+                {buildup.map((l, li) => (
+                  <tr key={li} className="border-b border-border/60 last:border-0 hover:bg-secondary/40 transition-colors group/row">
                     <td className="px-4 py-2.5 text-muted-foreground">{l.no}</td>
                     <td className="py-1.5 font-sans"><EditableCell value={l.material} mono={false} onSave={(v) => onSaveField(fp(`buildup.${li}.material`), v)} testid={`buildup-${li}-material`} /></td>
                     <td className="py-1.5 tabular-nums"><EditableCell value={l.thickness} numeric align="right" onSave={(v) => onSaveField(fp(`buildup.${li}.thickness`), v)} testid={`buildup-${li}-thickness`} /></td>
                     <td className="px-4 py-1.5 tabular-nums text-muted-foreground"><EditableCell value={l.lambda} numeric align="right" onSave={(v) => onSaveField(fp(`buildup.${li}.lambda`), v)} testid={`buildup-${li}-lambda`} /></td>
+                    <td className="pr-3 py-1.5 text-right">
+                      <button onClick={() => removeLayer(li)} data-testid={`buildup-remove-${li}`} className="opacity-0 group-hover/row:opacity-100 focus:opacity-100 focus-visible:opacity-100 text-muted-foreground hover:text-[var(--c-critical)] transition-opacity"><Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /></button>
+                    </td>
                   </tr>
                 ))}
+                {buildup.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-muted-foreground font-sans">No build-up layers yet — add the first layer to begin.</td></tr>
+                )}
               </tbody>
             </table>
           </section>

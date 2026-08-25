@@ -554,6 +554,12 @@ def _partner_for(ref: str) -> str:
     return PARTNERS[sum(ord(c) for c in (ref or "x")) % len(PARTNERS)]
 
 
+def _resolve_partner(doc: dict) -> str:
+    # Explicitly set (including "" for intentionally unassigned) wins; only fall back when unset/None.
+    v = doc.get("partner")
+    return _partner_for(doc.get("ref")) if v is None else v
+
+
 @api_router.get("/")
 async def root():
     return {"service": "Retrofit Design Platform", "status": "ok"}
@@ -567,7 +573,7 @@ async def dashboard():
         p.pop("measures", None)
         p.pop("designPack", None)
         p.pop("readiness", None)
-        p["partner"] = _partner_for(p.get("ref"))
+        p["partner"] = _resolve_partner(p)
     ready_qa = sum(1 for p in projects if p.get("status") == "ready_for_qa")
     attention = sum(1 for p in projects if p.get("status") == "require_attention")
     return {
@@ -585,7 +591,7 @@ async def dashboard():
 async def list_projects():
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     for p in projects:
-        p["partner"] = _partner_for(p.get("ref"))
+        p["partner"] = _resolve_partner(p)
     return sorted(projects, key=lambda x: x.get("updatedAt", ""), reverse=True)
 
 
@@ -594,19 +600,20 @@ async def get_project(project_id: str):
     doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Project not found")
+    doc["partner"] = _resolve_partner(doc)
     return doc
 
 
-ALLOWED_PATCH_PREFIXES = ("designStage", "revision", "status", "name", "client", "assessor",
-                          "coordinator", "designer", "town", "address", "measureSummary",
-                          "epcBefore", "epcAfter", "property.", "measures.", "readiness.",
-                          "heatLoss.", "itemsBeforeIssue")
+ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
+                       "coordinator", "designer", "town", "address", "measureSummary",
+                       "epcBefore", "epcAfter", "partner", "itemsBeforeIssue"}
+ALLOWED_PATCH_PREFIXES = ("property.", "measures.", "readiness.", "heatLoss.")
 
 
 @api_router.patch("/projects/{project_id}/field")
 async def update_project_field(project_id: str, payload: FieldUpdate):
     path = (payload.path or "").strip()
-    if not path or path in ("id", "ref", "_id") or not path.startswith(ALLOWED_PATCH_PREFIXES):
+    if not path or path in ("id", "ref", "_id") or (path not in ALLOWED_PATCH_EXACT and not path.startswith(ALLOWED_PATCH_PREFIXES)):
         raise HTTPException(status_code=422, detail="Invalid or disallowed field path")
     doc = await db.projects.find_one({"id": project_id})
     if not doc:
@@ -686,14 +693,43 @@ def get_object(path: str):
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
+def _ocr_pdf(data: bytes, max_pages: int = 8) -> str:
+    try:
+        import fitz  # pymupdf
+        import pytesseract
+        from PIL import Image
+    except Exception as e:
+        logger.warning("OCR dependencies unavailable: %s", e)
+        return ""
+    out = []
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            pix = page.get_pixmap(dpi=200)
+            img = Image.open(io.BytesIO(pix.tobytes("png")))
+            out.append(pytesseract.image_to_string(img) or "")
+        doc.close()
+    except Exception as e:
+        logger.warning("OCR failed: %s", e)
+        return ""
+    return "\n".join(out)
+
+
 def extract_pdf_text(data: bytes, max_pages: int = 8) -> str:
+    text = ""
     try:
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(data))
-        return "\n".join((p.extract_text() or "") for p in reader.pages[:max_pages])
+        text = "\n".join((p.extract_text() or "") for p in reader.pages[:max_pages])
     except Exception as e:
         logger.warning("PDF text extraction failed: %s", e)
-        return ""
+    # Scanned / photographed PDFs return little or no embedded text — fall back to OCR.
+    if len(text.strip()) >= 200:
+        return text
+    ocr = _ocr_pdf(data, max_pages)
+    return ocr if len(ocr.strip()) > len(text.strip()) else text
 
 
 def extract_pdf_images(data: bytes, max_images: int = 6, min_bytes: int = 20000, max_pages: int = 18):
@@ -1024,41 +1060,44 @@ TEXT_LIMIT = {"ASHP Survey": 9000, "Datasheet": 3000}
 PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey")
 
 
-async def process_import_job(job_id: str, payload: list):
+async def run_import_job(job_id: str):
+    job = await db.import_jobs.find_one({"id": job_id})
+    if not job:
+        return
+    cur = job.get("attempts") or 0
+    if cur >= 3:
+        await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": "Import could not be completed after multiple attempts."}})
+        return
+    await db.import_jobs.update_one({"id": job_id}, {"$set": {"attempts": cur + 1, "status": "processing"}})
     try:
+        inputs = job.get("inputs") or []
         doc_ids = []
         parts = []
         photos = []
         fig = 1
-        for item in payload:
-            data = item["data"]
-            dtype = item["doc_type"]
-            fn = item["filename"] or "file"
-            ctype = item["content_type"] or "application/pdf"
-            ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
-            path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
-            stored = None
-            try:
-                stored = (await asyncio.to_thread(put_object, path, data, ctype))["path"]
-            except Exception as e:
-                logger.warning("storage put failed: %s", e)
-            did = str(uuid.uuid4())
-            await db.documents.insert_one({
-                "id": did, "project_id": None, "storage_path": stored,
-                "original_filename": fn, "content_type": ctype, "doc_type": dtype,
-                "size": len(data), "is_deleted": False,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            })
+        content_chars = 0
+        for item in inputs:
+            did = item["doc_id"]
             doc_ids.append(did)
+            dtype = item["doc_type"]
+            fn = item.get("filename") or "file"
+            ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+            data = b""
+            if item.get("storage_path"):
+                try:
+                    data, _ = await asyncio.to_thread(get_object, item["storage_path"])
+                except Exception as e:
+                    logger.warning("import input fetch failed: %s", e)
 
-            text = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+            text = (await asyncio.to_thread(extract_pdf_text, data)) if (ext == "pdf" and data) else ""
             limit = TEXT_LIMIT.get(dtype, 11000)
             if text.strip():
+                content_chars += len(text.strip())
                 parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:limit]}")
             else:
                 parts.append(f"=== DOCUMENT: {dtype} ({fn}) === [no extractable text — image-only PDF]")
 
-            if ext == "pdf" and dtype in PHOTO_DOC_TYPES and len(photos) < 8:
+            if ext == "pdf" and data and dtype in PHOTO_DOC_TYPES and len(photos) < 8:
                 for pm in (await asyncio.to_thread(extract_tagged_photos, data, 8)):
                     if len(photos) >= 8:
                         break
@@ -1084,6 +1123,12 @@ async def process_import_job(job_id: str, payload: list):
                     fig += 1
 
         prompt = "Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts)
+        if content_chars < 120 and not photos:
+            await db.import_jobs.update_one({"id": job_id}, {"$set": {
+                "status": "error",
+                "error": "Could not read any text from the uploaded documents. If these are scanned or photographed PDFs, please upload a clearer copy.",
+            }})
+            return
         ai = await call_claude(prompt)
         ref = await next_ref()
         project = ai_build_project(ai, ref, photos)
@@ -1109,16 +1154,34 @@ async def process_import_job(job_id: str, payload: list):
 async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="AI key not configured")
-    payload = []
+    inputs = []
     for f, dtype in zip(files, types):
-        payload.append({"filename": f.filename, "content_type": f.content_type,
-                        "doc_type": dtype, "data": await f.read()})
+        data = await f.read()
+        fn = f.filename or "file"
+        ctype = f.content_type or "application/pdf"
+        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+        path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
+        stored = None
+        try:
+            stored = (await asyncio.to_thread(put_object, path, data, ctype))["path"]
+        except Exception as e:
+            logger.warning("storage put failed: %s", e)
+        did = str(uuid.uuid4())
+        await db.documents.insert_one({
+            "id": did, "project_id": None, "storage_path": stored,
+            "original_filename": fn, "content_type": ctype, "doc_type": dtype,
+            "size": len(data), "is_deleted": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        inputs.append({"doc_id": did, "storage_path": stored, "filename": fn,
+                       "content_type": ctype, "doc_type": dtype})
     job_id = str(uuid.uuid4())
     await db.import_jobs.insert_one({
         "id": job_id, "status": "processing", "project_id": None,
+        "inputs": inputs, "attempts": 0,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    asyncio.create_task(process_import_job(job_id, payload))
+    asyncio.create_task(run_import_job(job_id))
     return {"job_id": job_id, "status": "processing"}
 
 
@@ -1937,6 +2000,17 @@ async def startup():
         logger.info("Storage initialized")
     except Exception as e:
         logger.error("Storage init failed: %s", e)
+    try:
+        stuck = await db.import_jobs.find({"status": "processing"}).to_list(100)
+        for j in stuck:
+            if (j.get("attempts") or 0) >= 3 or not j.get("inputs"):
+                await db.import_jobs.update_one({"id": j["id"]}, {"$set": {"status": "error", "error": "Import was interrupted and could not be resumed."}})
+            else:
+                asyncio.create_task(run_import_job(j["id"]))
+        if stuck:
+            logger.info("Resuming %d interrupted import job(s)", len(stuck))
+    except Exception as e:
+        logger.warning("import job resume failed: %s", e)
 
 
 @app.on_event("shutdown")

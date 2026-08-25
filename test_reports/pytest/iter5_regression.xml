@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="32" time="70.168" timestamp="2026-08-25T12:50:18.216730+00:00" hostname="agent-env-17e652af-ecaa-472e-bc6e-83abdfb3a574"><testcase classname="tests.test_templates.TestTemplateList" name="test_three_templates" time="0.787"><failure message="AssertionError: expected 3 seeded templates, got 57&#10;assert 57 == 3&#10; +  where 57 = len([{'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Tem...'Loft Template (B9).docx', 'storage_path': 'orthograph/templates/ea03648d-f333-4a70-8c86-2ba5244bbecc.docx', ...}, ...])">self = &lt;test_templates.TestTemplateList object at 0xf81b786ead90&gt;
+templates = [{'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Tem...'Loft Template (B9).docx', 'storage_path': 'orthograph/templates/ea03648d-f333-4a70-8c86-2ba5244bbecc.docx', ...}, ...]
+
+    def test_three_templates(self, templates):
+        assert isinstance(templates, list)
+&gt;       assert len(templates) == 3, f"expected 3 seeded templates, got {len(templates)}"
+E       AssertionError: expected 3 seeded templates, got 57
+E       assert 57 == 3
+E        +  where 57 = len([{'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Tem...'Loft Template (B9).docx', 'storage_path': 'orthograph/templates/ea03648d-f333-4a70-8c86-2ba5244bbecc.docx', ...}, ...])
+
+tests/test_templates.py:45: AssertionError</failure></testcase><testcase classname="tests.test_templates.TestTemplateList" name="test_no_mongo_id_leak" time="0.000" /><testcase classname="tests.test_templates.TestTemplateList" name="test_core_fields" time="0.000"><failure message="AssertionError: assert (False)&#10; +  where False = isinstance(None, str)&#10; +    where None = &lt;built-in method get of dict object at 0xf81b7334c080&gt;('url')&#10; +      where &lt;built-in method get of dict object at 0xf81b7334c080&gt; = {'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Template.docx', 'storage_path': 'orthograph/templates/04da6770-690b-4e5f-a259-b26ed9cc9c73.docx', ...}.get">self = &lt;test_templates.TestTemplateList object at 0xf81b73383a10&gt;
+templates = [{'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Tem...'Loft Template (B9).docx', 'storage_path': 'orthograph/templates/ea03648d-f333-4a70-8c86-2ba5244bbecc.docx', ...}, ...]
+
+    def test_core_fields(self, templates):
+        for t in templates:
+            assert isinstance(t.get("id"), str) and t["id"]
+            assert isinstance(t.get("name"), str) and t["name"].strip()
+            assert t.get("fileType") == "docx"
+&gt;           assert isinstance(t.get("url"), str) and t["url"].startswith("http")
+E           AssertionError: assert (False)
+E            +  where False = isinstance(None, str)
+E            +    where None = &lt;built-in method get of dict object at 0xf81b7334c080&gt;('url')
+E            +      where &lt;built-in method get of dict object at 0xf81b7334c080&gt; = {'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Template.docx', 'storage_path': 'orthograph/templates/04da6770-690b-4e5f-a259-b26ed9cc9c73.docx', ...}.get
+
+tests/test_templates.py:56: AssertionError</failure></testcase><testcase classname="tests.test_templates.TestTemplateList" name="test_status_ready" time="0.000" /><testcase classname="tests.test_templates.TestTemplateList" name="test_measure_codes" time="0.000" /><testcase classname="tests.test_templates.TestTemplateList" name="test_blueprint_structure" time="0.001" /><testcase classname="tests.test_templates.TestTemplateList" name="test_analyzed_at_present" time="0.000" /><testcase classname="tests.backend_test.TestPatchField" name="test_patch_simple_field_and_persist" time="0.712" /><testcase classname="tests.backend_test.TestPatchField" name="test_patch_nested_dotted_path" time="0.238" /><testcase classname="tests.backend_test.TestPatchField" name="test_patch_unknown_project" time="0.078" /><testcase classname="tests.backend_test.TestPatchField" name="test_patch_invalid_payload" time="0.076" /><testcase classname="tests.backend_test.TestPatchField" name="test_patch_empty_path_rejected" time="0.075" /><testcase classname="tests.test_templates.TestTemplateAnalyze" name="test_analyze_all_returns_analyzing" time="0.691" /><testcase classname="tests.test_templates.TestTemplateAnalyze" name="test_templates_still_valid_after_analyze_all" time="3.113"><failure message="AssertionError: assert 57 == 3&#10; +  where 57 = len([{'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Tem...'Loft Template (B9).docx', 'storage_path': 'orthograph/templates/ea03648d-f333-4a70-8c86-2ba5244bbecc.docx', ...}, ...])">self = &lt;test_templates.TestTemplateAnalyze object at 0xf81b73380ed0&gt;
+api = &lt;requests.sessions.Session object at 0xf81b734b2750&gt;
+
+    def test_templates_still_valid_after_analyze_all(self, api):
+        # allow the background task a moment, then assert nothing was destroyed
+        time.sleep(3)
+        r = api.get(f"{BASE_URL}/api/templates", timeout=60)
+        assert r.status_code == 200
+        tpls = r.json()
+&gt;       assert len(tpls) == 3
+E       AssertionError: assert 57 == 3
+E        +  where 57 = len([{'id': '04da6770-690b-4e5f-a259-b26ed9cc9c73', 'name': 'B3 &amp; Solar — B3, SOLAR', 'original_filename': 'B3 &amp; Solar Tem...'Loft Template (B9).docx', 'storage_path': 'orthograph/templates/ea03648d-f333-4a70-8c86-2ba5244bbecc.docx', ...}, ...])
+
+tests/test_templates.py:122: AssertionError</failure></testcase><testcase classname="tests.test_templates.TestTemplateAnalyze" name="test_analyze_single_template" time="0.089" /><testcase classname="tests.test_templates.TestTemplateAnalyze" name="test_analyze_unknown_template" time="0.083"><failure message="AssertionError: POST /api/templates/no-such-template/analyze returned 200 {&quot;status&quot;:&quot;analyzing&quot;} - expected 404 for unknown template id&#10;assert 200 == 404&#10; +  where 200 = &lt;Response [200]&gt;.status_code">self = &lt;test_templates.TestTemplateAnalyze object at 0xf81b7334de10&gt;
+api = &lt;requests.sessions.Session object at 0xf81b734b2750&gt;
+
+    def test_analyze_unknown_template(self, api):
+        """Analysing a non-existent template should not silently report success."""
+        r = api.post(f"{BASE_URL}/api/templates/no-such-template/analyze", timeout=30)
+&gt;       assert r.status_code == 404, (
+            f"POST /api/templates/no-such-template/analyze returned {r.status_code} "
+            f"{r.text[:200]} - expected 404 for unknown template id")
+E       AssertionError: POST /api/templates/no-such-template/analyze returned 200 {"status":"analyzing"} - expected 404 for unknown template id
+E       assert 200 == 404
+E        +  where 200 = &lt;Response [200]&gt;.status_code
+
+tests/test_templates.py:136: AssertionError</failure></testcase><testcase classname="tests.test_templates.TestTemplateAnalyze" name="test_all_ready_again" time="35.883" /><testcase classname="tests.backend_test.TestProjectDetail" name="test_hero_project_structure" time="0.475" /><testcase classname="tests.backend_test.TestProjectDetail" name="test_light_project_detail" time="0.078" /><testcase classname="tests.backend_test.TestProjectDetail" name="test_project_not_found" time="0.076" /><testcase classname="tests.backend_test.TestDashboard" name="test_dashboard_stats" time="0.079" /><testcase classname="tests.backend_test.TestDashboard" name="test_dashboard_projects_sorted_and_clean" time="0.080" /><testcase classname="tests.test_templates.TestTemplateDetail" name="test_get_each_template" time="4.403" /><testcase classname="tests.test_templates.TestTemplateDetail" name="test_404_unknown_id" time="0.081" /><testcase classname="tests.backend_test.TestHealth" name="test_root" time="0.528" /><testcase classname="tests.backend_test.TestProjectsList" name="test_list_projects" time="0.103" /><testcase classname="tests.test_templates.TestTemplateMatching" name="test_template_id_set" time="69.265" /><testcase classname="tests.test_templates.TestTemplateMatching" name="test_template_name_set" time="0.000" /><testcase classname="tests.test_templates.TestTemplateMatching" name="test_template_blueprint_set" time="0.000" /><testcase classname="tests.test_templates.TestTemplateMatching" name="test_matched_template_resolvable" time="0.079" /><testcase classname="tests.test_templates.TestTemplateMatching" name="test_match_overlaps_measure_tags" time="0.192" /><testcase classname="tests.test_templates.TestTemplateMatching" name="test_project_list_row_has_template" time="0.089" /></testsuite></testsuites>
