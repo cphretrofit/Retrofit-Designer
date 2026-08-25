@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject } from "@/lib/api";
+import { getProject, API } from "@/lib/api";
 import { mediaUrl } from "@/lib/api";
 import { useTheme } from "@/context/ThemeProvider";
-import { ArrowLeft, Download, Printer, Sun, Moon } from "lucide-react";
+import { toast } from "sonner";
+import { ArrowLeft, Download, Printer, Sun, Moon, Loader2 } from "lucide-react";
 
 /* The pack pages always render on white for print-fidelity, regardless of app theme */
 function PackPage({ children, num, total, footer }) {
@@ -23,9 +24,32 @@ export default function DesignPack() {
   const navigate = useNavigate();
   const { theme, toggle } = useTheme();
   const [p, setP] = useState(null);
+  const [dl, setDl] = useState(false);
   useEffect(() => { getProject(id).then(setP).catch(() => {}); }, [id]);
   if (!p) return null;
   if (!p.property || !p.measures) return null;
+
+  const exportPdf = async () => {
+    try {
+      setDl(true);
+      const res = await fetch(`${API}/projects/${id}/pack.pdf`);
+      if (!res.ok) throw new Error("export failed");
+      const blob = await res.blob();
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = `${p.ref}-${p.name}-Rev${p.revision}.pdf`.replace(/[^A-Za-z0-9._-]+/g, "_");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+      toast.success("Design Pack exported", { description: "Your PDF has been downloaded." });
+    } catch {
+      toast.error("Could not export PDF", { description: "Please try again in a moment." });
+    } finally {
+      setDl(false);
+    }
+  };
 
   const total = 6;
   const foot = `${p.ref}  ·  ${p.name}  ·  Rev ${p.revision}`;
@@ -43,7 +67,7 @@ export default function DesignPack() {
             {theme === "dark" ? <Sun className="h-4 w-4" strokeWidth={1.5} /> : <Moon className="h-4 w-4" strokeWidth={1.5} />}
           </button>
           <button onClick={() => window.print()} className="flex items-center gap-2 h-8 px-3 border border-border rounded-sm text-[12.5px] hover:bg-secondary transition-colors" data-testid="pack-print"><Printer className="h-3.5 w-3.5" strokeWidth={1.5} /> Print</button>
-          <button className="flex items-center gap-2 h-8 px-3.5 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 transition-opacity" data-testid="pack-download"><Download className="h-3.5 w-3.5" strokeWidth={1.75} /> Export PDF</button>
+          <button onClick={exportPdf} disabled={dl} className="flex items-center gap-2 h-8 px-3.5 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60" data-testid="pack-download">{dl ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : <Download className="h-3.5 w-3.5" strokeWidth={1.75} />} {dl ? "Exporting…" : "Export PDF"}</button>
         </div>
       </header>
 

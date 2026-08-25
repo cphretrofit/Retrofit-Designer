@@ -7,6 +7,7 @@ import os
 import io
 import uuid
 import json
+import base64
 import re
 import asyncio
 import logging
@@ -1028,6 +1029,214 @@ async def download_document(doc_id: str):
     data, ctype = get_object(rec["storage_path"])
     return Response(content=data, media_type=rec.get("content_type", ctype),
                     headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename","file")}"'})
+
+
+# ---------------- Design Pack PDF export ----------------
+def _esc(s):
+    return (str(s) if s is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+async def _doc_data_uri(url: str):
+    m = re.search(r"/documents/([^/]+)/download", url or "")
+    if not m:
+        return None
+    rec = await db.documents.find_one({"id": m.group(1)})
+    if not rec or not rec.get("storage_path"):
+        return None
+    try:
+        data, ctype = await asyncio.to_thread(get_object, rec["storage_path"])
+    except Exception:
+        return None
+    return f"data:{rec.get('content_type') or ctype};base64,{base64.b64encode(data).decode()}"
+
+
+def _remote_data_uri(url: str):
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        ct = r.headers.get("Content-Type", "image/jpeg")
+        return f"data:{ct};base64,{base64.b64encode(r.content).decode()}"
+    except Exception:
+        return None
+
+
+PACK_CSS = """
+@page { size: A4; margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
+.page { position: relative; width: 210mm; height: 297mm; padding: 18mm 18mm 16mm; page-break-after: always; overflow: hidden; }
+.page:last-child { page-break-after: auto; }
+.mono { font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
+.muted { color: #737373; } .faint { color: #a3a3a3; }
+.disp { font-weight: 300; letter-spacing: -0.02em; }
+.rule { border-top: 1px solid #171717; } .hr { border-top: 1px solid #e5e5e5; }
+.upper { text-transform: uppercase; letter-spacing: 0.16em; }
+.foot { position: absolute; left: 18mm; right: 18mm; bottom: 10mm; display: flex; justify-content: space-between; border-top: 1px solid #e5e5e5; padding-top: 6px; font-size: 8px; color: #a3a3a3; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
+.brandmark { width: 26px; height: 26px; border: 1px solid #171717; display: inline-block; position: relative; vertical-align: middle; }
+.brandmark i { position: absolute; width: 10px; height: 10px; border: 1.5px solid #171717; transform: rotate(45deg); top: 6px; left: 6px; }
+.chip { display: inline-block; border: 1px solid #d4d4d4; color: #525252; font-size: 9px; padding: 4px 8px; margin: 0 6px 6px 0; text-transform: uppercase; letter-spacing: 0.06em; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
+table { width: 100%; border-collapse: collapse; }
+th { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.09em; color: #737373; font-weight: 400; padding: 7px 0; border-top: 1px solid #171717; border-bottom: 1px solid #171717; text-align: left; }
+td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
+.ghost { font-weight: 300; font-size: 150px; line-height: 0.8; color: #ececec; }
+.pass { color: #16A34A; } .warn { color: #B45309; }
+"""
+
+
+def build_pack_html(p, photo_uris, hero_uri):
+    name = _esc(p.get("name") or "Project")
+    town = _esc(p.get("town") or p.get("address") or "")
+    ref = _esc(p.get("ref") or "")
+    rev = _esc(p.get("revision") or "P01")
+    measures = p.get("measures") or []
+    els = (p.get("property") or {}).get("elements") or []
+    dp = p.get("designPack") or {}
+    drawings = dp.get("drawings") or []
+
+    # Cover
+    meta = [("Project", p.get("ref")), ("Client", p.get("client")), ("Design Stage", p.get("designStage")), ("Revision", p.get("revision"))]
+    meta_cells = "".join(
+        f'<div style="display:inline-block; width:24%; vertical-align:top;"><div class="faint upper" style="font-size:9px;">{_esc(k)}</div>'
+        f'<div class="mono" style="font-size:12px; margin-top:5px; color:#262626;">{_esc(v or "—")}</div></div>' for k, v in meta)
+    chips = "".join(f'<span class="chip">{_esc(m.get("name"))}</span>' for m in measures)
+    tpl_line = (f'<div class="mono faint upper" style="font-size:9px; margin-top:12px;">Prepared to template · {_esc(p.get("templateName"))}</div>'
+                if p.get("templateName") else "")
+    hero_html = (f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; margin-top:22px;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.05);"></div>'
+                 if hero_uri else '<div style="height:150px; border:1px solid #e5e5e5; margin-top:22px;"></div>')
+    cover = f'''
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <div><span class="brandmark"><i></i></span>
+          <span style="display:inline-block; vertical-align:middle; margin-left:10px; line-height:1.1;">
+            <span style="font-weight:800; font-size:13px; letter-spacing:-0.01em;">ORTHOGRAPH</span><br>
+            <span class="faint" style="font-size:8px; letter-spacing:0.24em;">RETROFIT DESIGN</span></span></div>
+        <span class="mono faint" style="font-size:10px;">PAS 2035:2023</span>
+      </div>
+      <div style="margin-top:46px;">
+        <div class="faint upper" style="font-size:11px; letter-spacing:0.3em;">Retrofit Design</div>
+        <div class="disp" style="font-size:52px; line-height:0.98; margin-top:10px;">{name}</div>
+        <div class="muted" style="font-size:17px; margin-top:8px;">{town}</div>
+      </div>
+      {hero_html}
+      <div style="position:absolute; left:18mm; right:18mm; bottom:24mm;">
+        <div class="rule" style="padding-top:14px;">{meta_cells}</div>
+        <div style="margin-top:16px;">{chips}</div>
+        {tpl_line}
+      </div>'''
+
+    # Strategy divider
+    strat_list = "".join(
+        f'<div style="margin-bottom:7px; font-size:13px; color:#525252;"><span class="mono faint" style="font-size:10px; margin-right:12px;">'
+        f'{_esc(("PAS " + m["pas"]) if m.get("pas") else m.get("code"))}</span>{_esc(m.get("name"))}</div>' for m in measures)
+    divider = f'''
+      <div style="height:225mm; display:flex; flex-direction:column; justify-content:center;">
+        <div class="ghost">04</div>
+        <div class="disp" style="font-size:44px; line-height:1.05; margin-top:-8px;">Proposed<br>Retrofit<br>Strategy</div>
+        <div style="margin-top:28px;">{strat_list}</div>
+      </div>'''
+
+    # Existing -> Proposed performance
+    perf_rows = ""
+    for m in measures:
+        eu, cu, tu = m.get("existingU"), m.get("calculatedU"), m.get("targetU")
+        if eu is None or cu is None or tu is None or eu == 0:
+            continue
+        imp = round((1 - cu / eu) * 100)
+        perf_rows += f'''<div style="border-bottom:1px solid #e5e5e5; padding-bottom:18px; margin-bottom:18px;"><table><tr>
+          <td style="border:0; padding:0; width:30%;"><div class="faint upper" style="font-size:9px;">{_esc(m.get("name"))} — Existing</div><div class="mono" style="font-size:26px; margin-top:4px;">{eu:.2f}</div><div class="mono faint" style="font-size:10px;">{_esc(m.get("unit"))}</div></td>
+          <td style="border:0; padding:0; width:6%; text-align:center; color:#d4d4d4; font-size:22px;">&#8594;</td>
+          <td style="border:0; padding:0; width:28%;"><div class="faint upper" style="font-size:9px;">Proposed</div><div class="mono" style="font-size:26px; margin-top:4px;">{cu:.2f}</div><div class="mono faint" style="font-size:10px;">target {tu:.2f}</div></td>
+          <td style="border:0; padding:0; width:6%; text-align:center; color:#d4d4d4; font-size:22px;">=</td>
+          <td style="border:0; padding:0; width:30%; text-align:right;"><div class="faint upper" style="font-size:9px;">Improvement</div><div class="disp pass" style="font-size:34px; margin-top:2px;">{imp}%</div></td>
+        </tr></table></div>'''
+    el_rows = ""
+    for e in els:
+        st = e.get("status")
+        val = "— Retain" if st == "retained" else ("N/A" if st == "not_started" else "✓ " + (e.get("measure") or "").split("—")[0].strip())
+        el_rows += (f'<div style="display:inline-block; width:48%; vertical-align:top; border-bottom:1px solid #f0f0f0; padding:6px 0; margin-right:2%;">'
+                    f'<span class="muted" style="font-size:12px;">{_esc(e.get("label"))}</span>'
+                    f'<span class="mono" style="float:right; font-size:11px; color:#262626;">{_esc(val)}</span></div>')
+    performance = f'''
+      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 04.1</div>
+      <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Existing &#8594; Proposed Performance</div>
+      <div style="margin-top:26px;">{perf_rows or '<div class="muted" style="font-size:12px;">U-value calculations pending for this draft.</div>'}</div>
+      <div style="margin-top:28px;"><div class="faint upper" style="font-size:10px; margin-bottom:10px;">Retrofit Strategy</div>{el_rows}</div>'''
+
+    # Wall build-up + U-value
+    buildup_page = None
+    mb = next((x for x in measures if x.get("buildup") and x.get("calculatedU") is not None and x.get("targetU") is not None), None)
+    if mb:
+        cu, tu = mb["calculatedU"], mb["targetU"]
+        rows = "".join(
+            f'<tr><td class="mono faint" style="width:10%;">{_esc(l.get("no"))}</td><td style="color:#262626;">{_esc(l.get("material"))}</td>'
+            f'<td class="mono" style="text-align:right;">{_esc(l.get("thickness"))} mm</td><td class="mono muted" style="text-align:right;">{_esc(l.get("lambda"))}</td></tr>'
+            for l in mb["buildup"])
+        pass_ = cu <= tu
+        badge_col = "#16A34A" if pass_ else "#B45309"
+        buildup_page = f'''
+          <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05 · Technical Specification</div>
+          <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{_esc(mb.get("name"))} — Build-up</div>
+          <table style="margin-top:24px;"><thead><tr><th style="width:10%;">Layer</th><th>Material</th><th style="text-align:right;">Thickness</th><th style="text-align:right;">&#955; (W/mK)</th></tr></thead><tbody>{rows}</tbody></table>
+          <div class="rule" style="margin-top:40px; padding-top:28px; display:flex; justify-content:space-between; align-items:flex-end;">
+            <div><div class="faint upper" style="font-size:10px;">Calculated U-value</div>
+              <div style="margin-top:4px;"><span class="disp" style="font-size:62px; line-height:1;">{cu:.2f}</span> <span class="mono muted" style="font-size:13px;">{_esc(mb.get("unit"))}</span></div></div>
+            <div style="text-align:right;"><div class="faint upper" style="font-size:10px;">Target {tu:.2f}</div>
+              <div class="mono" style="display:inline-block; margin-top:8px; padding:6px 12px; border:1px solid {badge_col}; color:{badge_col}; font-size:13px;">{"✓ PASS" if pass_ else "⚠ REVIEW"}</div></div>
+          </div>'''
+
+    # Photographic schedule
+    figs = ""
+    for ph in photo_uris[:4]:
+        img = (f'<img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;">' if ph.get("data")
+               else '<span class="faint mono" style="font-size:9px;">No image</span>')
+        figs += (f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 2% 20px 0;">'
+                 f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; display:flex; align-items:center; justify-content:center;">{img}</div>'
+                 f'<div style="margin-top:8px;"><span class="mono faint" style="font-size:9px; margin-right:8px;">FIG {_esc(ph.get("fig"))}</span>'
+                 f'<span style="font-size:11px; font-weight:500; color:#262626;">{_esc(ph.get("caption"))}</span>'
+                 f'<div class="muted" style="font-size:10px; margin-top:3px; line-height:1.35;">{_esc(ph.get("observation"))}</div></div></div>')
+    photos_page = f'''
+      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Survey Record</div>
+      <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>
+      <div style="margin-top:22px;">{figs or '<div class="muted" style="font-size:12px;">No survey photographs recorded for this project.</div>'}</div>'''
+
+    # Drawing register
+    draw_rows = "".join(
+        f'<tr><td class="mono" style="color:#262626;">{_esc(d.get("ref"))}</td><td>{_esc(d.get("title"))}</td>'
+        f'<td class="mono muted" style="text-align:right;">{_esc(d.get("scale"))}</td><td class="mono muted" style="text-align:right;">{_esc(d.get("revision"))}</td></tr>'
+        for d in drawings)
+    drawings_page = f'''
+      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 · Construction Details</div>
+      <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Drawing Register</div>
+      <table style="margin-top:24px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
+      <tbody>{draw_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
+
+    pages = [cover, divider, performance, buildup_page, photos_page, drawings_page]
+    pages = [x for x in pages if x]
+    total = len(pages)
+    foot = f"{ref}  ·  {name}  ·  Rev {rev}"
+    body = "".join(
+        f'<div class="page">{inner}<div class="foot"><span>{_esc(foot)}</span><span>{i:02d} / {total:02d}</span></div></div>'
+        for i, inner in enumerate(pages, 1))
+    return f'<!doctype html><html><head><meta charset="utf-8"><style>{PACK_CSS}</style></head><body>{body}</body></html>'
+
+
+@api_router.get("/projects/{project_id}/pack.pdf")
+async def export_pack_pdf(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    photos = (p.get("designPack") or {}).get("photos") or []
+    photo_uris = []
+    for ph in photos[:4]:
+        u = ph.get("url") or ""
+        data = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
+        photo_uris.append({**ph, "data": data})
+    hero_uri = await asyncio.to_thread(_remote_data_uri, p.get("heroImage")) if p.get("heroImage") else None
+    html = build_pack_html(p, photo_uris, hero_uri)
+    from weasyprint import HTML
+    pdf = await asyncio.to_thread(lambda: HTML(string=html).write_pdf())
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
 
 
 # ---------------- Template library ----------------

@@ -34,6 +34,11 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Project Overview shows an upgraded, clickable "TEMPLATE — <name>" chip (`project-template-badge`) linking to the Library.
 - Swept all 8 existing projects → matched each to the closest template by measure set (`/app/backend/rematch_projects.py`), attaching templateId/templateName/templateBlueprint. NOTE: match scripts live in `/app/backend/` and editing them triggers a backend hot-reload that kills in-memory analysis jobs — run, don't edit, during an active job.
 
+### Phase 5 — Design Pack PDF export (2026-06-25)
+- Real server-side PDF via WeasyPrint: `GET /api/projects/{id}/pack.pdf` renders the 6-page pack (cover + hero, strategy divider, existing→proposed performance + strategy grid, wall build-up + U-value PASS/REVIEW, photographic schedule, drawing register) to a print-fidelity A4 PDF.
+- Images embedded as base64 data URIs: survey photos from object storage (`/documents/{id}/download`) and external hero/demo photos via `_remote_data_uri` (http fallback). Filename `Content-Disposition` = `{ref}-{name}-Rev{rev}.pdf`.
+- Frontend "Export PDF" button (`pack-download`) now fetches the blob and downloads with a spinner + toast. `weasyprint==69.0` added to requirements. Verified: valid PDFs (with/without photos), all pages render, browser download fires with correct filename.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
