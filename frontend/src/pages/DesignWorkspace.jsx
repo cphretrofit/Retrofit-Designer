@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getProject } from "@/lib/api";
+import { mediaUrl } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
 import { toast } from "sonner";
@@ -412,21 +413,43 @@ export default function DesignWorkspace() {
         );
       case "survey":
         return (
-          <SimpleSection title="Survey Details">
-            <Field label="Property Type" value={p.property.type} mono={false} />
-            <Field label="Age Band" value={p.property.age} mono={false} />
-            <Field label="Floor Area" value={p.property.floorArea} />
-            <Field label="Storeys" value={p.property.storeys} />
-            <Field label="Occupancy" value={p.property.occupancy} mono={false} />
-            <Field label="Orientation" value={p.property.orientation} mono={false} />
-          </SimpleSection>
+          <div className="anim-in space-y-4">
+            <SimpleSection title="Survey Details">
+              <Field label="Property Type" value={p.property.type} mono={false} />
+              <Field label="Age Band" value={p.property.age} mono={false} />
+              <Field label="Floor Area" value={p.property.floorArea} />
+              <Field label="Storeys" value={p.property.storeys} />
+              <Field label="Occupancy" value={p.property.occupancy} mono={false} />
+              <Field label="Orientation" value={p.property.orientation} mono={false} />
+            </SimpleSection>
+            {p.windowSchedule?.length > 0 && (
+              <div className="border border-border rounded-sm bg-card max-w-2xl">
+                <div className="px-4 h-10 flex items-center border-b border-border text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Window Schedule</div>
+                <table className="w-full text-[12.5px]">
+                  <thead><tr className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground border-b border-border">
+                    <th className="text-left font-normal px-4 py-2">Ref</th><th className="text-left font-normal py-2">Location</th>
+                    <th className="text-right font-normal py-2">W×H</th><th className="text-right font-normal px-4 py-2">Orientation</th></tr></thead>
+                  <tbody className="font-mono-tech">
+                    {p.windowSchedule.map((w, i) => (
+                      <tr key={i} className="border-b border-border/60 last:border-0">
+                        <td className="px-4 py-2 text-muted-foreground">{w.ref || `W${i + 1}`}</td>
+                        <td className="py-2 font-sans">{w.location || "—"}</td>
+                        <td className="text-right py-2">{w.width || "—"}{w.height ? ` × ${w.height}` : ""}</td>
+                        <td className="text-right px-4 py-2 text-muted-foreground">{w.orientation || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         );
       case "photos":
         return (
           <div className="anim-in grid sm:grid-cols-2 gap-4">
             {(p.designPack.photos || []).map((ph) => (
               <figure key={ph.fig} className="border border-border rounded-sm bg-card overflow-hidden">
-                <div className="aspect-[4/3] overflow-hidden"><img src={ph.url} alt={ph.caption} className="w-full h-full object-cover" /></div>
+                <div className="aspect-[4/3] overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" /></div>
                 <figcaption className="p-3">
                   <div className="flex items-center gap-2"><span className="font-mono text-[10px] text-muted-foreground">FIG {ph.fig}</span><span className="text-[13px] font-medium">{ph.caption}</span></div>
                   <p className="text-[12px] text-muted-foreground mt-1 leading-snug">{ph.observation}</p>
@@ -454,18 +477,41 @@ export default function DesignWorkspace() {
         return ewi ? <MeasureDetail m={ewi} onJunctionSave={onJunctionSave} /> : null;
       case "calculations":
         return (
-          <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {p.measures.filter((m) => m.calculatedU != null).map((m) => {
-              const pass = m.calculatedU <= m.targetU;
-              return (
-                <div key={m.code} className="border border-border rounded-sm bg-card p-5 text-center grid-bg">
-                  <div className="text-[11px] text-muted-foreground">{m.name}</div>
-                  <div className="font-display font-300 text-5xl mt-2 tabular-nums" style={{ color: pass ? "var(--c-pass)" : "var(--c-warning)" }}>{m.calculatedU.toFixed(2)}</div>
-                  <div className="text-[11px] font-mono text-muted-foreground mt-1">{m.unit} · target {m.targetU.toFixed(2)}</div>
-                  <div className="mt-3"><StatusChip tone={pass ? "pass" : "warning"}>{pass ? "PASS" : "REVIEW"}</StatusChip></div>
+          <div className="anim-in space-y-5">
+            {p.heatLoss && (p.heatLoss.totalW || p.heatLoss.rooms?.length) ? (
+              <div className="border border-border rounded-sm bg-card">
+                <div className="px-4 h-10 flex items-center justify-between border-b border-border">
+                  <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Heat Loss</span>
+                  <span className="text-[11px] font-mono text-muted-foreground max-w-[200px] truncate" title={`${p.heatLoss.totalW ? p.heatLoss.totalW + " W total" : ""}${p.heatLoss.designFlowTemp ? " · flow " + p.heatLoss.designFlowTemp : ""}`}>
+                    {p.heatLoss.totalW ? `${p.heatLoss.totalW} W total` : ""}{p.heatLoss.designFlowTemp && String(p.heatLoss.designFlowTemp).length <= 14 ? ` · flow ${p.heatLoss.designFlowTemp}` : ""}
+                  </span>
                 </div>
-              );
-            })}
+                <table className="w-full text-[12.5px]">
+                  <tbody className="font-mono-tech">
+                    {(p.heatLoss.rooms || []).map((r, i) => (
+                      <tr key={i} className="border-b border-border/60 last:border-0">
+                        <td className="px-4 py-2 font-sans">{r.room}</td>
+                        <td className="text-right px-4 py-2">{r.watts} W</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {p.measures.filter((m) => m.targetU != null).map((m) => {
+                const has = m.calculatedU != null;
+                const pass = has && m.calculatedU <= m.targetU;
+                return (
+                  <div key={m.code} className="border border-border rounded-sm bg-card p-5 text-center grid-bg">
+                    <div className="text-[11px] text-muted-foreground">{m.name}</div>
+                    <div className="font-display font-300 text-5xl mt-2 tabular-nums" style={{ color: has ? (pass ? "var(--c-pass)" : "var(--c-warning)") : "hsl(var(--muted-foreground))" }}>{has ? m.calculatedU.toFixed(2) : "—"}</div>
+                    <div className="text-[11px] font-mono text-muted-foreground mt-1">{m.unit} · target {m.targetU.toFixed(2)}</div>
+                    <div className="mt-3"><StatusChip tone={has ? (pass ? "pass" : "warning") : "draft"}>{has ? (pass ? "PASS" : "REVIEW") : "PENDING CALC"}</StatusChip></div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         );
       case "risks":

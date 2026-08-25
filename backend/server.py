@@ -641,14 +641,38 @@ def get_object(path: str):
     return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
 
 
-def extract_pdf_text(data: bytes) -> str:
+def extract_pdf_text(data: bytes, max_pages: int = 8) -> str:
     try:
         from pypdf import PdfReader
         reader = PdfReader(io.BytesIO(data))
-        return "\n".join((p.extract_text() or "") for p in reader.pages)
+        return "\n".join((p.extract_text() or "") for p in reader.pages[:max_pages])
     except Exception as e:
         logger.warning("PDF text extraction failed: %s", e)
         return ""
+
+
+def extract_pdf_images(data: bytes, max_images: int = 6, min_bytes: int = 20000, max_pages: int = 18):
+    out = []
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        for page in reader.pages[:max_pages]:
+            try:
+                for img in page.images:
+                    b = img.data
+                    if b and len(b) >= min_bytes:
+                        name = (img.name or "img.png").lower()
+                        iext = name.rsplit(".", 1)[-1] if "." in name else "png"
+                        if iext not in ("png", "jpg", "jpeg", "webp"):
+                            iext = "png"
+                        out.append((b, iext))
+                        if len(out) >= max_images:
+                            return out
+            except Exception:
+                continue
+    except Exception as e:
+        logger.warning("PDF image extraction failed: %s", e)
+    return out
 
 
 # ---------------- AI extraction (Claude Sonnet 4.6) ----------------
@@ -688,8 +712,13 @@ Return this exact JSON shape:
      "layers":[{"material":"","thickness":"","lambda":""}],
      "rates":[{"room":"","value":"","note":""}]}
   ],
+  "windowSchedule": [{"ref":"W1","location":"","width":"","height":"","orientation":"","glazing":""}],
+  "heatLoss": {"totalW": 0, "designFlowTemp": "", "rooms": [{"room":"","watts":0}]},
+  "occupancy": "",
   "itemsBeforeIssue": [{"text":"...","measure":"CODE or QA","severity":"info_required|warning|critical"}]
 }
+
+Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
 """
 
 
@@ -748,7 +777,7 @@ def ai_to_measure(m: dict) -> dict:
     return mk_fabric(code, name, pas, system, target, existing, calc, comp, img, build, jn)
 
 
-def ai_build_project(ai: dict, ref: str) -> dict:
+def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
     measures = [ai_to_measure(m) for m in (ai.get("measures") or [])]
     if not measures:
         measures = [measure_for("EWI", 60)]
@@ -783,6 +812,7 @@ def ai_build_project(ai: dict, ref: str) -> dict:
             items.append({"text": f"{o} — {m['name']}", "measure": m["code"], "severity": "warning"})
     if not items:
         items = [{"text": "Final QA sign-off by coordinator", "measure": "QA", "severity": "info_required"}]
+    items = items[:12]
 
     ewi = next((m for m in measures if m["code"] in ("EWI", "IWI", "SWI")), None)
     drawings = [{"ref": j["detail"], "title": f"{ewi['code']} — {j['name']}", "scale": "1:5",
@@ -801,6 +831,8 @@ def ai_build_project(ai: dict, ref: str) -> dict:
         "epcBefore": ai.get("epcBefore") or "—", "epcAfter": ai.get("epcAfter") or "—",
         "updatedAt": datetime.now(timezone.utc).isoformat(), "heroImage": IMG["colourful_terrace"],
         "source": "ai_import",
+        "windowSchedule": ai.get("windowSchedule") or [],
+        "heatLoss": ai.get("heatLoss") or None,
         "property": {
             "type": prop_in.get("type") or "—", "age": prop_in.get("age") or "—",
             "floorArea": prop_in.get("floorArea") or "—", "storeys": prop_in.get("storeys") or 1,
@@ -818,7 +850,7 @@ def ai_build_project(ai: dict, ref: str) -> dict:
         },
         "readiness": {"overall": overall, "breakdown": breakdown},
         "itemsBeforeIssue": items, "measures": measures,
-        "designPack": {"photos": [], "drawings": drawings},
+        "designPack": {"photos": photos or [], "drawings": drawings},
     }
 
 
@@ -830,14 +862,72 @@ async def next_ref():
     return f"RTF-2026-{159 + doc['seq']:04d}"
 
 
-TEXT_LIMIT = {"ASHP Survey": 8000, "Datasheet": 4000}
+TEXT_LIMIT = {"ASHP Survey": 9000, "Datasheet": 3000}
+PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey")
 
 
-async def process_import_job(job_id: str, prompt: str, doc_ids: list):
+async def process_import_job(job_id: str, payload: list):
     try:
+        doc_ids = []
+        parts = []
+        photos = []
+        fig = 1
+        for item in payload:
+            data = item["data"]
+            dtype = item["doc_type"]
+            fn = item["filename"] or "file"
+            ctype = item["content_type"] or "application/pdf"
+            ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+            path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
+            stored = None
+            try:
+                stored = (await asyncio.to_thread(put_object, path, data, ctype))["path"]
+            except Exception as e:
+                logger.warning("storage put failed: %s", e)
+            did = str(uuid.uuid4())
+            await db.documents.insert_one({
+                "id": did, "project_id": None, "storage_path": stored,
+                "original_filename": fn, "content_type": ctype, "doc_type": dtype,
+                "size": len(data), "is_deleted": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            doc_ids.append(did)
+
+            text = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+            limit = TEXT_LIMIT.get(dtype, 11000)
+            if text.strip():
+                parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:limit]}")
+            else:
+                parts.append(f"=== DOCUMENT: {dtype} ({fn}) === [no extractable text — image-only PDF]")
+
+            if ext == "pdf" and dtype in PHOTO_DOC_TYPES and len(photos) < 6:
+                for (b, iext) in (await asyncio.to_thread(extract_pdf_images, data)):
+                    if len(photos) >= 6:
+                        break
+                    mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
+                    pid = str(uuid.uuid4())
+                    ppath = f"{APP_NAME}/uploads/{pid}.{iext}"
+                    try:
+                        pstored = (await asyncio.to_thread(put_object, ppath, b, mime))["path"]
+                    except Exception as e:
+                        logger.warning("photo put failed: %s", e)
+                        continue
+                    await db.documents.insert_one({
+                        "id": pid, "project_id": None, "storage_path": pstored,
+                        "original_filename": f"{dtype}-figure-{fig:02d}.{iext}", "content_type": mime,
+                        "doc_type": "Survey Photo", "size": len(b), "is_deleted": False,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                    doc_ids.append(pid)
+                    photos.append({"fig": f"{fig:02d}", "caption": f"{dtype} — Figure {fig}",
+                                   "observation": f"Photograph extracted from the {dtype}.",
+                                   "url": f"/api/documents/{pid}/download"})
+                    fig += 1
+
+        prompt = "Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts)
         ai = await call_claude(prompt)
         ref = await next_ref()
-        project = ai_build_project(ai, ref)
+        project = ai_build_project(ai, ref, photos)
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)
@@ -852,39 +942,16 @@ async def process_import_job(job_id: str, prompt: str, doc_ids: list):
 async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="AI key not configured")
-    doc_ids = []
-    parts = []
+    payload = []
     for f, dtype in zip(files, types):
-        data = await f.read()
-        ext = f.filename.rsplit(".", 1)[-1].lower() if "." in (f.filename or "") else "bin"
-        path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
-        stored = None
-        try:
-            stored = (await asyncio.to_thread(put_object, path, data, f.content_type or "application/pdf"))["path"]
-        except Exception as e:
-            logger.warning("storage put failed: %s", e)
-        rec = {
-            "id": str(uuid.uuid4()), "project_id": None, "storage_path": stored,
-            "original_filename": f.filename, "content_type": f.content_type or "application/pdf",
-            "doc_type": dtype, "size": len(data), "is_deleted": False,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        await db.documents.insert_one(dict(rec))
-        doc_ids.append(rec["id"])
-        text = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
-        limit = TEXT_LIMIT.get(dtype, 12000)
-        if text.strip():
-            parts.append(f"=== DOCUMENT: {dtype} ({f.filename}) ===\n{text[:limit]}")
-        else:
-            parts.append(f"=== DOCUMENT: {dtype} ({f.filename}) === [no extractable text — image-only PDF]")
-
-    prompt = "Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts)
+        payload.append({"filename": f.filename, "content_type": f.content_type,
+                        "doc_type": dtype, "data": await f.read()})
     job_id = str(uuid.uuid4())
     await db.import_jobs.insert_one({
         "id": job_id, "status": "processing", "project_id": None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    asyncio.create_task(process_import_job(job_id, prompt, doc_ids))
+    asyncio.create_task(process_import_job(job_id, payload))
     return {"job_id": job_id, "status": "processing"}
 
 

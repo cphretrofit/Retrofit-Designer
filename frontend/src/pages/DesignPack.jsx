@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getProject } from "@/lib/api";
+import { mediaUrl } from "@/lib/api";
 import { useTheme } from "@/context/ThemeProvider";
 import { ArrowLeft, Download, Printer, Sun, Moon } from "lucide-react";
 
@@ -96,7 +97,7 @@ export default function DesignPack() {
           <div className="text-[10px] tracking-[0.24em] text-neutral-400 uppercase">Section 04.1</div>
           <h2 className="font-display font-400 text-2xl tracking-tight mt-1">Existing → Proposed Performance</h2>
           <div className="mt-8 space-y-6">
-            {p.measures.filter((m) => m.calculatedU != null).map((m) => (
+            {p.measures.filter((m) => m.calculatedU != null && m.targetU != null && m.existingU != null).map((m) => (
               <div key={m.code} className="grid grid-cols-[1fr_auto_1fr_auto_1.2fr] items-center gap-4 border-b border-neutral-200 pb-6">
                 <div><div className="text-[9px] uppercase tracking-[0.12em] text-neutral-400">{m.name} — Existing</div><div className="font-mono text-3xl mt-1">{m.existingU?.toFixed(2)}</div><div className="text-[10px] text-neutral-400 font-mono">{m.unit}</div></div>
                 <div className="text-neutral-300 text-2xl">→</div>
@@ -117,7 +118,7 @@ export default function DesignPack() {
         </PackPage>
 
         {/* WALL BUILD-UP + U-VALUE */}
-        {(() => { const m = p.measures.find((x) => x.buildup?.length); if (!m) return null; const pass = m.calculatedU <= m.targetU; return (
+        {(() => { const m = p.measures.find((x) => x.buildup?.length && x.calculatedU != null && x.targetU != null); if (!m) return null; const pass = m.calculatedU <= m.targetU; return (
           <PackPage num={4} total={total} footer={foot}>
             <div className="text-[10px] tracking-[0.24em] text-neutral-400 uppercase">Section 05 · Technical Specification</div>
             <h2 className="font-display font-400 text-2xl tracking-tight mt-1">{m.name} — Wall Build-up</h2>
@@ -141,7 +142,7 @@ export default function DesignPack() {
           <div className="grid grid-cols-2 gap-6 mt-6">
             {(p.designPack.photos || []).slice(0, 4).map((ph) => (
               <figure key={ph.fig}>
-                <div className="aspect-[4/3] border border-neutral-200 overflow-hidden"><img src={ph.url} alt={ph.caption} className="w-full h-full object-cover" /></div>
+                <div className="aspect-[4/3] border border-neutral-200 overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" /></div>
                 <figcaption className="mt-2"><div className="flex items-center gap-2"><span className="font-mono text-[9px] text-neutral-400">FIG {ph.fig}</span><span className="text-[11px] font-medium text-neutral-800">{ph.caption}</span></div><p className="text-[10.5px] text-neutral-500 mt-1 leading-snug">{ph.observation}</p></figcaption>
               </figure>
             ))}

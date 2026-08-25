@@ -36,6 +36,8 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - P2: Auth + roles (designer/coordinator); persist import jobs across restarts (currently in-memory task).
 
 ## Notes
+- Import performance: POST returns ~1s (work moved to a background job); full AI draft completes ~60-70s (was up to ~5 min). Fixed by capping PDF text to the first 8 data-rich pages + off-loop extraction.
+- Import now extracts real survey photos embedded in the PDFs into designPack.photos (shown in workspace Photos + Design Pack) and pulls site-specific windowSchedule + room-by-room heatLoss; itemsBeforeIssue capped at 12; DesignPack null-guards fixed for drafts with pending U-values.
 - No authentication (opens straight to Command Centre).
 - Dashboard KPIs partly fixed values for demo realism (42 active / 47 min avg).
 - MOCKED: nothing is mocked — Claude and object storage are live via the Emergent key.

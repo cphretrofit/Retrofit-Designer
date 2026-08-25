@@ -58,8 +58,9 @@ def import_result(api):
             break
         time.sleep(5)
     assert job is not None
-    print(f"upload_secs={upload_secs:.1f} total={time.time()-t0:.1f} job={job.get('status')}")
-    return {"job": job, "job_id": job_id, "upload_secs": upload_secs}
+    total_secs = time.time() - t0
+    print(f"upload_secs={upload_secs:.1f} total={total_secs:.1f} job={job.get('status')}")
+    return {"job": job, "job_id": job_id, "upload_secs": upload_secs, "total_secs": total_secs}
 
 
 class TestImportJob:
@@ -123,6 +124,67 @@ class TestImportedProject:
 
     def test_design_pack_present(self, project):
         assert project.get("designPack") is not None, "designPack missing -> /pack route crashes"
+
+    # ---- speed fix (user complaint 1) ----
+    def test_post_returns_fast(self, import_result):
+        assert import_result["upload_secs"] < 20, (
+            f"POST /api/projects/import took {import_result['upload_secs']:.1f}s (should return immediately)")
+
+    def test_job_completes_under_2min(self, import_result):
+        total = import_result["total_secs"]
+        assert total < 150, f"import job took {total:.1f}s (>150s)"
+
+    # ---- photos from PDFs (user complaint 3) ----
+    def test_design_pack_photos_from_pdfs(self, project):
+        photos = (project.get("designPack") or {}).get("photos")
+        assert isinstance(photos, list) and len(photos) > 0, "designPack.photos empty - no images extracted from PDFs"
+        for ph in photos:
+            assert ph.get("url", "").startswith("/api/documents/"), f"bad photo url: {ph}"
+            assert ph.get("caption")
+
+    def test_photo_urls_download_images(self, api, project):
+        photos = (project.get("designPack") or {}).get("photos") or []
+        if not photos:
+            pytest.fail("no photos to download")
+        for ph in photos:
+            r = api.get(f"{BASE_URL}{ph['url']}", timeout=120)
+            assert r.status_code == 200, f"photo download failed {ph['url']}: {r.status_code}"
+            ctype = r.headers.get("content-type", "")
+            assert ctype.startswith("image/"), f"photo content-type not image/*: {ctype}"
+            assert len(r.content) > 5000, f"photo too small: {len(r.content)} bytes"
+
+    # ---- site specific detail (user complaint 2) ----
+    def test_window_schedule(self, project):
+        ws = project.get("windowSchedule")
+        assert isinstance(ws, list) and len(ws) > 0, "windowSchedule empty"
+        for w in ws:
+            assert w.get("ref")
+            assert any(w.get(k) for k in ("width", "height", "location")), f"window lacks detail: {w}"
+
+    def test_heat_loss(self, project):
+        hl = project.get("heatLoss")
+        assert isinstance(hl, dict) and hl, "heatLoss missing"
+        assert isinstance(hl.get("totalW"), (int, float)) and hl["totalW"] > 0, f"heatLoss.totalW invalid: {hl.get('totalW')}"
+        rooms = hl.get("rooms")
+        assert isinstance(rooms, list) and len(rooms) > 0, "heatLoss.rooms empty"
+        for rm in rooms:
+            assert rm.get("room")
+            assert isinstance(rm.get("watts"), (int, float))
+
+    def test_property_detail_fields(self, project):
+        prop = project["property"]
+        for k in ("type", "floorArea"):
+            assert prop.get(k), f"property.{k} empty"
+
+    def test_epc_bands_format(self, project):
+        for k in ("epcBefore", "epcAfter"):
+            val = project.get(k)
+            assert isinstance(val, str) and val.strip(), f"{k} missing"
+            assert len(val) <= 14 and len(val.split()) <= 2, f"{k} looks like a sentence: {val}"
+
+    def test_items_before_issue_limited(self, project):
+        items = project.get("itemsBeforeIssue") or []
+        assert len(items) <= 12, f"itemsBeforeIssue has {len(items)} entries (>12)"
 
 
 # ---------- Module: documents linking + download ----------

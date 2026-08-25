@@ -10,3 +10,5 @@ export const getProjects = () => api.get("/projects").then((r) => r.data);
 export const getProject = (id) => api.get(`/projects/${id}`).then((r) => r.data);
 export const updateField = (id, payload) =>
   api.patch(`/projects/${id}/field`, payload).then((r) => r.data);
+
+export const mediaUrl = (u) => (!u ? u : u.startsWith("http") ? u : `${BACKEND_URL}${u}`);

@@ -1,0 +1,38 @@
+{
+  "summary": "Focused re-test of the iteration_3 CRITICAL Design Pack crash. VERIFIED FIXED. Ran a full UI AI import (3 sample PDFs via /import -> generate-draft-button -> redirect in ~70s to /project/896e611c-0bee-4a3c-89f5-90dda8ce2b22, RTF-2026-0166). The imported project's Design Pack at /project/{id}/pack now renders fully: 5 PackPages (cover, section divider, existing->proposed, photographic schedule, drawing register), body text 1474 chars, pack-back visible, ZERO page/console errors. Wall build-up page is correctly omitted (imported LOFT/WIN measures have buildup but calculatedU === null) — expected per spec. Photo schedule renders 4 real extracted images (naturalWidth/Height 800x600). Regression: seeded /project/RTF-2026-0142/pack still renders all 6 pages including the Wall Build-up page with the big 0.28 W/m2K readout, target 0.30 and the green PASS badge; photo figures load at 1200/975 px. itemsBeforeIssue cap is enforced: fresh import returned exactly 12 items (GET /api/projects/{id}) and the overview shows '12 ITEMS BEFORE ISSUE'. Calculations heat-loss header now shows only '3260 W total' (long designFlowTemp prose no longer inline). Dashboard lists 15 rows and row click navigates correctly; imported overview shows 72% readiness with full content; workspace Photos (6 real photos), Survey (property table + 4-row window schedule with mm dims/orientation) and Calculations (5-room heat loss) all render. Backend pytest: 12/12 backend_test.py + 23/23 test_import.py = 35/35 pass. Database reseeded back to 8 clean projects at the end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/projects/import", "issue": "designPack.drawings is empty ([]) for AI-imported projects, so Design Pack page 6 'Drawing Register' renders an empty table with only headers and no thumbnail tiles. Cosmetic/content gap, not a crash."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Design Pack (all projects)", "issues": ["Page footer numbering is hardcoded to total=6 ('05 / 06'), but the wall build-up page is conditionally omitted, so imported packs show 5 pages numbered up to 06 with a gap (page numbers 5 and 6 on the last two sheets while only 5 sheets exist). Compute total from the pages actually rendered."]},
+      {"screen": "Design Pack page 3 (imported project)", "issues": ["Existing -> Proposed Performance table has zero rows for imported projects (all calculatedU are null), leaving a large empty area above the Retrofit Strategy list. Consider an explicit 'U-value calculations pending' placeholder."]},
+      {"screen": "Design Pack cover (imported project)", "issues": ["heroImage is a generic stock terraced-street photo while the property is an End-terrace bungalow; also the cover subtitle shows 'Norwich, Norfolk, NR9 3ES' whereas the overview shows 'Hethersett'. Minor consistency/authenticity nit."]},
+      {"screen": "Design Workspace > Photos (imported)", "issues": ["Captions remain generic ('Assessment — Figure N' / 'Photograph extracted from the Assessment.') — carried over from iteration_3, non-blocking."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_import.py", "/app/backend/tests/backend_test.py", "/app/test_reports/pytest/iter4_import.xml", "/app/test_reports/pytest/iter4_backend.xml"],
+  "action_items": [
+    "Optional: derive the Design Pack footer page total dynamically instead of the hardcoded total=6 so numbering is contiguous when the wall build-up page is skipped.",
+    "Optional: populate designPack.drawings (or hide the Drawing Register page) for AI-imported projects.",
+    "Optional: placeholder text for the empty Existing -> Proposed table on imported packs."
+  ],
+  "critical_code_review_comments": [
+    "DesignPack.jsx still dereferences p.designPack.photos / p.designPack.drawings after only guarding p.property && p.measures — if designPack is ever missing the route white-screens again; guard with p.designPack?.photos.",
+    "No React error boundary around the /pack route; any single nullable-field regression blanks the whole page. Add an ErrorBoundary so failures degrade gracefully.",
+    "process_import_job still uses asyncio.create_task with no timeout/concurrency limit (carried over from iteration_3); a hung LLM call leaves the job in 'processing' forever."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (35/35 pytest assertions)", "frontend": "100% of tested flows (import, imported pack, seeded pack, dashboard, overview, workspace photos/survey/calculations)"},
+  "seed_data_creation": "Two AI-imported projects were created during testing (UI import RTF-2026-0166 / 896e611c-0bee-4a3c-89f5-90dda8ce2b22 and one from the pytest import run). POST /api/reseed was called at the end and GET /api/projects now returns the clean 8 seeded projects.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "No auth required.",
+  "context_for_next_testing_agent": "iteration_3's CRITICAL DesignPack toFixed-on-null crash is fixed and verified for both imported and seeded projects; itemsBeforeIssue cap (<=12) verified. Sample PDFs are cached at /tmp/pdfs (assessment.pdf, scope.pdf, ashp.pdf); re-download from the review-request URLs if missing, otherwise tests/test_import.py skips. Import takes ~75s end-to-end. Remaining items are cosmetic only (pack page-total numbering, empty drawing register / existing->proposed table for imports, generic photo captions, stock hero image).",
+  "rca_of_the_issue": "Previous crash root cause (now fixed): DesignPack.jsx rendered the wall build-up page for the first measure with a buildup array and called m.calculatedU.toFixed(2) although the AI import legitimately returns calculatedU === null. The fix adds `calculatedU != null && targetU != null` to both the build-up find() and the existing->proposed filter, so the page is skipped rather than throwing; confirmed no pageerror events on the imported pack and the seeded pack still shows the build-up page."
+}

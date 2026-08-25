@@ -1,0 +1,40 @@
+{
+  "summary": "Re-test of the 3 user complaints (speed / detail / real photos) on the AI import feature plus regression. Backend: 22/23 pytest checks pass in /app/backend/tests/test_import.py (expanded with new speed, photo-download, windowSchedule, heatLoss, EPC-format assertions) and 12/12 in backend_test.py. Measured POST /api/projects/import latency = 0.9s (was 60s+) and job completion = 62s (UI end-to-end 73s incl. redirect). designPack.photos = 6 real images extracted from the uploaded PDFs; every /api/documents/{id}/download returned 200 with image/jpeg and >5KB, and they render in the Design Workspace Photos grid (naturalWidth 800x600). windowSchedule (4 windows with mm dimensions + orientation) renders in Survey; heatLoss (3260 W total, 5 rooms) renders in Calculations. Property fields site-specific (End-terrace bungalow, 1967-1975, 48.74 m2, cavity masonry 300mm). epcBefore '—' / epcAfter 'A (94)' are valid bands. REGRESSION BLOCKER: the imported project's Design Pack (/project/{id}/pack) white-screens with 'Cannot read properties of null (reading toFixed)'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/projects/import", "issue": "itemsBeforeIssue returned 15 entries for both imports although the prompt/spec caps it at 12 (LLM instruction not enforced server-side). Overview shows '15 ITEMS BEFORE ISSUE'."},
+      {"endpoint": "POST /api/projects/import", "issue": "heatLoss.designFlowTemp comes back as a full sentence ('Calculated at -1.856C outside design temperature; flow temp TBC from ASHP commissioning data') instead of a short value, which makes the Calculations header cell look like prose."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "DesignPack.jsx (Wall Build-up page, lines 132-133)", "issue": "CRASH / white screen for AI-imported projects. The page picks `p.measures.find(x => x.buildup?.length)` (LOFT for the imported project) and then calls `m.calculatedU.toFixed(2)` and `m.targetU.toFixed(2)` unguarded. Imported measures legitimately have calculatedU === null (per the AI prompt), so DesignPack throws 'TypeError: Cannot read properties of null (reading toFixed)' and the whole /project/{id}/pack route renders an empty body (0 chars). Consequence: the new photo schedule in the Design Pack could NOT be verified at all. Line 104 has the same unguarded m.calculatedU/m.targetU pattern inside the existing->proposed block (that one is filtered on calculatedU != null, so only the build-up block crashes today, but line 104's `m.targetU.toFixed` is still unguarded for a measure with calculatedU set and targetU null).", "selector": "/project/a894dffc-d042-42ed-a5db-e3ca7fa03355/pack", "priority": "CRITICAL"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Design Workspace > Calculations (imported project)", "issues": ["Heat-loss header cell renders the long designFlowTemp sentence inline next to '3260 W total', wrapping awkwardly over two lines; consider a separate labelled row or truncation."]},
+      {"screen": "Design Workspace > Photos (imported project)", "issues": ["Extracted PDF figures are all captioned generically ('Assessment — Figure N' / 'Photograph extracted from the Assessment.'); a couple of the extracted images are close-up brick/tape-measure crops, so captions give no context. Not blocking, but reduces perceived 'site-specific' quality."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_import.py", "/app/backend/tests/backend_test.py", "/app/backend/tests/_manual_import_timing.py", "/app/test_reports/pytest/import_results.xml"],
+  "action_items": [
+    "Fix DesignPack.jsx null-guards: use optional chaining / a `has = m.calculatedU != null` guard for calculatedU and targetU in the Wall Build-up block (lines 132-133) and line 104, so the Design Pack renders for AI-imported projects. Then re-verify the photo schedule renders the extracted images.",
+    "Enforce the itemsBeforeIssue <= 12 cap server-side in ai_build_project (slice the list) instead of relying on the prompt.",
+    "Optionally shorten heatLoss.designFlowTemp (value only) and push the explanation into itemsBeforeIssue."
+  ],
+  "critical_code_review_comments": [
+    "DesignPack.jsx dereferences numeric fields the backend explicitly documents as nullable (calculatedU/targetU) — every .toFixed() call on API data needs a null guard; there is no error boundary, so a single null blanks the whole route.",
+    "process_import_job spawns work with asyncio.create_task without any concurrency limit or timeout; a slow/hung Claude call leaves the job stuck in 'processing' forever with no timeout -> error transition.",
+    "extract_pdf_images caps at 6 photos/20KB min but always labels them 'Figure N' with a generic observation; consider carrying the page number for traceability.",
+    "DesignWorkspace.jsx is 653 lines — consider splitting the section renderers into separate modules."
+  ],
+  "updated_files": ["/app/backend/tests/test_import.py", "/app/backend/tests/_manual_import_timing.py"],
+  "success_rate": {"backend": "96% (34/35 assertions across import + regression suites)", "frontend": "85% (dashboard, overview, workspace photos/survey/calculations/measures, import flow all pass; imported Design Pack crashes)"},
+  "seed_data_creation": "3 extra AI-imported projects were created during testing (RTF-2026-0164 id a894dffc-d042-42ed-a5db-e3ca7fa03355, RTF-2026-0165 id 19799244-8353-4dc1-8420-1a9b7d3d6736, plus one from the pytest run) using the 3 sample PDFs downloaded to /tmp/pdfs. Safe to delete.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "No auth required; /app/memory/test_credentials.md not needed.",
+  "context_for_next_testing_agent": "Sample PDFs must be re-downloaded to /tmp/pdfs (see URLs in review request) before running tests/test_import.py, otherwise the module skips. Verified: POST returns in ~1s, job done in ~62s, 6 real photos with image/jpeg downloads, windowSchedule + heatLoss populated and rendered. Outstanding: /project/{imported_id}/pack white-screens (DesignPack toFixed on null). After the fix, re-check the Design Pack photo schedule renders the 6 extracted images and that the seeded RTF-2026-0142 pack still renders.",
+  "rca_of_the_issue": "DesignPack.jsx renders the wall build-up page for the first measure with a buildup array. For AI-imported projects the LOFT measure has buildup (2 layers) but calculatedU === null (the backend prompt deliberately sets calculatedU to null unless the docs state an as-built value). The component calls m.calculatedU.toFixed(2) without a null check, throwing a TypeError during render; with no error boundary React unmounts the tree and the /pack route shows a blank page. Reproduce: import the 3 sample PDFs, then open /project/{new_id}/pack."
+}
