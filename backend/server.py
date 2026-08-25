@@ -1226,7 +1226,50 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
       <table style="margin-top:24px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
       <tbody>{draw_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
-    pages = [cover, divider, performance, buildup_page, photos_page, drawings_page]
+    # Template-driven contents (section skeleton from the matched blueprint)
+    contents_page = None
+    bp = p.get("templateBlueprint") or {}
+    secs = bp.get("sections") or []
+    if secs:
+        sec_rows = ""
+        for i, s in enumerate(secs):
+            no = str(s.get("no") or i + 1).zfill(2)
+            contains = f'<div class="muted" style="font-size:10.5px; margin-top:2px; line-height:1.35;">{_esc(s.get("contains"))}</div>' if s.get("contains") else ""
+            sec_rows += (f'<div style="display:flex; padding:7px 0; border-bottom:1px solid #f0f0f0;">'
+                         f'<span class="mono faint" style="width:34px; font-size:11px;">{no}</span>'
+                         f'<div style="flex:1;"><div style="font-size:12.5px; color:#262626; font-weight:500;">{_esc(s.get("title"))}</div>{contains}</div></div>')
+        summary_html = f'<div class="muted" style="font-size:12px; margin-top:10px; max-width:150mm;">{_esc(bp.get("summary"))}</div>' if bp.get("summary") else ""
+        tbls = bp.get("tables") or []
+        tbls_html = ""
+        if tbls:
+            chips_t = "".join(f'<span class="chip">{_esc(t)}</span>' for t in tbls[:8])
+            tbls_html = f'<div style="margin-top:20px;"><div class="faint upper" style="font-size:10px; margin-bottom:10px;">Technical Schedules</div>{chips_t}</div>'
+        tmpl_note = f'<div class="mono faint" style="font-size:9px; margin-top:20px;">Prepared to template · {_esc(p.get("templateName"))}</div>' if p.get("templateName") else ""
+        contents_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 02 · Document Contents</div>'
+                         f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Pack Contents</div>'
+                         f'{summary_html}<div style="margin-top:20px;">{sec_rows}</div>{tbls_html}{tmpl_note}')
+
+    # Items Before Issue register
+    items = p.get("itemsBeforeIssue") or []
+    SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
+    SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
+    it_rows = ""
+    for i, it in enumerate(items):
+        sev = it.get("severity") or "info_required"
+        col = SEV_COL.get(sev, "#0055FF")
+        it_rows += (f'<tr><td class="mono faint" style="width:8%;">{str(i + 1).zfill(2)}</td>'
+                    f'<td style="width:22%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:7px; vertical-align:middle;"></span>'
+                    f'<span style="font-size:10px; color:{col};">{SEV_LBL.get(sev, sev)}</span></td>'
+                    f'<td>{_esc(it.get("text"))}</td>'
+                    f'<td class="mono muted" style="width:12%; text-align:right;">{_esc(it.get("measure"))}</td></tr>')
+    it_empty = '<tr><td colspan="4" class="muted" style="font-size:12px;">No outstanding items — ready to issue.</td></tr>'
+    items_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 · Pre-Issue Register</div>'
+                  f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Items Before Issue</div>'
+                  f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(items)} outstanding item(s) to be resolved and confirmed by the Retrofit Coordinator prior to issue.</div>'
+                  f'<table style="margin-top:20px;"><thead><tr><th style="width:8%;">#</th><th style="width:22%;">Severity</th><th>Item</th><th style="text-align:right;">Measure</th></tr></thead>'
+                  f'<tbody>{it_rows or it_empty}</tbody></table>')
+
+    pages = [cover, contents_page, divider, performance, buildup_page, photos_page, drawings_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"

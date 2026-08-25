@@ -43,6 +43,9 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - PDF cover now carries a sign-off block (Designer, Coordinator, Date Issued) plus a QR code (segno) linking to the live project (`{origin}/project/{id}`; origin passed from the frontend). `GET /api/projects/{id}/pack.pdf?origin=...`.
 - Template Library gained a search box (name/filename) and toggleable measure-code filter chips (AND match) with a live "N of 57" count and Clear. Verified: "ashp"→24/57, B9+ASHP+SOLAR→5/57. `segno==1.6.6` added to requirements.
 
+### Phase 7 — Full issue-ready PDF (2026-06-25)
+- Design Pack PDF expanded to 8 pages: added **Section 02 · Design Pack Contents** (template-driven section skeleton — summary, numbered sections with descriptions, and technical schedules pulled from the matched template's blueprint) and **Section 07 · Items Before Issue** (complete pre-issue register with colour-coded severity: Critical/Warning/Info Required, item text, measure). Verified by rendering both new pages.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
