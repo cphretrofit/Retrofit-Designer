@@ -13,6 +13,7 @@ import DesignPack from "@/pages/DesignPack";
 import ImportProject from "@/pages/ImportProject";
 import Templates from "@/pages/Templates";
 import UserManagement from "@/pages/UserManagement";
+import ChangePassword from "@/pages/ChangePassword";
 
 function App() {
   return (
@@ -30,6 +31,7 @@ function App() {
             <Route path="/project/:id/design/:section" element={<ProtectedRoute><DesignWorkspace /></ProtectedRoute>} />
             <Route path="/project/:id/pack" element={<ProtectedRoute><DesignPack /></ProtectedRoute>} />
             <Route path="/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+            <Route path="/account/password" element={<ProtectedRoute><ChangePassword /></ProtectedRoute>} />
           </Routes>
         </AuthProvider>
       </BrowserRouter>

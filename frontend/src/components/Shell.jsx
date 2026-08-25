@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useState } from "react";
 import { useTheme } from "@/context/ThemeProvider";
 import { useAuth } from "@/context/AuthContext";
-import { Command, Moon, Sun, Search, ChevronRight, LogOut, Users, ChevronDown } from "lucide-react";
+import { Command, Moon, Sun, Search, ChevronRight, LogOut, Users, ChevronDown, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function UserMenu() {
@@ -33,6 +33,10 @@ function UserMenu() {
               <Users className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} /> User Management
             </button>
           )}
+          <button onMouseDown={() => navigate("/account/password")} data-testid="nav-change-password"
+            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] hover:bg-secondary transition-colors">
+            <KeyRound className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} /> Change password
+          </button>
           <button onMouseDown={logout} data-testid="logout-button"
             className="w-full flex items-center gap-2 px-3 py-2 text-[13px] hover:bg-secondary transition-colors text-red-600">
             <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} /> Sign out
