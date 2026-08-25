@@ -91,6 +91,9 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - The old Design Pack preview was a hand-built 6-page React mock that diverged from the real 15–22 page WeasyPrint export. Refactored the PDF route into a shared `_render_pack_html(project_id, origin)` and added `GET /api/projects/{id}/pack.html` that returns the **exact same HTML** the PDF is generated from (`build_pack_html`). Added an `@media screen` block to `PACK_CSS` so the identical markup paginates nicely on-screen (grey backdrop, white A4 cards) while WeasyPrint still uses `@page` for print.
 - `DesignPack.jsx` now renders that HTML in a same-origin iframe (`pack-frame`); Print calls the iframe's `contentWindow.print()`, Export PDF unchanged. Preview and export are now guaranteed byte-identical. Verified: pack.html = 15 pages / pack.pdf still 200; preview cover matches the PDF cover (QR, sign-off, hero, chips).
 
+### Phase 17 — Design Pack page-thumbnail rail (2026-06-25)
+- Added a left thumbnail rail to the Design Pack preview. Because the preview iframe is same-origin, `DesignPack.jsx` reads the iframe's `.page` nodes + the pack `<style>` on load and renders a true mini-render of every page inside a Shadow-DOM host (clean style scoping; images are self-contained data URIs). Clicking a thumbnail smooth-scrolls the iframe to that page; a scroll listener tracks the active page (ring highlight + "N/15" counter). Verified: 15 thumbnails, active highlight + jump-to-page working.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
