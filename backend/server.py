@@ -649,6 +649,96 @@ async def confirm_item(project_id: str, index: int, payload: ItemConfirm):
     return {"itemsBeforeIssue": items}
 
 
+class DefectIn(BaseModel):
+    element: Optional[str] = ""
+    description: str
+    severity: Optional[str] = "medium"
+    action: Optional[str] = ""
+
+
+@api_router.post("/projects/{project_id}/defects")
+async def add_defect(project_id: str, payload: DefectIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    defects = proj.get("defects") or []
+    d = {"id": str(uuid.uuid4()), "element": (payload.element or "").strip(),
+         "description": payload.description.strip(), "severity": (payload.severity or "medium").lower(),
+         "action": (payload.action or "").strip(), "photo": None}
+    defects.append(d)
+    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects}
+
+
+@api_router.put("/projects/{project_id}/defects/{defect_id}")
+async def update_defect(project_id: str, defect_id: str, payload: DefectIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    defects = proj.get("defects") or []
+    found = False
+    for d in defects:
+        if d.get("id") == defect_id:
+            d["element"] = (payload.element or "").strip()
+            d["description"] = payload.description.strip()
+            d["severity"] = (payload.severity or "medium").lower()
+            d["action"] = (payload.action or "").strip()
+            found = True
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="Defect not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects}
+
+
+@api_router.delete("/projects/{project_id}/defects/{defect_id}")
+async def delete_defect(project_id: str, defect_id: str):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    all_d = proj.get("defects") or []
+    removed = next((d for d in all_d if d.get("id") == defect_id), None)
+    defects = [d for d in all_d if d.get("id") != defect_id]
+    if removed and removed.get("photoDocId"):
+        await db.documents.update_one({"id": removed["photoDocId"]}, {"$set": {"is_deleted": True}})
+    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects}
+
+
+@api_router.post("/projects/{project_id}/defects/{defect_id}/photo")
+async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile = File(...)):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    defects = proj.get("defects") or []
+    d = next((x for x in defects if x.get("id") == defect_id), None)
+    if not d:
+        raise HTTPException(status_code=404, detail="Defect not found")
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=422, detail="Please upload an image file")
+    data = await file.read()
+    fn = file.filename or "photo.jpg"
+    ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "jpg"
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        ext = "jpg"
+    mime = file.content_type or ("image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}")
+    if d.get("photoDocId"):
+        await db.documents.update_one({"id": d["photoDocId"]}, {"$set": {"is_deleted": True}})
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{pid}.{ext}"
+    stored = (await asyncio.to_thread(put_object, path, data, mime))["path"]
+    await db.documents.insert_one({
+        "id": pid, "project_id": project_id, "storage_path": stored,
+        "original_filename": fn, "content_type": mime, "doc_type": "Defect Photo",
+        "size": len(data), "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    d["photo"] = f"/api/documents/{pid}/download"
+    d["photoDocId"] = pid
+    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects}
+
+
 @api_router.post("/reseed")
 async def reseed():
     await db.projects.delete_many({})
@@ -1296,7 +1386,7 @@ async def list_documents(project_id: str):
     proj = await db.projects.find_one({"id": project_id})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
-    docs = await db.documents.find({"project_id": project_id, "is_deleted": False}, {"_id": 0}).to_list(1000)
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": False, "doc_type": {"$ne": "Defect Photo"}}, {"_id": 0}).to_list(1000)
     return sorted(docs, key=lambda d: d.get("created_at", ""))
 
 
@@ -1824,9 +1914,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         for i, d in enumerate(defects[:14]):
             sv = (d.get("severity") or "medium").lower()
             col = DSEV.get(sv, "#B45309")
+            img_html = (f'<div style="margin-bottom:6px;"><img src="{d["_photo_data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;"></div>'
+                        if d.get("_photo_data") else "")
             drows += (f'<tr><td class="mono faint" style="width:6%;">{str(i + 1).zfill(2)}</td>'
                       f'<td style="width:20%; color:#262626;">{_esc(d.get("element") or "—")}</td>'
-                      f'<td>{_esc(d.get("description") or "—")}</td>'
+                      f'<td>{img_html}{_esc(d.get("description") or "—")}</td>'
                       f'<td style="width:14%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:6px; vertical-align:middle;"></span>'
                       f'<span style="font-size:10px; color:{col};">{DLBL.get(sv, sv)}</span></td>'
                       f'<td class="muted" style="width:26%; font-size:10.5px;">{_esc(d.get("action") or "To be confirmed")}</td></tr>')
@@ -1865,6 +1957,13 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     hero_uri = await asyncio.to_thread(_remote_data_uri, p.get("heroImage")) if p.get("heroImage") else None
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
+    for d in (p.get("defects") or []):
+        u = d.get("photo") or ""
+        if u:
+            try:
+                d["_photo_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
+            except Exception:
+                d["_photo_data"] = None
     issued = datetime.now(timezone.utc).strftime("%d %b %Y")
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued)
     return p, html

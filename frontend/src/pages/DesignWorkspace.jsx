@@ -8,10 +8,11 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
+import { DefectsPanel } from "@/components/DefectsPanel";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -652,6 +653,8 @@ export default function DesignWorkspace() {
             ))}
           </div>
         );
+      case "defects":
+        return <DefectsPanel projectId={id} initial={p.defects || []} onChange={(list) => setP((prev) => ({ ...prev, defects: list }))} />;
       case "drawings":
         return (
           <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -706,7 +709,7 @@ export default function DesignWorkspace() {
   const sectionTitle = activeMeasure ? activeMeasure.name : {
     overview: "Overview", "existing-construction": "Existing Construction", survey: "Survey", photos: "Survey Photos",
     specifications: "Specifications", junctions: "Junctions", calculations: "Calculations", risks: "Risks",
-    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items",
+    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects",
   }[section] || "Overview";
 
   return (
@@ -731,6 +734,7 @@ export default function DesignWorkspace() {
               <NavItem icon={Home} label="Existing Construction" section="existing-construction" active={section} onClick={() => setSection("existing-construction")} />
               <NavItem icon={Ruler} label="Survey" section="survey" active={section} onClick={() => setSection("survey")} />
               <NavItem icon={Camera} label="Photos" section="photos" active={section} onClick={() => setSection("photos")} />
+              <NavItem icon={AlertOctagon} label="Defects" section="defects" active={section} onClick={() => setSection("defects")} badge={(p.defects?.length) || null} tone="critical" />
             </NavGroup>
             <NavGroup title="Measures">
               {p.measures.map((m) => (

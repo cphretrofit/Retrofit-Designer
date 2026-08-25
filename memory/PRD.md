@@ -100,6 +100,12 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **True TOC + section numbering**: the Contents page was previously generated from the matched template blueprint (arbitrary) while page labels were hard-coded and out of order. Rebuilt the Contents page from one canonical ordered `toc` (01 Project Information → 09 Items Before Issue, with 05.1.. sub-rows per measure) and renumbered every page label to match in ascending order: directory 01, strategy divider ghost 02, measures 03, performance 04, specs 05.x, photos 06, drawings 07, defects 08, items 09. Contents titles aligned to the printed page kickers.
 - Verified by testing_agent (iteration_6, 100% backend+frontend, 12/12 pytest): Defects section present in preview + pack.pdf (16 pages), printed section numbers match the Contents list in ascending order, thumbnail rail includes the Defects page. Follow-up self-fix: remedial-action column now shows real mitigations (0 "To be confirmed").
 
+### Phase 19 — On-site defect logging (workspace CRUD + photos) (2026-06-25)
+- Designers can now add/edit/delete property defects directly in the Design Workspace (new "Defects" nav section + `DefectsPanel`), not only via AI import. Each defect has element, description, severity (high/medium/low), remedial action, and an optional attached **photo**.
+- Backend: `POST/PUT/DELETE /api/projects/{id}/defects[/{did}]` and `POST /api/projects/{id}/defects/{did}/photo` (stores to object storage, doc_type "Defect Photo"). Defects render in the PDF "Section 08 · Property Condition" with the attached photo embedded; explicit defects replace the risk-derived fallback.
+- Hardening (from iteration_7 findings): defect photos are soft-deleted on defect delete/photo-replace and filtered out of the Evidence document list (no orphan growth); photo upload rejects non-image content-type (422).
+- Verified by testing_agent (iteration_7: 100% backend 11/11 + frontend all flow steps) plus curl re-verification of the orphan-cleanup fix.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

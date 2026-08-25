@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 7: full-stack testing of the on-site defect logging feature. Backend: 11 pytest tests (defect CRUD, photo upload/download, pack.html embedding, 404/422 validation, 401 auth guards on all 4 defect endpoints, plus auth playbook checks) — all passing. Frontend: end-to-end Playwright run on /project/RTF-2026-0142/design/defects covering nav item, summary/empty state, add (save disabled until description non-empty), photo attach, edit (pre-filled form), delete, and reload persistence at every step; Design Pack preview confirmed to render the added defect with embedded photo under Section 08. All test data cleaned up (all 8 projects back to 0 defects, orphan Defect Photo documents removed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/projects/{id}/defects/{did}", "issue": "Deleting a defect does not soft/hard-delete the associated 'Defect Photo' document. The uploaded photo stays in db.documents and therefore keeps appearing in GET /api/projects/{id}/documents (Evidence tab) and in object storage — orphaned data grows with every delete/replace."},
+      {"endpoint": "POST /api/projects/{id}/defects/{did}/photo", "issue": "Replacing a photo overwrites d['photo'] without deleting the previous document (same orphan issue). Also no size/mime whitelist enforcement beyond the extension fallback — a non-image file named .png is accepted and stored."},
+      {"endpoint": "GET /api/projects/{id}/documents", "issue": "doc_type 'Defect Photo' is not filtered out of the project document list, so defect photos surface in the Evidence/document list alongside real evidence uploads (may be intentional — confirm)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Design Workspace · Defects", "issues": ["Minor: the 'Replace photo' camera icon button on a card with a photo has no data-testid (only the initial 'defect-attach-{id}' does), so photo replacement is not directly automatable.", "Minor: no confirmation dialog on defect delete — a single click on the trash icon permanently removes the defect with no undo."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter7_defects.py",
+    "/app/backend/tests/test_iter7_auth.py",
+    "/app/test_reports/pytest/iter7.xml"
+  ],
+  "action_items": [
+    "Clean up the defect photo document (db.documents record + stored object) when a defect is deleted or its photo replaced, otherwise orphaned 'Defect Photo' docs accumulate and show in the project documents/Evidence list.",
+    "Optional: add data-testid to the 'Replace photo' button and a confirm step before defect delete."
+  ],
+  "critical_code_review_comments": [
+    "server.py delete_defect(): remove/soft-delete the linked document (d['photoDocId']) inside the same handler to keep documents and storage consistent.",
+    "server.py upload_defect_photo(): validate content_type against an image whitelist and cap file size; currently the extension is silently coerced to .jpg for unknown types and any payload is stored.",
+    "server.py is 2175 lines — well past the 700-line guideline; pack HTML building (build_pack_html/_render_pack_html) and the project/defect routers should be split into modules.",
+    "auth.py seed_admins() intentionally never overwrites an existing admin password (documented in a comment). This deviates from the playbook expectation that seed updates the hash when the seeded password changes — confirm this is the desired behaviour, otherwise a rotated seed password will silently not take effect."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter7_defects.py",
+    "/app/backend/tests/test_iter7_auth.py"
+  ],
+  "success_rate": {"backend": "100% (11/11 tests)", "frontend": "100% (all 8 flow steps passed)"},
+  "seed_data_creation": "One temporary defect + PNG photo on RTF-2026-0142 (created via UI and via pytest). All removed afterwards; verified all 8 projects have 0 defects and no 'Defect Photo' documents remain.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Defect feature (backend + frontend) verified end-to-end in iteration 7; regression suite is /app/backend/tests/test_iter7_defects.py (loadscope-safe: all stateful tests live in TestDefectCrud so xdist keeps them on one worker). Auth playbook verified: bcrypt hashes are $2b$, login sets httpOnly+Secure+SameSite=None cookies, lockout returns 429 after 5 failed attempts (15 min, keyed per email — use a random email in tests to avoid a stale lock), app-level CORS echoes the request Origin with allow-credentials=true (the preview edge proxy rewrites ACAO to '*' on the public URL, so assert CORS on the internal port or leniently). Design Pack: explicit defects REPLACE the risk-derived fallback rows in Section 08 (by design); RTF-2026-0142 shows 5 fallback rows when it has no defects.",
+  "rca_of_the_issue": "No functional defects found. The only real finding is an orphaned-data bug: upload_defect_photo() inserts a db.documents record and stores an object, but delete_defect() only filters the defect out of project.defects, leaving the document and stored file behind (reproduced: after add->photo->delete, GET /api/projects/{id}/documents still lists the 'Defect Photo'). Fix by deleting/soft-deleting photoDocId on defect delete and on photo replace."
+}
