@@ -1346,27 +1346,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
       <div style="margin-top:26px;">{perf_rows or '<div class="muted" style="font-size:12px;">U-value calculations pending for this draft.</div>'}</div>
       <div style="margin-top:28px;"><div class="faint upper" style="font-size:10px; margin-bottom:10px;">Retrofit Strategy</div>{el_rows}</div>'''
 
-    # Wall build-up + U-value
-    buildup_page = None
-    mb = next((x for x in measures if x.get("buildup") and x.get("calculatedU") is not None and x.get("targetU") is not None), None)
-    if mb:
-        cu, tu = mb["calculatedU"], mb["targetU"]
-        rows = "".join(
-            f'<tr><td class="mono faint" style="width:10%;">{_esc(l.get("no"))}</td><td style="color:#262626;">{_esc(l.get("material"))}</td>'
-            f'<td class="mono" style="text-align:right;">{_esc(l.get("thickness"))} mm</td><td class="mono muted" style="text-align:right;">{_esc(l.get("lambda"))}</td></tr>'
-            for l in mb["buildup"])
-        pass_ = cu <= tu
-        badge_col = "#16A34A" if pass_ else "#B45309"
-        buildup_page = f'''
-          <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05 · Technical Specification</div>
-          <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{_esc(mb.get("name"))} — Build-up</div>
-          <table style="margin-top:24px;"><thead><tr><th style="width:10%;">Layer</th><th>Material</th><th style="text-align:right;">Thickness</th><th style="text-align:right;">&#955; (W/mK)</th></tr></thead><tbody>{rows}</tbody></table>
-          <div class="rule" style="margin-top:40px; padding-top:28px; display:flex; justify-content:space-between; align-items:flex-end;">
-            <div><div class="faint upper" style="font-size:10px;">Calculated U-value</div>
-              <div style="margin-top:4px;"><span class="disp" style="font-size:62px; line-height:1;">{cu:.2f}</span> <span class="mono muted" style="font-size:13px;">{_esc(mb.get("unit"))}</span></div></div>
-            <div style="text-align:right;"><div class="faint upper" style="font-size:10px;">Target {tu:.2f}</div>
-              <div class="mono" style="display:inline-block; margin-top:8px; padding:6px 12px; border:1px solid {badge_col}; color:{badge_col}; font-size:13px;">{"✓ PASS" if pass_ else "⚠ REVIEW"}</div></div>
-          </div>'''
+    # (per-measure technical specifications are built below)
 
     # Photographic schedule (paginated, 6 per page)
     ph_list = photo_uris or []
@@ -1461,7 +1441,157 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                   f'<table style="margin-top:20px;"><thead><tr><th style="width:7%;">#</th><th style="width:17%;">Severity</th><th>Item</th><th style="width:22%;">Confirmed By</th><th style="text-align:right;">Date</th></tr></thead>'
                   f'<tbody>{it_rows or it_empty}</tbody></table>')
 
-    pages = [cover, contents_page, divider, performance, buildup_page, *photo_pages, drawings_page, items_page]
+    # ---- Project directory & dwelling ----
+    prop = p.get("property") or {}
+    ec = prop.get("existingConstruction") or {}
+    readiness = (p.get("readiness") or {}).get("breakdown") or []
+
+    def _cell(k, v, w="32%"):
+        return (f'<div style="display:inline-block; width:{w}; vertical-align:top; margin-bottom:16px;">'
+                f'<div class="faint upper" style="font-size:8.5px;">{_esc(k)}</div>'
+                f'<div style="font-size:12.5px; margin-top:4px; color:#262626;">{_esc(v if v not in (None, "") else "—")}</div></div>')
+
+    people_html = "".join(_cell(k, v, "25%") for k, v in
+                          [("Retrofit Assessor", p.get("assessor")), ("Retrofit Coordinator", p.get("coordinator")),
+                           ("Retrofit Designer", p.get("designer")), ("Design Stage", p.get("designStage"))])
+    dwell_html = "".join(_cell(k, v) for k, v in
+                         [("Dwelling type", prop.get("type")), ("Age band", prop.get("age")),
+                          ("Floor area", prop.get("floorArea")), ("Storeys", prop.get("storeys")),
+                          ("Occupancy", prop.get("occupancy")), ("Orientation", prop.get("orientation"))])
+    epc_html = (f'<div style="border:1px solid #e5e5e5; padding:14px 16px;">'
+                f'<div class="faint upper" style="font-size:8.5px;">Energy Rating</div>'
+                f'<div style="margin-top:8px;"><span class="disp" style="font-size:30px;">{_esc(p.get("epcBefore") or "—")}</span>'
+                f'<span class="mono faint" style="font-size:18px; margin:0 12px;">&#8594;</span>'
+                f'<span class="disp pass" style="font-size:30px;">{_esc(p.get("epcAfter") or "—")}</span></div>'
+                f'<div class="faint mono" style="font-size:8px; margin-top:4px;">SAP · EXISTING TO PROPOSED</div></div>')
+    ec_rows = ("".join(f'<tr><td class="muted" style="width:38%;">{_esc(k)}</td><td style="color:#262626;">{_esc(v)}</td></tr>' for k, v in ec.items())
+               or '<tr><td colspan="2" class="muted" style="font-size:12px;">Existing construction to be confirmed on site.</td></tr>')
+    read_html = ""
+    for r in readiness:
+        val = r.get("value", 0)
+        bc = "#16A34A" if val >= 80 else ("#B45309" if val >= 40 else "#DC2626")
+        read_html += (f'<div style="display:inline-block; width:33%; vertical-align:top; padding-right:18px; margin-bottom:12px;">'
+                      f'<div style="display:flex; justify-content:space-between;"><span class="muted" style="font-size:10.5px;">{_esc(r.get("label"))}</span>'
+                      f'<span class="mono" style="font-size:10.5px; color:#262626;">{val}%</span></div>'
+                      f'<div style="height:3px; background:#eee; margin-top:4px;"><div style="height:3px; width:{val}%; background:{bc};"></div></div></div>')
+    directory_page = (
+        '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 · Project Information</div>'
+        '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Project Directory &amp; Dwelling</div>'
+        f'<div style="margin-top:18px;">{people_html}</div>'
+        '<div class="hr" style="padding-top:14px;"></div>'
+        '<table style="margin-top:4px;"><tr>'
+        f'<td style="border:0; padding:0; width:62%; vertical-align:top;">{dwell_html}</td>'
+        f'<td style="border:0; padding:0 0 0 18px; width:38%; vertical-align:top;">{epc_html}</td></tr></table>'
+        '<div class="faint upper" style="font-size:10px; margin-top:8px; margin-bottom:6px;">Existing Construction</div>'
+        f'<table>{ec_rows}</table>'
+        '<div class="faint upper" style="font-size:10px; margin-top:22px; margin-bottom:10px;">Design Readiness</div>'
+        f'<div>{read_html}</div>')
+
+    # ---- Measures schedule ----
+    MST = {"designed": "#16A34A", "in_progress": "#B45309", "outstanding": "#B45309", "not_started": "#a3a3a3", "retained": "#525252"}
+    MST_LBL = {"designed": "Designed", "in_progress": "In progress", "outstanding": "Outstanding", "not_started": "Not started", "retained": "Retained"}
+    ms_rows = ""
+    for m in measures:
+        eu, cu = m.get("existingU"), m.get("calculatedU")
+        uval = f"{eu:.2f} &#8594; {cu:.2f}" if (eu is not None and cu is not None) else '<span class="faint">n/a</span>'
+        st = m.get("status") or "not_started"
+        stc = MST.get(st, "#a3a3a3")
+        code = _esc(("PAS " + m["pas"]) if m.get("pas") else (m.get("code") or ""))
+        comp = m.get("completion")
+        comp_s = f"{comp}%" if comp is not None else "—"
+        ms_rows += (f'<tr><td class="mono faint" style="width:12%; font-size:10px;">{code}</td>'
+                    f'<td style="width:26%; color:#262626;">{_esc(m.get("name"))}</td>'
+                    f'<td class="muted" style="font-size:10px;">{_esc(m.get("system"))}</td>'
+                    f'<td class="mono" style="width:15%; text-align:right; font-size:10px;">{uval}</td>'
+                    f'<td style="width:16%; text-align:right;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{stc}; margin-right:6px; vertical-align:middle;"></span>'
+                    f'<span style="font-size:10px; color:{stc};">{MST_LBL.get(st, st)}</span> <span class="mono faint" style="font-size:9px;">{comp_s}</span></td></tr>')
+    measures_schedule_page = (
+        '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 04 · Retrofit Measures</div>'
+        '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Measures Schedule</div>'
+        f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(p.get("measureSummary") or "")}</div>'
+        '<table style="margin-top:18px;"><thead><tr><th style="width:12%;">Ref</th><th style="width:26%;">Measure</th><th>Specification</th><th style="text-align:right;">U-value</th><th style="text-align:right;">Status</th></tr></thead>'
+        f'<tbody>{ms_rows}</tbody></table>')
+
+    # ---- Per-measure technical specification pages ----
+    JST = {"pass": "#16A34A", "warn": "#B45309", "fail": "#DC2626", "not_started": "#a3a3a3", "n/a": "#a3a3a3"}
+    JSY = {"pass": "&#10003;", "warn": "&#9888;", "fail": "&#10007;", "not_started": "&#9675;", "n/a": "&#8211;"}
+    RLV = {"high": "#DC2626", "medium": "#B45309", "low": "#16A34A"}
+    spec_pages = []
+    for idx, m in enumerate(measures, 1):
+        title = _esc(m.get("name"))
+        pas = _esc(m.get("pas") or m.get("code") or "")
+        head = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} · Technical Specification</div>'
+                f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">'
+                f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em;">{title}</div>'
+                f'<span class="chip" style="margin:0;">PAS {pas}</span></div>')
+        system_html = f'<div class="muted" style="font-size:12px; margin-top:12px; line-height:1.45;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
+        bu = m.get("buildup") or []
+        bu_html = ""
+        if bu:
+            rows = "".join(
+                f'<tr><td class="mono faint" style="width:10%;">{_esc(l.get("no"))}</td><td style="color:#262626;">{_esc(l.get("material"))}</td>'
+                f'<td class="mono" style="text-align:right; width:20%;">{_esc(l.get("thickness"))} mm</td><td class="mono muted" style="text-align:right; width:18%;">{_esc(l.get("lambda"))}</td></tr>'
+                for l in bu)
+            bu_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:2px;">Construction Build-up</div>'
+                       '<table><thead><tr><th style="width:10%;">Layer</th><th>Material</th><th style="text-align:right;">Thickness</th><th style="text-align:right;">&#955; (W/mK)</th></tr></thead>'
+                       f'<tbody>{rows}</tbody></table>')
+        cu, tu, eu = m.get("calculatedU"), m.get("targetU"), m.get("existingU")
+        u_html = ""
+        if cu is not None and tu is not None:
+            pass_ = cu <= tu
+            bc = "#16A34A" if pass_ else "#B45309"
+            ex_s = f"{eu:.2f} &#8594; " if eu is not None else ""
+            u_html = ('<div class="rule" style="margin-top:20px; padding-top:16px; display:flex; justify-content:space-between; align-items:flex-end;">'
+                      f'<div><div class="faint upper" style="font-size:9.5px;">Calculated U-value</div>'
+                      f'<div style="margin-top:4px;"><span class="mono faint" style="font-size:14px;">{ex_s}</span><span class="disp" style="font-size:40px; line-height:1;">{cu:.2f}</span> <span class="mono muted" style="font-size:12px;">{_esc(m.get("unit"))}</span></div></div>'
+                      f'<div style="text-align:right;"><div class="faint upper" style="font-size:9.5px;">Target {tu:.2f}</div>'
+                      f'<div class="mono" style="display:inline-block; margin-top:8px; padding:5px 11px; border:1px solid {bc}; color:{bc}; font-size:12px;">{"&#10003; PASS" if pass_ else "&#9888; REVIEW"}</div></div></div>')
+        jns = m.get("junctions") or []
+        jn_html = ""
+        if jns:
+            jr = ""
+            for j in jns[:7]:
+                js = j.get("status") or "not_started"
+                jc = JST.get(js, "#a3a3a3")
+                jr += (f'<tr><td style="width:22%; color:#262626;">{_esc(j.get("name"))}</td>'
+                       f'<td style="width:7%;"><span style="color:{jc}; font-size:12px;">{JSY.get(js, "&#8211;")}</span></td>'
+                       f'<td class="mono faint" style="width:22%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
+                       f'<td class="muted" style="font-size:10px;">{_esc(j.get("note"))}</td></tr>')
+            jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:2px;">Junction Schedule</div>'
+                       '<table><thead><tr><th style="width:22%;">Junction</th><th style="width:7%;"></th><th style="width:22%;">Detail Ref</th><th>Note</th></tr></thead>'
+                       f'<tbody>{jr}</tbody></table>')
+        spec_pages.append(head + system_html + bu_html + u_html + jn_html)
+        checks = m.get("checks") or []
+        risks = m.get("risks") or []
+        if checks or risks:
+            ch_html = ""
+            if checks:
+                cc = ""
+                for c in checks[:10]:
+                    cs = c.get("status") or "pass"
+                    ccol = JST.get(cs, "#a3a3a3")
+                    cc += (f'<div style="display:inline-block; width:48%; vertical-align:top; border-bottom:1px solid #f0f0f0; padding:6px 0; margin-right:2%;">'
+                           f'<span style="color:{ccol}; font-size:12px; margin-right:8px;">{JSY.get(cs, "&#8211;")}</span>'
+                           f'<span class="muted" style="font-size:11px;">{_esc(c.get("label"))}</span></div>')
+                ch_html = f'<div class="faint upper" style="font-size:9.5px; margin-bottom:6px;">Design Checks</div><div>{cc}</div>'
+            rk_html = ""
+            if risks:
+                rr = ""
+                for r in risks[:5]:
+                    lv = (r.get("level") or "low").lower()
+                    rc = RLV.get(lv, "#B45309")
+                    rr += (f'<div style="border-left:2px solid {rc}; padding:2px 0 8px 12px; margin-bottom:12px;">'
+                           f'<div><span style="font-size:12px; font-weight:500; color:#262626;">{_esc(r.get("title"))}</span>'
+                           f'<span class="mono" style="font-size:9px; color:{rc}; margin-left:8px; text-transform:uppercase;">{_esc(lv)}</span></div>'
+                           f'<div class="muted" style="font-size:10.5px; margin-top:3px; line-height:1.4;">{_esc(r.get("note"))}</div></div>')
+                rk_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:10px;">Risk Register</div><div>{rr}</div>'
+            headB = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} · Technical Specification (cont.)</div>'
+                     f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
+                     f'<div style="margin-top:18px;">{ch_html}</div>{rk_html}')
+            spec_pages.append(headB)
+
+    pages = [cover, contents_page, directory_page, divider, measures_schedule_page, performance,
+             *spec_pages, *photo_pages, drawings_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"

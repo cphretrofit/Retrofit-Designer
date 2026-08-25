@@ -55,6 +55,10 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - `POST /api/projects/{id}/extract-photos` (file upload or `url`) extracts, stores each to object storage as a Survey Photo document, and sets `designPack.photos`. The AI import flow now uses the same tagged extractor (was generic pypdf captions). Project Overview has an **Import survey photos** button.
 - Design Pack PDF photographic schedule is now paginated (6/page, up to 24 photos) and embeds downscaled JPEGs (`_shrink_image`) so it stays a sensible size. Verified on the supplied RdSAP: 40 photos extracted+tagged, 11-page pack rendered with images + captions. `pymupdf==1.28.2` added.
 
+### Phase 10 — Comprehensive PDF content (2026-06-25)
+- Expanded the Design Pack PDF from a scarce ~8 pages to a full technical document (16pp for a fully-authored project). Added: **Project Directory & Dwelling** (assessor/coordinator/designer, dwelling type/age/area/storeys/occupancy/orientation, EPC before→after, existing construction table, design-readiness bars), a **Measures Schedule** table (PAS ref, specification, existing→proposed U-value, status, completion), and **per-measure Technical Specification** pages for every measure (system description, construction build-up + calculated U-value PASS/REVIEW, junction schedule with detail refs & notes, design checks, risk register).
+- Handles sparse AI-imported measures gracefully. Verified across multiple projects (0142→16pp, 0140→22pp incl. 40 photos, 0138→13pp).
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
