@@ -1,12 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, confirmItem } from "@/lib/api";
+import { getProject, confirmItem, API } from "@/lib/api";
 import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
 import { toast } from "sonner";
 import {
-  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers,
+  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers, Camera, Loader2,
 } from "lucide-react";
 
 const MARK = {
@@ -25,6 +25,29 @@ export default function ProjectOverview() {
   const navigate = useNavigate();
   const [p, setP] = useState(null);
   const [active, setActive] = useState(null);
+  const fileRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const onPhotosFile = async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      setUploading(true);
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await fetch(`${API}/projects/${id}/extract-photos`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const fresh = await getProject(id);
+      setP(fresh);
+      toast.success(`${data.added} survey photo(s) imported`, { description: "Tagged by location and added to the Design Pack." });
+    } catch {
+      toast.error("Could not import photos from that PDF");
+    } finally {
+      setUploading(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  };
 
   useEffect(() => { getProject(id).then(setP).catch(() => {}); }, [id]);
 
@@ -68,12 +91,13 @@ export default function ProjectOverview() {
             </div>
             <h1 className="font-display font-300 text-4xl tracking-tight">{p.name}</h1>
             <div className="text-sm text-muted-foreground mt-1.5">{p.address}</div>
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
             {p.templateName && (
               <button
                 onClick={() => navigate("/templates")}
                 title={`Matched design template: ${p.templateName}`}
                 data-testid="project-template-badge"
-                className="mt-3 group inline-flex items-center gap-2 h-7 pl-2 pr-3 rounded-sm border border-border bg-secondary/50 hover:bg-secondary hover:border-foreground/20 transition-colors max-w-[380px]"
+                className="group inline-flex items-center gap-2 h-7 pl-2 pr-3 rounded-sm border border-border bg-secondary/50 hover:bg-secondary hover:border-foreground/20 transition-colors max-w-[380px]"
               >
                 <Layers className="h-3.5 w-3.5 text-muted-foreground shrink-0" strokeWidth={1.75} />
                 <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground shrink-0">Template</span>
@@ -81,6 +105,17 @@ export default function ProjectOverview() {
                 <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" strokeWidth={1.75} />
               </button>
             )}
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={uploading}
+                data-testid="import-photos-btn"
+                className="inline-flex items-center gap-2 h-7 px-3 rounded-sm border border-border hover:bg-secondary hover:border-foreground/20 transition-colors text-[12px] font-medium disabled:opacity-60"
+              >
+                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : <Camera className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />}
+                {uploading ? "Importing photos…" : "Import survey photos"}
+              </button>
+              <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={onPhotosFile} data-testid="import-photos-input" />
+            </div>
           </div>
           <div className="flex items-center gap-8">
             <div className="text-right space-y-1.5">

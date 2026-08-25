@@ -9,6 +9,7 @@ import uuid
 import json
 import base64
 import segno
+import pymupdf
 import re
 import asyncio
 import logging
@@ -905,6 +906,104 @@ async def next_ref():
     return f"RTF-2026-{159 + doc['seq']:04d}"
 
 
+def _friendly_caption(raw: str, section: str) -> str:
+    low = (raw or "").lower()
+    if "glazing" in low or "window" in low:
+        m = re.search(r"(\d+)", section or "")
+        return f"Window {m.group(1)} — glazing" if m else "Windows — glazing"
+    table = [
+        ("cavity wall construction", "External wall — cavity construction"),
+        ("filled cavity insulation", "External wall — filled cavity indicator"),
+        ("wall thickness", "External wall — wall thickness"),
+        ("loft insulation", "Roof — loft insulation"),
+        ("external elevation", "External elevation"),
+        ("heating system", "Heating — main system"),
+        ("heating controls", "Heating — controls"),
+        ("cylinder", "Hot water — cylinder & thermostat"),
+        ("boiler flue", "Ventilation — boiler flue"),
+        ("extract fan", "Ventilation — extract fan"),
+        ("open chimney", "Ventilation — open chimney"),
+        ("low energy light", "Lighting — low energy lighting"),
+        ("shower", "Services — shower"),
+        ("electricity meter", "Services — electricity meter"),
+        ("gas meter", "Services — gas meter"),
+    ]
+    for key, label in table:
+        if key in low:
+            return label
+    c = (raw or "").strip().rstrip(":").strip()
+    return (c[:1].upper() + c[1:]) if c else "Survey photograph"
+
+
+def extract_tagged_photos(pdf_bytes: bytes, max_photos: int = 40):
+    """Extract embedded photos from a survey/RdSAP PDF, pairing each with the nearest label above it."""
+    out = []
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception as e:
+        logger.warning("pymupdf open failed: %s", e)
+        return out
+    try:
+        for pno in range(doc.page_count):
+            page = doc[pno]
+            lines = []
+            section = None
+            for b in page.get_text("dict").get("blocks", []):
+                if b.get("type") != 0:
+                    continue
+                for l in b.get("lines", []):
+                    txt = "".join(s.get("text", "") for s in l.get("spans", [])).strip()
+                    if not txt:
+                        continue
+                    lines.append((l["bbox"], txt))
+                    if re.match(r"^(Window|Main Heating|Shower)\s*\d+$", txt) or txt == "External Elevations":
+                        section = txt
+            for info in page.get_image_info(xrefs=True):
+                xref = info.get("xref", 0)
+                if not xref:
+                    continue
+                try:
+                    ex = doc.extract_image(xref)
+                except Exception:
+                    continue
+                if not ex or ex.get("width", 0) < 120 or ex.get("height", 0) < 120:
+                    continue
+                ix0, iy0, ix1, iy1 = info["bbox"]
+                best, best_gap = None, 1e9
+                for (lb, txt) in lines:
+                    if not (txt.rstrip().endswith(":") or "Elevation" in txt or "Property Photo" in txt):
+                        continue
+                    lx0, ly0, lx1, ly1 = lb
+                    gap = iy0 - ly1
+                    xover = min(ix1, lx1) - max(ix0, lx0)
+                    if -6 <= gap < best_gap and xover > -40:
+                        best_gap, best = gap, txt
+                raw = re.sub(r"^\s*(Photo (of|indicators of)|Record (external )?indicators of|External indicators of)\s*",
+                             "", (best or ""), flags=re.I).strip()
+                cap = "Property — front elevation" if (pno == 0 and not raw) else _friendly_caption(raw, section)
+                out.append({"caption": cap, "observation": "Photograph recorded during the RdSAP site inspection.",
+                            "data": ex["image"], "ext": ex.get("ext", "jpg")})
+                if len(out) >= max_photos:
+                    return out
+        return out
+    finally:
+        doc.close()
+
+
+def _shrink_image(data: bytes, max_px: int = 1000, quality: int = 72):
+    try:
+        pm = pymupdf.Pixmap(data)
+        if pm.n - pm.alpha >= 4:
+            pm = pymupdf.Pixmap(pymupdf.csRGB, pm)
+        if pm.alpha:
+            pm = pymupdf.Pixmap(pm, 0)
+        while max(pm.width, pm.height) > max_px:
+            pm.shrink(1)
+        return pm.tobytes("jpeg", jpg_quality=quality), "image/jpeg"
+    except Exception:
+        return data, None
+
+
 TEXT_LIMIT = {"ASHP Survey": 9000, "Datasheet": 3000}
 PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey")
 
@@ -943,27 +1042,28 @@ async def process_import_job(job_id: str, payload: list):
             else:
                 parts.append(f"=== DOCUMENT: {dtype} ({fn}) === [no extractable text — image-only PDF]")
 
-            if ext == "pdf" and dtype in PHOTO_DOC_TYPES and len(photos) < 6:
-                for (b, iext) in (await asyncio.to_thread(extract_pdf_images, data)):
-                    if len(photos) >= 6:
+            if ext == "pdf" and dtype in PHOTO_DOC_TYPES and len(photos) < 8:
+                for pm in (await asyncio.to_thread(extract_tagged_photos, data, 8)):
+                    if len(photos) >= 8:
                         break
+                    iext = pm["ext"] if pm["ext"] in ("jpg", "jpeg", "png", "webp") else "jpg"
                     mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
                     pid = str(uuid.uuid4())
                     ppath = f"{APP_NAME}/uploads/{pid}.{iext}"
                     try:
-                        pstored = (await asyncio.to_thread(put_object, ppath, b, mime))["path"]
+                        pstored = (await asyncio.to_thread(put_object, ppath, pm["data"], mime))["path"]
                     except Exception as e:
                         logger.warning("photo put failed: %s", e)
                         continue
                     await db.documents.insert_one({
                         "id": pid, "project_id": None, "storage_path": pstored,
-                        "original_filename": f"{dtype}-figure-{fig:02d}.{iext}", "content_type": mime,
-                        "doc_type": "Survey Photo", "size": len(b), "is_deleted": False,
+                        "original_filename": f"survey-figure-{fig:02d}.{iext}", "content_type": mime,
+                        "doc_type": "Survey Photo", "size": len(pm["data"]), "is_deleted": False,
                         "created_at": datetime.now(timezone.utc).isoformat(),
                     })
                     doc_ids.append(pid)
-                    photos.append({"fig": f"{fig:02d}", "caption": f"{dtype} — Figure {fig}",
-                                   "observation": f"Photograph extracted from the {dtype}.",
+                    photos.append({"fig": f"{fig:02d}", "caption": pm["caption"],
+                                   "observation": pm["observation"],
                                    "url": f"/api/documents/{pid}/download"})
                     fig += 1
 
@@ -1039,6 +1139,43 @@ async def add_documents(project_id: str, files: List[UploadFile] = File(...), ty
     return {"added": out}
 
 
+@api_router.post("/projects/{project_id}/extract-photos")
+async def extract_photos_endpoint(project_id: str, file: Optional[UploadFile] = File(None), url: Optional[str] = Form(None)):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if file is not None:
+        pdf_bytes = await file.read()
+    elif url:
+        pdf_bytes = await asyncio.to_thread(_download, url)
+    else:
+        raise HTTPException(status_code=422, detail="Provide a PDF file or a url")
+    metas = await asyncio.to_thread(extract_tagged_photos, pdf_bytes, 40)
+    photos, doc_ids = [], []
+    for i, pm in enumerate(metas, 1):
+        iext = pm["ext"] if pm["ext"] in ("jpg", "jpeg", "png", "webp") else "jpg"
+        mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
+        pid = str(uuid.uuid4())
+        ppath = f"{APP_NAME}/uploads/{pid}.{iext}"
+        try:
+            await asyncio.to_thread(put_object, ppath, pm["data"], mime)
+        except Exception as e:
+            logger.warning("photo put failed: %s", e)
+            continue
+        await db.documents.insert_one({
+            "_id": pid, "id": pid, "project_id": project_id, "storage_path": ppath,
+            "original_filename": f"survey-{i:02d}.{iext}", "content_type": mime,
+            "doc_type": "Survey Photo", "size": len(pm["data"]), "is_deleted": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        doc_ids.append(pid)
+        photos.append({"fig": f"{i:02d}", "caption": pm["caption"], "observation": pm["observation"],
+                       "url": f"/api/documents/{pid}/download"})
+    if photos:
+        await db.projects.update_one({"id": project_id}, {"$set": {"designPack.photos": photos}})
+    return {"added": len(photos), "photos": photos}
+
+
 @api_router.get("/projects/{project_id}/documents")
 async def list_documents(project_id: str):
     proj = await db.projects.find_one({"id": project_id})
@@ -1074,7 +1211,12 @@ async def _doc_data_uri(url: str):
         data, ctype = await asyncio.to_thread(get_object, rec["storage_path"])
     except Exception:
         return None
-    return f"data:{rec.get('content_type') or ctype};base64,{base64.b64encode(data).decode()}"
+    ct = rec.get("content_type") or ctype or ""
+    if ct.startswith("image"):
+        sd, sm = await asyncio.to_thread(_shrink_image, data)
+        if sm:
+            data, ct = sd, sm
+    return f"data:{ct};base64,{base64.b64encode(data).decode()}"
 
 
 def _remote_data_uri(url: str):
@@ -1226,20 +1368,28 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
               <div class="mono" style="display:inline-block; margin-top:8px; padding:6px 12px; border:1px solid {badge_col}; color:{badge_col}; font-size:13px;">{"✓ PASS" if pass_ else "⚠ REVIEW"}</div></div>
           </div>'''
 
-    # Photographic schedule
-    figs = ""
-    for ph in photo_uris[:4]:
-        img = (f'<img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;">' if ph.get("data")
-               else '<span class="faint mono" style="font-size:9px;">No image</span>')
-        figs += (f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 2% 20px 0;">'
-                 f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; display:flex; align-items:center; justify-content:center;">{img}</div>'
-                 f'<div style="margin-top:8px;"><span class="mono faint" style="font-size:9px; margin-right:8px;">FIG {_esc(ph.get("fig"))}</span>'
-                 f'<span style="font-size:11px; font-weight:500; color:#262626;">{_esc(ph.get("caption"))}</span>'
-                 f'<div class="muted" style="font-size:10px; margin-top:3px; line-height:1.35;">{_esc(ph.get("observation"))}</div></div></div>')
-    photos_page = f'''
-      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Survey Record</div>
-      <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>
-      <div style="margin-top:22px;">{figs or '<div class="muted" style="font-size:12px;">No survey photographs recorded for this project.</div>'}</div>'''
+    # Photographic schedule (paginated, 6 per page)
+    ph_list = photo_uris or []
+    photo_pages = []
+    if ph_list:
+        for gi in range(0, len(ph_list), 6):
+            grp = ph_list[gi:gi + 6]
+            figs = ""
+            for ph in grp:
+                img = (f'<img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;">' if ph.get("data")
+                       else '<span class="faint mono" style="font-size:9px;">No image</span>')
+                figs += (f'<div style="display:inline-block; width:31.5%; vertical-align:top; margin:0 1% 16px 0;">'
+                         f'<div style="height:118px; border:1px solid #e5e5e5; overflow:hidden; display:flex; align-items:center; justify-content:center;">{img}</div>'
+                         f'<div style="margin-top:6px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span>'
+                         f'<span style="font-size:10px; font-weight:500; color:#262626;">{_esc(ph.get("caption"))}</span></div></div>')
+            title = "Photographic Schedule" + (" (cont.)" if gi else "")
+            photo_pages.append(f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Survey Record</div>'
+                               f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
+                               f'<div style="margin-top:18px;">{figs}</div>')
+    else:
+        photo_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Survey Record</div>'
+                           '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>'
+                           '<div style="margin-top:22px;" class="muted"><span style="font-size:12px;">No survey photographs recorded for this project.</span></div>')
 
     # Drawing register
     draw_rows = "".join(
@@ -1311,7 +1461,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                   f'<table style="margin-top:20px;"><thead><tr><th style="width:7%;">#</th><th style="width:17%;">Severity</th><th>Item</th><th style="width:22%;">Confirmed By</th><th style="text-align:right;">Date</th></tr></thead>'
                   f'<tbody>{it_rows or it_empty}</tbody></table>')
 
-    pages = [cover, contents_page, divider, performance, buildup_page, photos_page, drawings_page, items_page]
+    pages = [cover, contents_page, divider, performance, buildup_page, *photo_pages, drawings_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"
@@ -1328,7 +1478,7 @@ async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
         raise HTTPException(status_code=404, detail="Project not found")
     photos = (p.get("designPack") or {}).get("photos") or []
     photo_uris = []
-    for ph in photos[:4]:
+    for ph in photos[:24]:
         u = ph.get("url") or ""
         data = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
         photo_uris.append({**ph, "data": data})

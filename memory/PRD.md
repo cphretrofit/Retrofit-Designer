@@ -50,6 +50,11 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Items Before Issue can now be confirmed per-item: `PATCH /api/projects/{id}/items/{index}/confirm` sets `confirmedBy` (defaults to the project coordinator) + `confirmedAt`; unconfirm clears them. Project Overview shows a Confirm/Undo control per item with a green "Confirmed by X · date" line + toast.
 - PDF Section 07 register expanded with **Confirmed By** and **Date** columns and a summary line (N item(s) · C confirmed · O outstanding), giving the issued pack a full QA audit trail. Verified end-to-end (endpoint, UI, and rendered PDF).
 
+### Phase 9 — RdSAP photo extraction → tagged into design + pack (2026-06-25)
+- New PyMuPDF-based extractor (`extract_tagged_photos`) pulls embedded photos from RdSAP/survey PDFs and pairs each image with the nearest label above it (geometry-based), producing location-tagged captions (e.g. "Window 6 — glazing", "Roof — loft insulation", "External wall — cavity construction", "External elevation").
+- `POST /api/projects/{id}/extract-photos` (file upload or `url`) extracts, stores each to object storage as a Survey Photo document, and sets `designPack.photos`. The AI import flow now uses the same tagged extractor (was generic pypdf captions). Project Overview has an **Import survey photos** button.
+- Design Pack PDF photographic schedule is now paginated (6/page, up to 24 photos) and embeds downscaled JPEGs (`_shrink_image`) so it stays a sensible size. Verified on the supplied RdSAP: 40 photos extracted+tagged, 11-page pack rendered with images + captions. `pymupdf==1.28.2` added.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
