@@ -769,6 +769,7 @@ Rules:
 - calculatedU is the AS-DESIGNED U-value. Set it to null unless the documents state an actual calculated/assessed as-built value that differs from the target. NEVER copy targetU into calculatedU.
 - epcBefore and epcAfter MUST be an EPC band with optional SAP score like "D (68)" or "C (72)", or "—" if unknown. Never write a sentence in these fields; put any explanation in itemsBeforeIssue instead.
 - Keep measures[].name concise (max ~22 characters).
+- defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a short description, severity (high|medium|low) and the remedial action required before install. Use [] if the documents mention none.
 
 Return this exact JSON shape:
 {
@@ -796,7 +797,8 @@ Return this exact JSON shape:
   "windowSchedule": [{"ref":"W1","location":"","width":"","height":"","orientation":"","glazing":""}],
   "heatLoss": {"totalW": 0, "designFlowTemp": "", "rooms": [{"room":"","watts":0}]},
   "occupancy": "",
-  "itemsBeforeIssue": [{"text":"...","measure":"CODE or QA","severity":"info_required|warning|critical"}]
+  "itemsBeforeIssue": [{"text":"...","measure":"CODE or QA","severity":"info_required|warning|critical"}],
+  "defects": [{"element":"e.g. 'External wall (north)'","description":"","severity":"high|medium|low","action":""}]
 }
 
 Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
@@ -946,6 +948,7 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
         },
         "readiness": {"overall": overall, "breakdown": breakdown},
         "itemsBeforeIssue": items, "measures": measures,
+        "defects": ai.get("defects") or [],
         "designPack": {"photos": photos or [], "drawings": drawings},
     }
 
@@ -1508,7 +1511,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         f'{_esc(("PAS " + m["pas"]) if m.get("pas") else m.get("code"))}</span>{_esc(m.get("name"))}</div>' for m in measures)
     divider = f'''
       <div style="height:225mm; display:flex; flex-direction:column; justify-content:center;">
-        <div class="ghost">04</div>
+        <div class="ghost">02</div>
         <div class="disp" style="font-size:44px; line-height:1.05; margin-top:-8px;">Proposed<br>Retrofit<br>Strategy</div>
         <div style="margin-top:28px;">{strat_list}</div>
       </div>'''
@@ -1535,7 +1538,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     f'<span class="muted" style="font-size:12px;">{_esc(e.get("label"))}</span>'
                     f'<span class="mono" style="float:right; font-size:11px; color:#262626;">{_esc(val)}</span></div>')
     performance = f'''
-      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 04.1</div>
+      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 04 &middot; Existing &#8594; Proposed</div>
       <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Existing &#8594; Proposed Performance</div>
       <div style="margin-top:26px;">{perf_rows or '<div class="muted" style="font-size:12px;">U-value calculations pending for this draft.</div>'}</div>
       <div style="margin-top:28px;"><div class="faint upper" style="font-size:10px; margin-bottom:10px;">Retrofit Strategy</div>{el_rows}</div>'''
@@ -1557,11 +1560,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                          f'<div style="margin-top:6px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span>'
                          f'<span style="font-size:10px; font-weight:500; color:#262626;">{_esc(ph.get("caption"))}</span></div></div>')
             title = "Photographic Schedule" + (" (cont.)" if gi else "")
-            photo_pages.append(f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Survey Record</div>'
+            photo_pages.append(f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 · Survey Record</div>'
                                f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
                                f'<div style="margin-top:18px;">{figs}</div>')
     else:
-        photo_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Survey Record</div>'
+        photo_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 · Survey Record</div>'
                            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>'
                            '<div style="margin-top:22px;" class="muted"><span style="font-size:12px;">No survey photographs recorded for this project.</span></div>')
 
@@ -1571,33 +1574,48 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         f'<td class="mono muted" style="text-align:right;">{_esc(d.get("scale"))}</td><td class="mono muted" style="text-align:right;">{_esc(d.get("revision"))}</td></tr>'
         for d in drawings)
     drawings_page = f'''
-      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 · Construction Details</div>
+      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 · Construction Details</div>
       <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Drawing Register</div>
       <table style="margin-top:24px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
       <tbody>{draw_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
-    # Template-driven contents (section skeleton from the matched blueprint)
-    contents_page = None
+    # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
-    secs = bp.get("sections") or []
-    if secs:
-        sec_rows = ""
-        for i, s in enumerate(secs):
-            no = str(s.get("no") or i + 1).zfill(2)
-            contains = f'<div class="muted" style="font-size:10.5px; margin-top:2px; line-height:1.35;">{_esc(s.get("contains"))}</div>' if s.get("contains") else ""
+    toc = [
+        ("01", "Project Information", ""),
+        ("02", "Retrofit Strategy", ""),
+        ("03", "Retrofit Measures", ""),
+        ("04", "Existing \u2192 Proposed Performance", ""),
+        ("05", "Technical Specifications", ""),
+    ]
+    for si, m in enumerate(measures, 1):
+        toc.append((f"05.{si}", _esc(m.get("name") or ""), "sub"))
+    toc += [
+        ("06", "Survey Record \u2014 Photographic Schedule", ""),
+        ("07", "Construction Details \u2014 Drawing Register", ""),
+        ("08", "Property Condition \u2014 Defects &amp; Remedial Actions", ""),
+        ("09", "Pre-Issue Register \u2014 Items Before Issue", ""),
+    ]
+    sec_rows = ""
+    for no, t, kind in toc:
+        if kind == "sub":
+            sec_rows += (f'<div style="display:flex; padding:5px 0 5px 22px; border-bottom:1px solid #f5f5f5;">'
+                         f'<span class="mono faint" style="width:52px; font-size:10px;">{no}</span>'
+                         f'<div style="flex:1; font-size:11.5px; color:#525252;">{t}</div></div>')
+        else:
             sec_rows += (f'<div style="display:flex; padding:7px 0; border-bottom:1px solid #f0f0f0;">'
-                         f'<span class="mono faint" style="width:34px; font-size:11px;">{no}</span>'
-                         f'<div style="flex:1;"><div style="font-size:12.5px; color:#262626; font-weight:500;">{_esc(s.get("title"))}</div>{contains}</div></div>')
-        summary_html = f'<div class="muted" style="font-size:12px; margin-top:10px; max-width:150mm;">{_esc(bp.get("summary"))}</div>' if bp.get("summary") else ""
-        tbls = bp.get("tables") or []
-        tbls_html = ""
-        if tbls:
-            chips_t = "".join(f'<span class="chip">{_esc(t)}</span>' for t in tbls[:8])
-            tbls_html = f'<div style="margin-top:20px;"><div class="faint upper" style="font-size:10px; margin-bottom:10px;">Technical Schedules</div>{chips_t}</div>'
-        tmpl_note = f'<div class="mono faint" style="font-size:9px; margin-top:20px;">Prepared to template · {_esc(p.get("templateName"))}</div>' if p.get("templateName") else ""
-        contents_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 02 · Document Contents</div>'
-                         f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Pack Contents</div>'
-                         f'{summary_html}<div style="margin-top:20px;">{sec_rows}</div>{tbls_html}{tmpl_note}')
+                         f'<span class="mono faint" style="width:40px; font-size:11px;">{no}</span>'
+                         f'<div style="flex:1; font-size:12.5px; color:#262626; font-weight:500;">{t}</div></div>')
+    summary_html = f'<div class="muted" style="font-size:12px; margin-top:10px; max-width:150mm;">{_esc(bp.get("summary"))}</div>' if bp.get("summary") else ""
+    tbls = bp.get("tables") or []
+    tbls_html = ""
+    if tbls:
+        chips_t = "".join(f'<span class="chip">{_esc(t)}</span>' for t in tbls[:8])
+        tbls_html = f'<div style="margin-top:20px;"><div class="faint upper" style="font-size:10px; margin-bottom:10px;">Technical Schedules</div>{chips_t}</div>'
+    tmpl_note = f'<div class="mono faint" style="font-size:9px; margin-top:20px;">Prepared to template · {_esc(p.get("templateName"))}</div>' if p.get("templateName") else ""
+    contents_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Contents</div>'
+                     '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Pack Contents</div>'
+                     f'{summary_html}<div style="margin-top:20px;">{sec_rows}</div>{tbls_html}{tmpl_note}')
 
     # Items Before Issue register
     items = p.get("itemsBeforeIssue") or []
@@ -1629,7 +1647,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     f'<td style="width:22%; font-size:10.5px;">{conf_cell}</td>'
                     f'<td class="mono muted" style="width:14%; text-align:right; font-size:10px;">{date_cell}</td></tr>')
     it_empty = '<tr><td colspan="5" class="muted" style="font-size:12px;">No outstanding items — ready to issue.</td></tr>'
-    items_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 · Pre-Issue Register</div>'
+    items_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 09 · Pre-Issue Register</div>'
                   f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Items Before Issue</div>'
                   f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(items)} item(s) · {confirmed_n} confirmed by the Retrofit Coordinator · {len(items) - confirmed_n} outstanding prior to issue.</div>'
                   f'<table style="margin-top:20px;"><thead><tr><th style="width:7%;">#</th><th style="width:17%;">Severity</th><th>Item</th><th style="width:22%;">Confirmed By</th><th style="text-align:right;">Date</th></tr></thead>'
@@ -1700,7 +1718,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     f'<td style="width:16%; text-align:right;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{stc}; margin-right:6px; vertical-align:middle;"></span>'
                     f'<span style="font-size:10px; color:{stc};">{MST_LBL.get(st, st)}</span> <span class="mono faint" style="font-size:9px;">{comp_s}</span></td></tr>')
     measures_schedule_page = (
-        '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 04 · Retrofit Measures</div>'
+        '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Retrofit Measures</div>'
         '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Measures Schedule</div>'
         f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(p.get("measureSummary") or "")}</div>'
         '<table style="margin-top:18px;"><thead><tr><th style="width:12%;">Ref</th><th style="width:26%;">Measure</th><th>Specification</th><th style="text-align:right;">U-value</th><th style="text-align:right;">Status</th></tr></thead>'
@@ -1790,8 +1808,40 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                      f'{jn_b}{ch_html}{rk_html}')
             spec_pages.append(headB)
 
+    # ---- Defects & remedial actions ----
+    defects = list(p.get("defects") or [])
+    if not defects:
+        for m in measures:
+            for r in (m.get("risks") or []):
+                defects.append({"element": m.get("name"),
+                                "description": r.get("title") or r.get("note") or "—",
+                                "severity": (r.get("level") or "medium"),
+                                "action": r.get("action") or r.get("note") or "To be confirmed on site"})
+    DSEV = {"high": "#DC2626", "medium": "#B45309", "low": "#16A34A"}
+    DLBL = {"high": "High", "medium": "Medium", "low": "Low"}
+    if defects:
+        drows = ""
+        for i, d in enumerate(defects[:14]):
+            sv = (d.get("severity") or "medium").lower()
+            col = DSEV.get(sv, "#B45309")
+            drows += (f'<tr><td class="mono faint" style="width:6%;">{str(i + 1).zfill(2)}</td>'
+                      f'<td style="width:20%; color:#262626;">{_esc(d.get("element") or "—")}</td>'
+                      f'<td>{_esc(d.get("description") or "—")}</td>'
+                      f'<td style="width:14%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:6px; vertical-align:middle;"></span>'
+                      f'<span style="font-size:10px; color:{col};">{DLBL.get(sv, sv)}</span></td>'
+                      f'<td class="muted" style="width:26%; font-size:10.5px;">{_esc(d.get("action") or "To be confirmed")}</td></tr>')
+        defects_body = ('<div class="muted" style="font-size:11px; margin-top:8px;">'
+                        f'{len(defects)} defect(s) / condition observation(s) recorded during the retrofit assessment — to be resolved prior to installation.</div>'
+                        '<table style="margin-top:18px;"><thead><tr><th style="width:6%;">#</th><th style="width:20%;">Element</th><th>Defect / Observation</th><th style="width:14%;">Severity</th><th style="width:26%;">Remedial Action</th></tr></thead>'
+                        f'<tbody>{drows}</tbody></table>')
+    else:
+        defects_body = '<div class="muted" style="font-size:12px; margin-top:22px;">No property defects were recorded during the retrofit assessment. Any defects identified on site must be logged and resolved prior to installation.</div>'
+    defects_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 08 · Property Condition</div>'
+                    '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Defects &amp; Remedial Actions</div>'
+                    f'{defects_body}')
+
     pages = [cover, contents_page, directory_page, divider, measures_schedule_page, performance,
-             *spec_pages, *photo_pages, drawings_page, items_page]
+             *spec_pages, *photo_pages, drawings_page, defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"

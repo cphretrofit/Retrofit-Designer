@@ -1,0 +1,39 @@
+{
+  "summary": "Independently verified the Design Pack fixes on RTF-2026-0142: (1) new 'Section 08 · Property Condition — Defects & Remedial Actions' page exists in pack.html, pack.pdf and the /pack preview, populated via the measures[].risks fallback (5 rows, correct 5-column table); (2) the Contents page ('Design Pack Contents') lists top-level sections exactly 01..09 with 05.1-05.3 sub-rows, and every printed 'Section NN ·' label appears in strictly ascending order (01, 03, 04, 05.1, 05.1 cont, 05.2, 05.2 cont, 05.3, 05.3 cont, 06, 07, 08, 09) with each printed number present in the Contents list — the previous out-of-order numbering is fixed; (3) pack.pdf returns 200 application/pdf, valid %PDF header, 16 pages; (4) preview iframe parity + 16 thumbnails in the rail, clicking the last-but-one thumbnail (index 15) scrolls to the Defects page (counter 15/16); (5) import endpoint still responds, 8 seeded projects intact, no mongo _id leakage. Auth playbook checks also passed: bcrypt $2b$12$ hashes, httpOnly cookie on login, 401 unauthenticated on pack endpoints, rate-limit 429 after 5 failed logins. 12/12 pytest tests pass. No stray projects created; no project data modified.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/projects/{id}/pack.html", "issue": "Defects fallback: every row's 'Remedial Action' cell renders 'To be confirmed' because measure risk objects have no `action` key — the actual mitigation wording is concatenated into the Description column instead. Consider mapping the risk mitigation/note into `action` and keeping only the risk title in the description."},
+      {"endpoint": "GET /api/projects/{id}/pack.html", "issue": "Defects table is silently truncated at 14 rows (defects[:14]) with no '+N more' indicator, while the count line above reports the full total — a project with >14 defects would show a mismatch."},
+      {"endpoint": "GET /api/projects/{id}/pack.html", "issue": "Contents entry '02 Retrofit Strategy' maps to the strategy divider page which prints only a large ghost '02' and no 'Section 02 · ...' label, unlike every other section. Cosmetic inconsistency only — numbering is still correct."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Design Pack preview (/project/RTF-2026-0142/pack)", "issues": ["Defects page 'Remedial Action' column is a wall of identical 'To be confirmed' text (backend data issue) — reads as an unfinished table to the end user.", "Contents wording differs slightly from printed page labels (Contents '09 Items Before Issue' vs printed 'Section 09 · Pre-Issue Register'; '06 Survey Record — Photographic Schedule' vs printed 'Section 06 · Survey Record'). Numbers match, so the reported bug is fixed, but aligning the strings would remove residual confusion."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_pack.py",
+    "/app/test_reports/pytest/iter6.xml"
+  ],
+  "action_items": [
+    "Optional: populate the defects `action` field from the risk register mitigation instead of defaulting all rows to 'To be confirmed'.",
+    "Optional: add a '+N further defects' footnote when defects exceed the 14-row cap.",
+    "Optional: align Contents row titles with the printed section labels for sections 06 and 09."
+  ],
+  "critical_code_review_comments": [
+    "/app/backend/server.py is 2084 lines; build_pack_html() alone is ~400 lines of inline HTML string building. Extract the pack renderer into /app/backend/pack_html.py (one function per page) so section numbering stays in a single canonical place and is unit-testable.",
+    "The canonical `toc` list and the per-page 'Section NN' labels are still two independent literals — they happen to agree now, but a future edit can desync them again. Derive the printed labels from the same toc structure (e.g. a dict of number -> title) to make the fix structurally permanent."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter6_pack.py"],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None. No projects created or modified; no explicit `defects` array was written to any project (fallback path tested as-is). 8 seeded projects and 5 admin users unchanged.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Regression suite for the design pack lives at /app/backend/tests/test_iter6_pack.py (12 tests, all passing) and asserts Contents 01..09, ascending printed section labels, defects table columns, 16-page PDF, auth guard and lockout. Note two gotchas when writing pack assertions: (a) 'Defects & Remedial Actions' appears twice in the HTML (Contents row + page heading) so slice between 'Section 08' and 'Section 09'; (b) in the browser iframe the section labels are CSS text-transform:uppercase, so compare case-insensitively. Also the rail selector [data-testid^=\"pack-thumb-\"] matches pack-thumb-rail too, giving count n+1.",
+  "rca_of_the_issue": "Original bug: no defects page existed and the printed 'Section NN' labels were hardcoded independently of the Contents list (Contents=02, Project Info=01, photos=03 near the end). Fix verified: a single canonical `toc` list now drives the Contents page and all page labels were renumbered to match (directory 01, strategy divider ghost 02, measures 03, performance 04, specs 05.x, photos 06, drawings 07, new defects 08, items 09), with defects_page inserted before items_page and a fallback that aggregates measures[].risks when no explicit `defects` array exists."
+}
