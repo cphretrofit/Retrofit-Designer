@@ -599,6 +599,32 @@ async def update_project_field(project_id: str, payload: FieldUpdate):
     return updated
 
 
+class ItemConfirm(BaseModel):
+    confirmed: bool = True
+    confirmedBy: Optional[str] = None
+
+
+@api_router.patch("/projects/{project_id}/items/{index}/confirm")
+async def confirm_item(project_id: str, index: int, payload: ItemConfirm):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    items = proj.get("itemsBeforeIssue") or []
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found")
+    if payload.confirmed:
+        who = (payload.confirmedBy or proj.get("coordinator") or "").strip()
+        if not who or who == "—":
+            who = "Retrofit Coordinator"
+        items[index]["confirmedBy"] = who
+        items[index]["confirmedAt"] = datetime.now(timezone.utc).isoformat()
+    else:
+        items[index].pop("confirmedBy", None)
+        items[index].pop("confirmedAt", None)
+    await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
+    return {"itemsBeforeIssue": items}
+
+
 @api_router.post("/reseed")
 async def reseed():
     await db.projects.delete_many({})
@@ -1254,19 +1280,35 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
     SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
     it_rows = ""
+    confirmed_n = 0
     for i, it in enumerate(items):
         sev = it.get("severity") or "info_required"
         col = SEV_COL.get(sev, "#0055FF")
-        it_rows += (f'<tr><td class="mono faint" style="width:8%;">{str(i + 1).zfill(2)}</td>'
-                    f'<td style="width:22%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:7px; vertical-align:middle;"></span>'
+        by = it.get("confirmedBy")
+        when = ""
+        if it.get("confirmedAt"):
+            try:
+                when = datetime.fromisoformat(str(it["confirmedAt"]).replace("Z", "+00:00")).strftime("%d %b %Y")
+            except Exception:
+                when = ""
+        if by:
+            confirmed_n += 1
+            conf_cell = f'<span style="color:#16A34A;">&#10003; {_esc(by)}</span>'
+            date_cell = when or "—"
+        else:
+            conf_cell = '<span class="faint">Pending</span>'
+            date_cell = '<span class="faint">—</span>'
+        it_rows += (f'<tr><td class="mono faint" style="width:7%;">{str(i + 1).zfill(2)}</td>'
+                    f'<td style="width:17%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:7px; vertical-align:middle;"></span>'
                     f'<span style="font-size:10px; color:{col};">{SEV_LBL.get(sev, sev)}</span></td>'
                     f'<td>{_esc(it.get("text"))}</td>'
-                    f'<td class="mono muted" style="width:12%; text-align:right;">{_esc(it.get("measure"))}</td></tr>')
-    it_empty = '<tr><td colspan="4" class="muted" style="font-size:12px;">No outstanding items — ready to issue.</td></tr>'
+                    f'<td style="width:22%; font-size:10.5px;">{conf_cell}</td>'
+                    f'<td class="mono muted" style="width:14%; text-align:right; font-size:10px;">{date_cell}</td></tr>')
+    it_empty = '<tr><td colspan="5" class="muted" style="font-size:12px;">No outstanding items — ready to issue.</td></tr>'
     items_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 · Pre-Issue Register</div>'
                   f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Items Before Issue</div>'
-                  f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(items)} outstanding item(s) to be resolved and confirmed by the Retrofit Coordinator prior to issue.</div>'
-                  f'<table style="margin-top:20px;"><thead><tr><th style="width:8%;">#</th><th style="width:22%;">Severity</th><th>Item</th><th style="text-align:right;">Measure</th></tr></thead>'
+                  f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(items)} item(s) · {confirmed_n} confirmed by the Retrofit Coordinator · {len(items) - confirmed_n} outstanding prior to issue.</div>'
+                  f'<table style="margin-top:20px;"><thead><tr><th style="width:7%;">#</th><th style="width:17%;">Severity</th><th>Item</th><th style="width:22%;">Confirmed By</th><th style="text-align:right;">Date</th></tr></thead>'
                   f'<tbody>{it_rows or it_empty}</tbody></table>')
 
     pages = [cover, contents_page, divider, performance, buildup_page, photos_page, drawings_page, items_page]

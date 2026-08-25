@@ -46,6 +46,10 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 ### Phase 7 — Full issue-ready PDF (2026-06-25)
 - Design Pack PDF expanded to 8 pages: added **Section 02 · Design Pack Contents** (template-driven section skeleton — summary, numbered sections with descriptions, and technical schedules pulled from the matched template's blueprint) and **Section 07 · Items Before Issue** (complete pre-issue register with colour-coded severity: Critical/Warning/Info Required, item text, measure). Verified by rendering both new pages.
 
+### Phase 8 — Coordinator sign-off / QA audit trail (2026-06-25)
+- Items Before Issue can now be confirmed per-item: `PATCH /api/projects/{id}/items/{index}/confirm` sets `confirmedBy` (defaults to the project coordinator) + `confirmedAt`; unconfirm clears them. Project Overview shows a Confirm/Undo control per item with a green "Confirmed by X · date" line + toast.
+- PDF Section 07 register expanded with **Confirmed By** and **Date** columns and a summary line (N item(s) · C confirmed · O outstanding), giving the issued pack a full QA audit trail. Verified end-to-end (endpoint, UI, and rendered PDF).
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject } from "@/lib/api";
+import { getProject, confirmItem } from "@/lib/api";
 import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
+import { toast } from "sonner";
 import {
   ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers,
 } from "lucide-react";
@@ -26,6 +27,17 @@ export default function ProjectOverview() {
   const [active, setActive] = useState(null);
 
   useEffect(() => { getProject(id).then(setP).catch(() => {}); }, [id]);
+
+  const confirmItemAt = async (i, confirmed) => {
+    try {
+      const data = await confirmItem(id, i, { confirmed });
+      setP((prev) => ({ ...prev, itemsBeforeIssue: data.itemsBeforeIssue }));
+      toast.success(confirmed ? "Item confirmed" : "Confirmation removed");
+    } catch {
+      toast.error("Could not update item");
+    }
+  };
+
   if (!p) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: "Loading…" }]} /></div>;
   if (!p.property) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: p.name || "Project" }]} /><div className="max-w-md mx-auto py-24 text-center text-sm text-muted-foreground">Design data is being prepared for this project.</div></div>;
 
@@ -149,10 +161,23 @@ export default function ProjectOverview() {
                   {p.itemsBeforeIssue.map((it, i) => {
                     const Icon = SEV[it.severity] || Info;
                     return (
-                      <li key={i} className="flex items-start gap-2.5">
+                      <li key={i} className="flex items-start gap-2.5" data-testid={`ibi-item-${i}`}>
                         <span className="font-mono text-[11px] text-muted-foreground mt-0.5 w-4">{String(i + 1).padStart(2, "0")}</span>
                         <Icon className="h-4 w-4 mt-0.5 shrink-0" style={{ color: SEV_COLOR[it.severity] }} strokeWidth={1.75} />
-                        <span className="text-[13px] leading-snug">{it.text}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[13px] leading-snug">{it.text}</div>
+                          {it.confirmedBy && (
+                            <div className="text-[11px] mt-1 flex items-center gap-1.5" style={{ color: "var(--c-pass)" }} data-testid={`ibi-confirmed-${i}`}>
+                              <CheckCircle2 className="h-3 w-3 shrink-0" strokeWidth={2} />
+                              Confirmed by {it.confirmedBy}{it.confirmedAt ? ` · ${new Date(it.confirmedAt).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                            </div>
+                          )}
+                        </div>
+                        {it.confirmedBy ? (
+                          <button onClick={() => confirmItemAt(i, false)} data-testid={`ibi-undo-${i}`} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5">Undo</button>
+                        ) : (
+                          <button onClick={() => confirmItemAt(i, true)} data-testid={`ibi-confirm-${i}`} className="text-[11px] px-2 h-6 border border-border rounded-sm hover:bg-secondary transition-colors shrink-0">Confirm</button>
+                        )}
                       </li>
                     );
                   })}
