@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { TopBar } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
 import { toast } from "sonner";
-import { Sparkles, ChevronDown, FileText, Loader2, Layers } from "lucide-react";
+import { Sparkles, ChevronDown, FileText, Loader2, Layers, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const STATUS_TONE = { pending: "draft", analyzing: "info", ready: "pass", error: "critical" };
@@ -14,6 +14,8 @@ export default function Templates() {
   const navigate = useNavigate();
   const [tpls, setTpls] = useState([]);
   const [open, setOpen] = useState(null);
+  const [q, setQ] = useState("");
+  const [codes, setCodes] = useState([]);
   const pollRef = useRef(null);
 
   const load = () => api.get("/templates").then((r) => setTpls(r.data)).catch(() => {});
@@ -35,6 +37,14 @@ export default function Templates() {
   };
 
   const pending = tpls.filter((t) => t.status !== "ready").length;
+  const allCodes = [...new Set(tpls.flatMap((t) => t.measureCodes || []))].sort();
+  const toggleCode = (c) => setCodes((cs) => (cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c]));
+  const visible = tpls.filter((t) => {
+    const hay = `${t.name} ${t.original_filename || ""}`.toLowerCase();
+    const okQ = !q || hay.includes(q.toLowerCase());
+    const okC = codes.every((c) => (t.measureCodes || []).includes(c));
+    return okQ && okC;
+  });
 
   return (
     <div className="min-h-screen bg-background">
@@ -58,8 +68,45 @@ export default function Templates() {
           </p>
         </div>
 
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search templates by name or filename…"
+              data-testid="template-search-input"
+              className="w-full h-9 pl-9 pr-3 bg-card border border-border rounded-sm text-[13px] outline-none focus:border-foreground/30 transition-colors"
+            />
+          </div>
+          <div className="text-[11px] font-mono text-muted-foreground whitespace-nowrap" data-testid="templates-count">
+            {visible.length} of {tpls.length}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 mb-6">
+          {allCodes.map((c) => (
+            <button
+              key={c}
+              onClick={() => toggleCode(c)}
+              data-testid={`filter-code-${c}`}
+              className={cn(
+                "text-[10px] font-mono uppercase tracking-wide border px-2 py-1 rounded-sm transition-colors",
+                codes.includes(c) ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary"
+              )}
+            >
+              {c}
+            </button>
+          ))}
+          {(codes.length > 0 || q) && (
+            <button onClick={() => { setCodes([]); setQ(""); }} data-testid="filter-clear"
+              className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground hover:text-foreground ml-1 transition-colors">
+              <X className="h-3 w-3" strokeWidth={2} /> Clear
+            </button>
+          )}
+        </div>
+
         <div className="space-y-3" data-testid="templates-list">
-          {tpls.map((t) => {
+          {visible.map((t) => {
             const bp = t.blueprint;
             const isOpen = open === t.id;
             return (
@@ -124,7 +171,7 @@ export default function Templates() {
               </div>
             );
           })}
-          {tpls.length === 0 && <div className="text-[13px] text-muted-foreground py-12 text-center">No templates yet.</div>}
+          {visible.length === 0 && <div className="text-[13px] text-muted-foreground py-12 text-center">No templates match your search or filters.</div>}
         </div>
       </main>
     </div>

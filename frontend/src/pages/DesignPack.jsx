@@ -32,7 +32,7 @@ export default function DesignPack() {
   const exportPdf = async () => {
     try {
       setDl(true);
-      const res = await fetch(`${API}/projects/${id}/pack.pdf`);
+      const res = await fetch(`${API}/projects/${id}/pack.pdf?origin=${encodeURIComponent(window.location.origin)}`);
       if (!res.ok) throw new Error("export failed");
       const blob = await res.blob();
       const href = URL.createObjectURL(blob);

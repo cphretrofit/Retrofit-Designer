@@ -39,6 +39,10 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Images embedded as base64 data URIs: survey photos from object storage (`/documents/{id}/download`) and external hero/demo photos via `_remote_data_uri` (http fallback). Filename `Content-Disposition` = `{ref}-{name}-Rev{rev}.pdf`.
 - Frontend "Export PDF" button (`pack-download`) now fetches the blob and downloads with a spinner + toast. `weasyprint==69.0` added to requirements. Verified: valid PDFs (with/without photos), all pages render, browser download fires with correct filename.
 
+### Phase 6 — PDF cover sign-off + QR, Library search/filter (2026-06-25)
+- PDF cover now carries a sign-off block (Designer, Coordinator, Date Issued) plus a QR code (segno) linking to the live project (`{origin}/project/{id}`; origin passed from the frontend). `GET /api/projects/{id}/pack.pdf?origin=...`.
+- Template Library gained a search box (name/filename) and toggleable measure-code filter chips (AND match) with a live "N of 57" count and Clear. Verified: "ashp"→24/57, B9+ASHP+SOLAR→5/57. `segno==1.6.6` added to requirements.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

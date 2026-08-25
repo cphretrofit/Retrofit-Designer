@@ -8,6 +8,7 @@ import io
 import uuid
 import json
 import base64
+import segno
 import re
 import asyncio
 import logging
@@ -1060,6 +1061,15 @@ def _remote_data_uri(url: str):
         return None
 
 
+def _qr_data_uri(data: str):
+    try:
+        buf = io.BytesIO()
+        segno.make(data, error="m").save(buf, kind="png", scale=5, border=1, dark="#171717")
+        return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    except Exception:
+        return None
+
+
 PACK_CSS = """
 @page { size: A4; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1083,7 +1093,7 @@ td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
 """
 
 
-def build_pack_html(p, photo_uris, hero_uri):
+def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
     ref = _esc(p.get("ref") or "")
@@ -1103,6 +1113,12 @@ def build_pack_html(p, photo_uris, hero_uri):
                 if p.get("templateName") else "")
     hero_html = (f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; margin-top:22px;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.05);"></div>'
                  if hero_uri else '<div style="height:150px; border:1px solid #e5e5e5; margin-top:22px;"></div>')
+    signoff = [("Designer", p.get("designer")), ("Coordinator", p.get("coordinator")), ("Date Issued", issued_date)]
+    signoff_cells = "".join(
+        f'<div style="display:inline-block; vertical-align:top; margin-right:34px;"><div class="faint upper" style="font-size:9px;">{_esc(k)}</div>'
+        f'<div style="font-size:12px; margin-top:5px; color:#262626;">{_esc(v or "—")}</div></div>' for k, v in signoff)
+    qr_block = (f'<div style="position:absolute; right:0; top:-6px; text-align:center;"><img src="{qr_uri}" style="width:68px; height:68px;">'
+                f'<div class="faint mono" style="font-size:7.5px; margin-top:3px; letter-spacing:0.05em;">SCAN · LIVE PROJECT</div></div>' if qr_uri else "")
     cover = f'''
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <div><span class="brandmark"><i></i></span>
@@ -1117,9 +1133,10 @@ def build_pack_html(p, photo_uris, hero_uri):
         <div class="muted" style="font-size:17px; margin-top:8px;">{town}</div>
       </div>
       {hero_html}
-      <div style="position:absolute; left:18mm; right:18mm; bottom:24mm;">
+      <div style="position:absolute; left:18mm; right:18mm; bottom:22mm;">
         <div class="rule" style="padding-top:14px;">{meta_cells}</div>
-        <div style="margin-top:16px;">{chips}</div>
+        <div style="margin-top:18px; position:relative; min-height:66px;">{signoff_cells}{qr_block}</div>
+        <div style="margin-top:6px;">{chips}</div>
         {tpl_line}
       </div>'''
 
@@ -1220,7 +1237,7 @@ def build_pack_html(p, photo_uris, hero_uri):
 
 
 @api_router.get("/projects/{project_id}/pack.pdf")
-async def export_pack_pdf(project_id: str):
+async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1231,7 +1248,10 @@ async def export_pack_pdf(project_id: str):
         data = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
         photo_uris.append({**ph, "data": data})
     hero_uri = await asyncio.to_thread(_remote_data_uri, p.get("heroImage")) if p.get("heroImage") else None
-    html = build_pack_html(p, photo_uris, hero_uri)
+    link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
+    qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
+    issued = datetime.now(timezone.utc).strftime("%d %b %Y")
+    html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued)
     from weasyprint import HTML
     pdf = await asyncio.to_thread(lambda: HTML(string=html).write_pdf())
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
