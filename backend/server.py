@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Header, Query, Response
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, Form, Header, Query, Response, Depends, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -28,6 +28,9 @@ db = client[os.environ['DB_NAME']]
 
 app = FastAPI(title="Retrofit Design Platform API")
 api_router = APIRouter(prefix="/api")
+
+from auth import build_auth
+auth_router, admin_router, require_user, require_admin, seed_admins = build_auth(db)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -1238,6 +1241,84 @@ def _qr_data_uri(data: str):
         return None
 
 
+def _material_style(name):
+    n = (name or "").lower()
+    if any(k in n for k in ["masonry", "brick", "block", "concrete", "stone"]):
+        return ("#e4d9cf", "hatch")
+    if any(k in n for k in ["insulat", "wool", "eps", "pir", "phenolic", "quilt", "fibre"]):
+        return ("#fde9b0", "dots")
+    if any(k in n for k in ["timber", "joist", "batten", "stud", "board"]):
+        return ("#e7cfa8", "grain")
+    if any(k in n for k in ["render", "basecoat", "adhesive", "finish", "mesh", "plaster", "screed", "coat"]):
+        return ("#e6e6e6", "solid")
+    return ("#eeeeee", "solid")
+
+
+def _buildup_svg(layers):
+    if not layers:
+        return ""
+    ths = []
+    for l in layers:
+        mt = re.search(r"[\d.]+", str(l.get("thickness") or ""))
+        ths.append(float(mt.group()) if mt else 8.0)
+    W, H, top, bot = 480.0, 150.0, 30.0, 26.0
+    pad = 4.0
+    inner_w = W - 2 * pad
+    plot_h = H - top - bot
+    props = [max(inner_w * t / max(sum(ths), 1), 24) for t in ths]
+    scale = inner_w / sum(props)
+    props = [p * scale for p in props]
+    defs = ('<defs>'
+            '<pattern id="dots" width="6" height="6" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="0.9" fill="#c9a94a"/></pattern>'
+            '<pattern id="hatch" width="6" height="6" patternUnits="userSpaceOnUse"><path d="M0,6 L6,0" stroke="#b9a48f" stroke-width="0.6"/></pattern>'
+            '<pattern id="grain" width="8" height="8" patternUnits="userSpaceOnUse"><path d="M0,2 H8 M0,6 H8" stroke="#c8a878" stroke-width="0.4"/></pattern>'
+            '</defs>')
+    lbl = (f'<text x="{pad}" y="12" font-size="8" fill="#a3a3a3" font-family="monospace">INTERNAL</text>'
+           f'<text x="{W - pad}" y="12" font-size="8" fill="#a3a3a3" text-anchor="end" font-family="monospace">EXTERNAL</text>')
+    bands = ""
+    x = pad
+    for i, (l, w) in enumerate(zip(layers, props)):
+        col, pat = _material_style(l.get("material"))
+        no = _esc(l.get("no") or f"{i + 1:02d}")
+        bands += f'<rect x="{x:.1f}" y="{top}" width="{w:.1f}" height="{plot_h}" fill="{col}" stroke="#171717" stroke-width="0.5"/>'
+        if pat in ("dots", "hatch", "grain"):
+            bands += f'<rect x="{x:.1f}" y="{top}" width="{w:.1f}" height="{plot_h}" fill="url(#{pat})"/>'
+        cx = x + w / 2
+        bands += f'<text x="{cx:.1f}" y="{top + 13:.1f}" font-size="9" fill="#404040" text-anchor="middle" font-family="monospace">{no}</text>'
+        bands += f'<text x="{cx:.1f}" y="{H - 9:.1f}" font-size="7.5" fill="#a3a3a3" text-anchor="middle" font-family="monospace">{_esc(l.get("thickness") or "")}</text>'
+        x += w
+    return f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" style="max-height:150px;">{defs}{lbl}{bands}</svg>'
+
+
+def _junction_svg(name):
+    n = (name or "").lower()
+    wall = ('<rect x="12" y="4" width="12" height="52" fill="#e4d9cf" stroke="#171717" stroke-width="0.6"/>'
+            '<rect x="24" y="4" width="9" height="52" fill="#fde9b0" stroke="#171717" stroke-width="0.6"/>'
+            '<rect x="33" y="4" width="3" height="52" fill="#e6e6e6" stroke="#171717" stroke-width="0.4"/>')
+    if "head" in n:
+        feat = '<rect x="24" y="38" width="16" height="4" fill="#bcbcbc" stroke="#171717" stroke-width="0.5"/><rect x="30" y="42" width="10" height="14" fill="none" stroke="#171717" stroke-width="0.8"/>'
+    elif "sill" in n:
+        feat = '<polygon points="30,20 46,26 46,28 30,24" fill="#bcbcbc" stroke="#171717" stroke-width="0.5"/><rect x="30" y="4" width="10" height="16" fill="none" stroke="#171717" stroke-width="0.8"/>'
+    elif "reveal" in n:
+        feat = '<rect x="24" y="26" width="20" height="8" fill="#fde9b0" stroke="#171717" stroke-width="0.6"/><rect x="44" y="18" width="6" height="24" fill="none" stroke="#171717" stroke-width="0.8"/>'
+    elif "eaves" in n and "vent" in n:
+        feat = '<line x1="10" y1="16" x2="52" y2="4" stroke="#171717" stroke-width="1"/><circle cx="40" cy="14" r="3" fill="none" stroke="#0055ff" stroke-width="1"/>'
+    elif "eaves" in n or "roof" in n or "verge" in n or "abutment" in n:
+        feat = '<line x1="10" y1="16" x2="52" y2="4" stroke="#171717" stroke-width="1"/><line x1="24" y1="8" x2="24" y2="20" stroke="#c9a94a" stroke-width="2"/>'
+    elif "dpc" in n or "base" in n or "ground" in n:
+        feat = '<rect x="6" y="48" width="48" height="8" fill="url(#gnd)"/><line x1="24" y1="44" x2="36" y2="44" stroke="#171717" stroke-width="1"/>'
+    elif "hatch" in n:
+        feat = '<rect x="18" y="26" width="26" height="4" fill="#bcbcbc" stroke="#171717" stroke-width="0.5"/><rect x="24" y="30" width="14" height="9" fill="none" stroke="#171717" stroke-width="0.7" stroke-dasharray="2 1"/>'
+    elif "tank" in n:
+        feat = '<rect x="20" y="18" width="22" height="15" rx="2" fill="none" stroke="#171717" stroke-width="0.9"/><line x1="18" y1="33" x2="44" y2="33" stroke="#171717" stroke-width="0.6"/>'
+    elif "vent" in n:
+        feat = '<circle cx="40" cy="30" r="5" fill="none" stroke="#0055ff" stroke-width="1"/><line x1="36" y1="30" x2="24" y2="30" stroke="#171717" stroke-width="0.8"/>'
+    else:
+        feat = '<rect x="24" y="22" width="16" height="16" fill="none" stroke="#171717" stroke-width="0.7" stroke-dasharray="3 2"/>'
+    defs = '<defs><pattern id="gnd" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M0,5 L5,0" stroke="#b9a48f" stroke-width="0.5"/></pattern></defs>'
+    return f'<svg viewBox="0 0 60 60" width="46" height="46">{defs}{wall}{feat}</svg>'
+
+
 PACK_CSS = """
 @page { size: A4; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1534,7 +1615,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                 for l in bu)
             bu_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:2px;">Construction Build-up</div>'
                        '<table><thead><tr><th style="width:10%;">Layer</th><th>Material</th><th style="text-align:right;">Thickness</th><th style="text-align:right;">&#955; (W/mK)</th></tr></thead>'
-                       f'<tbody>{rows}</tbody></table>')
+                       f'<tbody>{rows}</tbody></table>'
+                       '<div style="border:1px solid #e5e5e5; margin-top:14px; padding:10px 12px;">'
+                       '<div class="faint upper" style="font-size:8.5px; margin-bottom:8px;">Construction Section (to scale)</div>'
+                       f'{_buildup_svg(bu)}</div>')
         cu, tu, eu = m.get("calculatedU"), m.get("targetU"), m.get("existingU")
         u_html = ""
         if cu is not None and tu is not None:
@@ -1550,20 +1634,22 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         jn_html = ""
         if jns:
             jr = ""
-            for j in jns[:7]:
+            for j in jns[:6]:
                 js = j.get("status") or "not_started"
                 jc = JST.get(js, "#a3a3a3")
-                jr += (f'<tr><td style="width:22%; color:#262626;">{_esc(j.get("name"))}</td>'
+                jr += (f'<tr><td style="width:14%; padding:6px 0;">{_junction_svg(j.get("name"))}</td>'
+                       f'<td style="width:19%; color:#262626;">{_esc(j.get("name"))}</td>'
                        f'<td style="width:7%;"><span style="color:{jc}; font-size:12px;">{JSY.get(js, "&#8211;")}</span></td>'
-                       f'<td class="mono faint" style="width:22%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
+                       f'<td class="mono faint" style="width:20%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
                        f'<td class="muted" style="font-size:10px;">{_esc(j.get("note"))}</td></tr>')
             jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:2px;">Junction Schedule</div>'
-                       '<table><thead><tr><th style="width:22%;">Junction</th><th style="width:7%;"></th><th style="width:22%;">Detail Ref</th><th>Note</th></tr></thead>'
+                       '<table><thead><tr><th style="width:14%;">Detail</th><th style="width:19%;">Junction</th><th style="width:7%;"></th><th style="width:20%;">Detail Ref</th><th>Note</th></tr></thead>'
                        f'<tbody>{jr}</tbody></table>')
-        spec_pages.append(head + system_html + bu_html + u_html + jn_html)
+        jn_on_a = (not bu and cu is None)
+        spec_pages.append(head + system_html + bu_html + u_html + (jn_html if jn_on_a else ""))
         checks = m.get("checks") or []
         risks = m.get("risks") or []
-        if checks or risks:
+        if (jns and not jn_on_a) or checks or risks:
             ch_html = ""
             if checks:
                 cc = ""
@@ -1573,7 +1659,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     cc += (f'<div style="display:inline-block; width:48%; vertical-align:top; border-bottom:1px solid #f0f0f0; padding:6px 0; margin-right:2%;">'
                            f'<span style="color:{ccol}; font-size:12px; margin-right:8px;">{JSY.get(cs, "&#8211;")}</span>'
                            f'<span class="muted" style="font-size:11px;">{_esc(c.get("label"))}</span></div>')
-                ch_html = f'<div class="faint upper" style="font-size:9.5px; margin-bottom:6px;">Design Checks</div><div>{cc}</div>'
+                ch_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:6px;">Design Checks</div><div>{cc}</div>'
             rk_html = ""
             if risks:
                 rr = ""
@@ -1585,9 +1671,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                            f'<span class="mono" style="font-size:9px; color:{rc}; margin-left:8px; text-transform:uppercase;">{_esc(lv)}</span></div>'
                            f'<div class="muted" style="font-size:10.5px; margin-top:3px; line-height:1.4;">{_esc(r.get("note"))}</div></div>')
                 rk_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:10px;">Risk Register</div><div>{rr}</div>'
+            jn_b = "" if jn_on_a else jn_html
             headB = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} · Technical Specification (cont.)</div>'
                      f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
-                     f'<div style="margin-top:18px;">{ch_html}</div>{rk_html}')
+                     f'{jn_b}{ch_html}{rk_html}')
             spec_pages.append(headB)
 
     pages = [cover, contents_page, directory_page, divider, measures_schedule_page, performance,
@@ -1780,7 +1867,9 @@ async def template_analyze(tid: str):
     return {"status": "analyzing"}
 
 
-app.include_router(api_router)
+app.include_router(auth_router)
+app.include_router(admin_router)
+app.include_router(api_router, dependencies=[Depends(require_user)])
 
 app.add_middleware(
     CORSMiddleware,
@@ -1793,6 +1882,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
+    await seed_admins()
     await seed()
     await seed_templates()
     try:

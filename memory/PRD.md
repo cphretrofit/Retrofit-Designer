@@ -59,6 +59,12 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Expanded the Design Pack PDF from a scarce ~8 pages to a full technical document (16pp for a fully-authored project). Added: **Project Directory & Dwelling** (assessor/coordinator/designer, dwelling type/age/area/storeys/occupancy/orientation, EPC before→after, existing construction table, design-readiness bars), a **Measures Schedule** table (PAS ref, specification, existing→proposed U-value, status, completion), and **per-measure Technical Specification** pages for every measure (system description, construction build-up + calculated U-value PASS/REVIEW, junction schedule with detail refs & notes, design checks, risk register).
 - Handles sparse AI-imported measures gracefully. Verified across multiple projects (0142→16pp, 0140→22pp incl. 40 photos, 0138→13pp).
 
+### Phase 11 — Detail drawings + Authentication & User Management (2026-06-25)
+- **Detail drawings**: each measure spec now embeds a to-scale SVG construction section (built from real build-up layers) and a schematic thumbnail per junction row (head/sill/reveal/eaves/base/roof/etc.). Verified via render.
+- **Auth (JWT + bcrypt, httpOnly cookies)** in `/app/backend/auth.py`: login/logout/me/refresh/change-password, brute-force lockout, 8h access + 7d refresh tokens. Every `/api` business route now requires a valid session (`app.include_router(api_router, dependencies=[Depends(require_user)])`); `/api/admin/*` requires role=admin.
+- **Roles + admin CRUD**: `/api/admin/users` list/create/update/reset-password/delete. Guards: can't delete/downgrade/deactivate the last active admin; users can't change their own role or reach admin routes. 5 owner admins seeded (see test_credentials.md).
+- **Frontend**: AuthProvider + ProtectedRoute/AdminRoute, premium Login page, User Management page, and a user menu (logout + admin-only Users link) in the TopBar. Verified: unauth→401/redirect, admin login, user RBAC 403, full CRUD.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

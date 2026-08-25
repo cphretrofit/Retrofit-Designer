@@ -1,30 +1,37 @@
 import "@/App.css";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "@/context/ThemeProvider";
+import { AuthProvider } from "@/context/AuthContext";
+import { ProtectedRoute, AdminRoute } from "@/components/ProtectedRoute";
 import { CommandPalette } from "@/components/CommandPalette";
 import { Toaster } from "@/components/ui/sonner";
+import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import ProjectOverview from "@/pages/ProjectOverview";
 import DesignWorkspace from "@/pages/DesignWorkspace";
 import DesignPack from "@/pages/DesignPack";
 import ImportProject from "@/pages/ImportProject";
 import Templates from "@/pages/Templates";
+import UserManagement from "@/pages/UserManagement";
 
 function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
-        <CommandPalette />
-        <Toaster position="bottom-right" />
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/import" element={<ImportProject />} />
-          <Route path="/templates" element={<Templates />} />
-          <Route path="/project/:id" element={<ProjectOverview />} />
-          <Route path="/project/:id/design" element={<DesignWorkspace />} />
-          <Route path="/project/:id/design/:section" element={<DesignWorkspace />} />
-          <Route path="/project/:id/pack" element={<DesignPack />} />
-        </Routes>
+        <AuthProvider>
+          <Toaster position="bottom-right" />
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/" element={<ProtectedRoute><><CommandPalette /><Dashboard /></></ProtectedRoute>} />
+            <Route path="/import" element={<ProtectedRoute><ImportProject /></ProtectedRoute>} />
+            <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+            <Route path="/project/:id" element={<ProtectedRoute><ProjectOverview /></ProtectedRoute>} />
+            <Route path="/project/:id/design" element={<ProtectedRoute><DesignWorkspace /></ProtectedRoute>} />
+            <Route path="/project/:id/design/:section" element={<ProtectedRoute><DesignWorkspace /></ProtectedRoute>} />
+            <Route path="/project/:id/pack" element={<ProtectedRoute><DesignPack /></ProtectedRoute>} />
+            <Route path="/users" element={<AdminRoute><UserManagement /></AdminRoute>} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>
   );

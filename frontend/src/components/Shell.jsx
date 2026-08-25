@@ -1,7 +1,48 @@
 import { useNavigate } from "react-router-dom";
+import { useState } from "react";
 import { useTheme } from "@/context/ThemeProvider";
-import { Command, Moon, Sun, Search, ChevronRight } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { Command, Moon, Sun, Search, ChevronRight, LogOut, Users, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+
+function UserMenu() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  if (!user) return null;
+  const initials = (user.name || user.email || "?").split(" ").map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+  return (
+    <div className="relative">
+      <button onClick={() => setOpen((o) => !o)} onBlur={() => setTimeout(() => setOpen(false), 150)}
+        data-testid="user-menu-button"
+        className="flex items-center gap-2 h-8 pl-1 pr-2 border border-border rounded-sm hover:border-foreground/30 transition-colors">
+        <span className="h-6 w-6 rounded-[3px] bg-foreground text-background text-[10px] font-medium flex items-center justify-center">{initials}</span>
+        <span className="hidden sm:block text-[12px] max-w-[120px] truncate">{user.name}</span>
+        <ChevronDown className="h-3 w-3 text-muted-foreground" strokeWidth={1.75} />
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1.5 w-56 bg-card border border-border rounded-md shadow-lg py-1 z-50" data-testid="user-menu">
+          <div className="px-3 py-2 border-b border-border">
+            <div className="text-[13px] font-medium truncate">{user.name}</div>
+            <div className="text-[11px] text-muted-foreground font-mono truncate">{user.email}</div>
+            <div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground mt-1">{user.role === "admin" ? "Administrator" : "User"}</div>
+          </div>
+          {user.role === "admin" && (
+            <button onMouseDown={() => navigate("/users")} data-testid="nav-users"
+              className="w-full flex items-center gap-2 px-3 py-2 text-[13px] hover:bg-secondary transition-colors">
+              <Users className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} /> User Management
+            </button>
+          )}
+          <button onMouseDown={logout} data-testid="logout-button"
+            className="w-full flex items-center gap-2 px-3 py-2 text-[13px] hover:bg-secondary transition-colors text-red-600">
+            <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export function TopBar({ crumbs = [], right = null }) {
   const { theme, toggle } = useTheme();
@@ -64,6 +105,7 @@ export function TopBar({ crumbs = [], right = null }) {
         >
           {theme === "dark" ? <Sun className="h-4 w-4" strokeWidth={1.5} /> : <Moon className="h-4 w-4" strokeWidth={1.5} />}
         </button>
+        <UserMenu />
         <div className="h-8 w-8 rounded-full bg-foreground text-background flex items-center justify-center text-[11px] font-mono font-medium select-none">
           AO
         </div>
