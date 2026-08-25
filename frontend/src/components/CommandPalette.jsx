@@ -4,6 +4,7 @@ import {
   CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator,
 } from "@/components/ui/command";
 import { getProjects } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Plus, Camera, Calculator, FileText, GitBranch, ScanSearch,
   ListChecks, FolderOpen, ArrowRight, Building2,
@@ -13,6 +14,7 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false);
   const [projects, setProjects] = useState([]);
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   useEffect(() => {
     const down = (e) => {
@@ -35,6 +37,9 @@ export function CommandPalette() {
   }, [open, projects.length]);
 
   const go = (path) => { setOpen(false); navigate(path); };
+
+  if (!user) return null;
+
   const hero = "RTF-2026-0142";
 
   const actions = [

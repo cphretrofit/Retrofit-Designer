@@ -21,9 +21,10 @@ function App() {
       <BrowserRouter>
         <AuthProvider>
           <Toaster position="bottom-right" />
+          <CommandPalette />
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/" element={<ProtectedRoute><><CommandPalette /><Dashboard /></></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><ImportProject /></ProtectedRoute>} />
             <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
             <Route path="/project/:id" element={<ProtectedRoute><ProjectOverview /></ProtectedRoute>} />

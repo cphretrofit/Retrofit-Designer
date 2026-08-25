@@ -75,6 +75,11 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Photo curation**: workspace Photos section lets designers Include/Exclude and reorder survey photos (`PUT /projects/{id}/photos`); the PDF filters `included!=False` and sorts by `order`.
 - **Confirm-all**: `POST /projects/{id}/items/confirm-all` confirms the whole pre-issue register at once (button on Project Overview, shown when unconfirmed items exist). All verified (curl + browser).
 
+### Phase 14 — Editable measures, bulk photo actions, global ⌘K (2026-06-25)
+- **Editable measures**: measure detail view now has inline click-to-edit (`EditableCell`) for build-up rows (material / thickness mm / λ) and for Calculated / Target / Existing U-values, saving via `PATCH /projects/{id}/field` with dot-paths `measures.{i}.buildup.{j}.thickness` etc. PASS/REVIEW badge recalculates live. Verified: curl persists `measures.0.buildup.1.thickness`.
+- **Bulk photo actions**: Photos section adds "Include all" / "Exclude all" buttons and true HTML5 drag-to-reorder (up/down arrows retained), all persisting via `PUT /projects/{id}/photos`.
+- **Global ⌘K**: CommandPalette mounted once in `App.js` (auth-gated via `useAuth`), so ⌘K jumps to any property from any page (workspace, pack, templates). Verified opens on workspace.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

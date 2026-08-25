@@ -66,7 +66,41 @@ function IndicatorDots({ indicators }) {
   );
 }
 
-function MeasureDetail({ m, onJunctionSave }) {
+function EditableCell({ value, onSave, numeric = false, align = "left", testid, mono = true, format, className, style }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value ?? "");
+  const [busy, setBusy] = useState(false);
+  const commit = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const v = numeric ? (val === "" || val == null ? null : parseFloat(val)) : val;
+      await onSave(v);
+      setEditing(false);
+    } finally { setBusy(false); }
+  };
+  if (editing) {
+    return (
+      <input autoFocus value={val} disabled={busy} type={numeric ? "number" : "text"} step="any"
+        onChange={(e) => setVal(e.target.value)} onBlur={commit}
+        onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setEditing(false); setVal(value ?? ""); } }}
+        data-testid={testid}
+        className={cn("w-full bg-background border rounded-sm px-1.5 py-1 outline-none", align === "right" && "text-right", mono && "font-mono-tech", className)}
+        style={{ borderColor: "var(--c-action)", ...style }} />
+    );
+  }
+  const display = format ? format(value) : (value != null && value !== "" ? value : null);
+  return (
+    <button onClick={() => { setVal(value ?? ""); setEditing(true); }} data-testid={testid ? `${testid}-trigger` : undefined}
+      className={cn("w-full px-1.5 py-1 rounded-sm hover:bg-secondary/70 transition-colors cursor-text", align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left", mono && "font-mono-tech", className)}
+      style={style}>
+      {display != null ? display : <span className="text-muted-foreground/50">—</span>}
+    </button>
+  );
+}
+
+function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
+  const fp = (suffix) => `measures.${mi}.${suffix}`;
   const [sel, setSel] = useState(m.junctions?.[0]?.name || null);
   const junction = m.junctions?.find((j) => j.name === sel);
   const pass = m.calculatedU != null && m.targetU != null && m.calculatedU <= m.targetU;
@@ -114,12 +148,12 @@ function MeasureDetail({ m, onJunctionSave }) {
                 </tr>
               </thead>
               <tbody className="font-mono-tech">
-                {m.buildup.map((l) => (
-                  <tr key={l.no} className="border-b border-border/60 last:border-0 hover:bg-secondary/40 transition-colors">
+                {m.buildup.map((l, li) => (
+                  <tr key={l.no ?? li} className="border-b border-border/60 last:border-0 hover:bg-secondary/40 transition-colors">
                     <td className="px-4 py-2.5 text-muted-foreground">{l.no}</td>
-                    <td className="py-2.5 font-sans">{l.material}</td>
-                    <td className="text-right py-2.5 tabular-nums">{l.thickness}</td>
-                    <td className="text-right px-4 py-2.5 tabular-nums text-muted-foreground">{l.lambda}</td>
+                    <td className="py-1.5 font-sans"><EditableCell value={l.material} mono={false} onSave={(v) => onSaveField(fp(`buildup.${li}.material`), v)} testid={`buildup-${li}-material`} /></td>
+                    <td className="py-1.5 tabular-nums"><EditableCell value={l.thickness} numeric align="right" onSave={(v) => onSaveField(fp(`buildup.${li}.thickness`), v)} testid={`buildup-${li}-thickness`} /></td>
+                    <td className="px-4 py-1.5 tabular-nums text-muted-foreground"><EditableCell value={l.lambda} numeric align="right" onSave={(v) => onSaveField(fp(`buildup.${li}.lambda`), v)} testid={`buildup-${li}-lambda`} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -143,23 +177,36 @@ function MeasureDetail({ m, onJunctionSave }) {
         )}
 
         {/* U-value readout */}
-        {m.calculatedU != null && (
+        {m.targetU != null && (
           <section className="border border-border rounded-sm bg-card p-5 flex flex-col justify-center items-center text-center grid-bg">
             <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">Calculated U-value</div>
-            <div className="font-display font-300 leading-none mt-2 tabular-nums" style={{ fontSize: 72, color: pass ? "var(--c-pass)" : "var(--c-warning)" }}>{m.calculatedU.toFixed(2)}</div>
+            <EditableCell
+              value={m.calculatedU} numeric align="center"
+              onSave={(v) => onSaveField(fp("calculatedU"), v)} testid="u-calculated"
+              format={(v) => (v != null ? Number(v).toFixed(2) : "—")}
+              className="font-display font-300 leading-none mt-2 tabular-nums max-w-[180px]"
+              style={{ fontSize: 60, color: m.calculatedU == null ? "hsl(var(--muted-foreground))" : (pass ? "var(--c-pass)" : "var(--c-warning)") }}
+            />
             <div className="text-sm font-mono text-muted-foreground mt-1">{m.unit}</div>
             <div className="flex items-center gap-3 mt-4 text-[12px]">
-              <span className="font-mono text-muted-foreground">TARGET {m.targetU.toFixed(2)}</span>
-              <StatusChip tone={pass ? "pass" : "warning"}>
-                {pass ? <CheckCircle2 className="h-3 w-3" strokeWidth={2} /> : <AlertTriangle className="h-3 w-3" strokeWidth={2} />}
-                {pass ? "PASS" : "REVIEW"}
-              </StatusChip>
+              <span className="font-mono text-muted-foreground flex items-center gap-1">TARGET
+                <EditableCell value={m.targetU} numeric align="center" onSave={(v) => onSaveField(fp("targetU"), v)} testid="u-target"
+                  format={(v) => (v != null ? Number(v).toFixed(2) : "—")} className="!w-14 !px-1" />
+              </span>
+              {m.calculatedU != null && (
+                <StatusChip tone={pass ? "pass" : "warning"}>
+                  {pass ? <CheckCircle2 className="h-3 w-3" strokeWidth={2} /> : <AlertTriangle className="h-3 w-3" strokeWidth={2} />}
+                  {pass ? "PASS" : "REVIEW"}
+                </StatusChip>
+              )}
             </div>
-            {m.existingU != null && (
-              <div className="mt-4 pt-4 border-t border-border w-full flex items-center justify-center gap-2 text-[12px] font-mono text-muted-foreground">
-                {m.existingU.toFixed(2)} <ArrowRight className="h-3 w-3" strokeWidth={1.5} /> <span style={{ color: "var(--c-pass)" }}>{m.calculatedU.toFixed(2)}</span>
-              </div>
-            )}
+            <div className="mt-4 pt-4 border-t border-border w-full flex items-center justify-center gap-2 text-[12px] font-mono text-muted-foreground">
+              <span>Existing</span>
+              <EditableCell value={m.existingU} numeric align="center" onSave={(v) => onSaveField(fp("existingU"), v)} testid="u-existing"
+                format={(v) => (v != null ? Number(v).toFixed(2) : "—")} className="!w-16 !px-1" />
+              <ArrowRight className="h-3 w-3" strokeWidth={1.5} />
+              <span style={{ color: "var(--c-pass)" }}>{m.calculatedU != null ? m.calculatedU.toFixed(2) : "—"}</span>
+            </div>
           </section>
         )}
       </div>
@@ -373,6 +420,7 @@ export default function DesignWorkspace() {
   const navigate = useNavigate();
   const [p, setP] = useState(null);
   const [focus, setFocus] = useState(false);
+  const [dragIdx, setDragIdx] = useState(null);
 
   const load = () => getProject(id).then(setP).catch(() => {});
   useEffect(() => { load(); }, [id]);
@@ -418,7 +466,7 @@ export default function DesignWorkspace() {
 
   const ewi = p.measures.find((m) => m.code === "EWI");
   const renderCenter = () => {
-    if (activeMeasure) return <MeasureDetail m={activeMeasure} onJunctionSave={onJunctionSave} />;
+    if (activeMeasure) return <MeasureDetail m={activeMeasure} mi={p.measures.indexOf(activeMeasure)} onJunctionSave={onJunctionSave} onSaveField={saveField} />;
     switch (section) {
       case "overview":
         return <MeasureCards measures={p.measures} onOpen={setSection} />;
@@ -465,17 +513,40 @@ export default function DesignWorkspace() {
         const photos = p.designPack.photos || [];
         const move = (i, d) => { const n = structuredClone(photos); const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; savePhotos(n); };
         const toggle = (i) => { const n = structuredClone(photos); n[i].included = n[i].included === false; savePhotos(n); };
+        const setAll = (inc) => { const n = structuredClone(photos); n.forEach((x) => { x.included = inc; }); savePhotos(n); };
+        const reorder = (from, to) => {
+          if (from == null || to == null || from === to) return;
+          const n = structuredClone(photos);
+          const [moved] = n.splice(from, 1);
+          n.splice(to, 0, moved);
+          savePhotos(n);
+        };
         const incCount = photos.filter((x) => x.included !== false).length;
         return (
           <div className="anim-in">
-            <div className="text-[12px] text-muted-foreground mb-4" data-testid="photo-curation-summary">{incCount} of {photos.length} photos included in the Design Pack — toggle to include/exclude, reorder with the arrows.</div>
+            <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
+              <div className="text-[12px] text-muted-foreground" data-testid="photo-curation-summary">{incCount} of {photos.length} photos included in the Design Pack — drag to reorder, toggle to include/exclude.</div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setAll(true)} data-testid="photo-include-all" className="text-[11px] px-2.5 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Include all</button>
+                <button onClick={() => setAll(false)} data-testid="photo-exclude-all" className="text-[11px] px-2.5 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Exclude all</button>
+              </div>
+            </div>
             <div className="grid sm:grid-cols-2 gap-4">
               {photos.map((ph, i) => {
                 const inc = ph.included !== false;
                 return (
-                  <figure key={ph.url || ph.fig} className={cn("border rounded-sm bg-card overflow-hidden transition-opacity", inc ? "border-border" : "border-dashed border-border opacity-50")} data-testid={`photo-card-${i}`}>
+                  <figure
+                    key={ph.url || ph.fig}
+                    draggable
+                    onDragStart={() => setDragIdx(i)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); reorder(dragIdx, i); setDragIdx(null); }}
+                    onDragEnd={() => setDragIdx(null)}
+                    className={cn("border rounded-sm bg-card overflow-hidden transition-opacity cursor-grab active:cursor-grabbing", inc ? "border-border" : "border-dashed border-border opacity-50", dragIdx === i && "ring-1 ring-[var(--c-action)]")}
+                    data-testid={`photo-card-${i}`}
+                  >
                     <div className="aspect-[4/3] overflow-hidden relative">
-                      <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" />
+                      <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover pointer-events-none" />
                       <div className="absolute top-2 right-2 flex gap-1">
                         <button onClick={() => move(i, -1)} data-testid={`photo-up-${i}`} className="h-6 w-6 flex items-center justify-center bg-background/90 border border-border rounded-sm hover:bg-background"><ChevronUp className="h-3.5 w-3.5" /></button>
                         <button onClick={() => move(i, 1)} data-testid={`photo-down-${i}`} className="h-6 w-6 flex items-center justify-center bg-background/90 border border-border rounded-sm hover:bg-background"><ChevronDown className="h-3.5 w-3.5" /></button>
@@ -511,7 +582,7 @@ export default function DesignWorkspace() {
           </div>
         );
       case "junctions":
-        return ewi ? <MeasureDetail m={ewi} onJunctionSave={onJunctionSave} /> : null;
+        return ewi ? <MeasureDetail m={ewi} mi={p.measures.indexOf(ewi)} onJunctionSave={onJunctionSave} onSaveField={saveField} /> : null;
       case "calculations":
         return (
           <div className="anim-in space-y-5">
