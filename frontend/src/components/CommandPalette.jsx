@@ -58,6 +58,10 @@ export function CommandPalette() {
             <LayoutDashboard className="mr-2 h-4 w-4" strokeWidth={1.5} />
             Command Centre
           </CommandItem>
+          <CommandItem onSelect={() => go("/templates")}>
+            <FileText className="mr-2 h-4 w-4" strokeWidth={1.5} />
+            Template Library
+          </CommandItem>
         </CommandGroup>
         <CommandGroup heading="Actions">
           {actions.map((a) => (

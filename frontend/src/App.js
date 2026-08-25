@@ -8,6 +8,7 @@ import ProjectOverview from "@/pages/ProjectOverview";
 import DesignWorkspace from "@/pages/DesignWorkspace";
 import DesignPack from "@/pages/DesignPack";
 import ImportProject from "@/pages/ImportProject";
+import Templates from "@/pages/Templates";
 
 function App() {
   return (
@@ -18,6 +19,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/import" element={<ImportProject />} />
+          <Route path="/templates" element={<Templates />} />
           <Route path="/project/:id" element={<ProjectOverview />} />
           <Route path="/project/:id/design" element={<DesignWorkspace />} />
           <Route path="/project/:id/design/:section" element={<DesignWorkspace />} />

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDashboard } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -38,13 +38,22 @@ export default function Dashboard() {
             <div className="text-[11px] text-muted-foreground uppercase tracking-[0.18em] mb-1">Portfolio</div>
             <h1 className="font-display font-300 text-3xl tracking-tight">Design Command Centre</h1>
           </div>
-          <button
-            onClick={() => navigate("/import")}
-            className="flex items-center gap-2 h-9 px-4 bg-primary text-primary-foreground rounded-sm text-[13px] font-medium hover:opacity-90 transition-opacity"
-            data-testid="new-project-button"
-          >
-            <Plus className="h-4 w-4" strokeWidth={2} /> New Retrofit Design
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/templates")}
+              className="flex items-center gap-2 h-9 px-4 border border-border rounded-sm text-[13px] font-medium hover:bg-secondary transition-colors"
+              data-testid="templates-nav-button"
+            >
+              <FileStack className="h-4 w-4" strokeWidth={1.75} /> Templates
+            </button>
+            <button
+              onClick={() => navigate("/import")}
+              className="flex items-center gap-2 h-9 px-4 bg-primary text-primary-foreground rounded-sm text-[13px] font-medium hover:opacity-90 transition-opacity"
+              data-testid="new-project-button"
+            >
+              <Plus className="h-4 w-4" strokeWidth={2} /> New Retrofit Design
+            </button>
+          </div>
         </div>
 
         {/* KPI band */}

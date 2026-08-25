@@ -24,6 +24,11 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - One upload set = one project (uuid id, monotonic `ref` from a counters collection). Documents/datasheets stored in object storage, referenced in `db.documents`, listed + downloadable in the workspace Evidence section. `/api/reseed` cascade-deletes documents/jobs/counters.
 - Blocking I/O (storage put, pdf parse) offloaded via asyncio.to_thread. `calculatedU` left null unless truly derived (flags for designer). Import polling has a ~3min cap + interval cleanup.
 
+### Phase 3 — Template Library seeded from real templates (2026-06-25)
+- Downloaded the user's Dropbox folder (fixed `dl=0`→`dl=1` + follow redirects), extracted 2 nested zips → 57 real `.docx` PAS2035 design templates.
+- Each `.docx` uploaded to object storage (`orthograph/templates/{id}.docx`); template records store `storage_path` (+ `original_filename`), no external URL needed. `analyze_template` now fetches bytes via `storage_path` (falls back to `url`).
+- Ran analyse-all → Claude Sonnet 4.6 extracts a reusable blueprint (summary, 10–14 sections, technical tables, cover elements, conventions, measure codes) per template. Frontend `/templates` polls + renders live status. Seed script: `/app/backend/seed_templates_from_dir.py`.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

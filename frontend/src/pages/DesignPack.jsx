@@ -78,6 +78,7 @@ export default function DesignPack() {
             <div className="flex gap-2 mt-4 flex-wrap">
               {p.measures.map((m) => <span key={m.code} className="text-[10px] font-mono uppercase tracking-wide border border-neutral-300 px-2 py-1 text-neutral-600">{m.name}</span>)}
             </div>
+            {p.templateName && <div className="mt-3 text-[9px] font-mono uppercase tracking-[0.12em] text-neutral-400">Prepared to template · {p.templateName}</div>}
           </div>
         </PackPage>
 

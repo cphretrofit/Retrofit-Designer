@@ -722,10 +722,10 @@ Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations,
 """
 
 
-async def call_claude(prompt: str) -> dict:
+async def call_claude_json(system_message: str, prompt: str) -> dict:
     from emergentintegrations.llm.chat import LlmChat, UserMessage
     chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
-                   system_message=EXTRACT_SYSTEM).with_model("anthropic", "claude-sonnet-4-6")
+                   system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
     resp = await chat.send_message(UserMessage(text=prompt))
     text = resp if isinstance(resp, str) else str(resp)
     t = text.strip()
@@ -735,6 +735,10 @@ async def call_claude(prompt: str) -> dict:
             t = t[:-3].strip()
     s, e = t.find("{"), t.rfind("}")
     return json.loads(t[s:e + 1])
+
+
+async def call_claude(prompt: str) -> dict:
+    return await call_claude_json(EXTRACT_SYSTEM, prompt)
 
 
 PAS_MAP = {"EWI": "B2", "IWI": "B4", "SWI": "B2", "LOFT": "B9", "RIR": "B9", "UFI": "B5",
@@ -928,6 +932,14 @@ async def process_import_job(job_id: str, payload: list):
         ai = await call_claude(prompt)
         ref = await next_ref()
         project = ai_build_project(ai, ref, photos)
+        try:
+            tpl = await match_template([m["code"] for m in project["measures"]])
+            if tpl:
+                project["templateId"] = tpl["id"]
+                project["templateName"] = tpl["name"]
+                project["templateBlueprint"] = tpl.get("blueprint")
+        except Exception as e:
+            logger.warning("template match failed: %s", e)
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)
@@ -1007,6 +1019,162 @@ async def download_document(doc_id: str):
                     headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename","file")}"'})
 
 
+# ---------------- Template library ----------------
+TEMPLATE_SYSTEM = """You are analysing a PAS 2035:2023 retrofit DESIGN TEMPLATE (a reusable document skeleton).
+From its heading/table outline, extract the reusable STRUCTURE as JSON only:
+{
+  "summary": "one sentence on what this template is for",
+  "measureCodes": ["B9","ASHP","SOLAR"],
+  "propertyTypes": ["bungalow","mid-terrace"],
+  "sections": [{"no": 1, "title": "", "contains": "short description of the content/tables in this section"}],
+  "tables": ["table name (columns)"],
+  "coverElements": ["project ref","client","revision"],
+  "conventions": "figure/photo/drawing numbering conventions"
+}
+Return ONLY JSON, no prose."""
+
+TEMPLATE_SEED = [
+    {"name": "PAS2035 Retrofit Design — B10, C5, ASHP, SOLAR", "fileType": "docx",
+     "url": "https://customer-assets-0z36b82j.emergentagent.net/job_retrofit-pro-2/artifacts/gzm8peu6_PAS2023%20Retrofit%20Design%202023%20%20B10%2C%20C5%20%2C%20ASHp%20%2C%20SOLAR%20template.docx"},
+    {"name": "PAS2035 Retrofit Design — B5, B9, B2, C1, C5", "fileType": "docx",
+     "url": "https://customer-assets-0z36b82j.emergentagent.net/job_retrofit-pro-2/artifacts/34rsvkrc_PAS2023%20Retrofit%20Design%20B5%2C%20B9%2C%20B2%2C%20C1%2C%20C5%20TEMPLATE.docx"},
+    {"name": "PAS2035 Retrofit Design — B8, B12, C5, ASHP, SOLAR", "fileType": "docx",
+     "url": "https://customer-assets-0z36b82j.emergentagent.net/job_retrofit-pro-2/artifacts/yej4w246_PAS2023%20Retrofit%20Design%202023%20%20B8%2C%20B12%2C%20%20C5%2C%20ASHp%20%2C%20SOLAR%20template.docx"},
+]
+
+MEASURE_TO_TAGS = {"EWI": ["B2"], "IWI": ["B4", "B2"], "SWI": ["B2"], "LOFT": ["B9"], "RIR": ["B10"],
+                   "UFI": ["B5"], "WIN": ["B3"], "DOORS": ["B3"], "ASHP": ["ASHP"], "SOLAR": ["SOLAR"], "VENT": ["C5", "C1"]}
+
+
+def parse_measure_codes(text: str):
+    out = []
+    for t in re.findall(r"B\d+|C\d+|ASHP|SOLAR", text or "", flags=re.I):
+        u = t.upper()
+        if u not in out:
+            out.append(u)
+    return out
+
+
+def _download(url: str) -> bytes:
+    r = requests.get(url, timeout=120)
+    r.raise_for_status()
+    return r.content
+
+
+def extract_docx_outline(data: bytes) -> str:
+    try:
+        from docx import Document
+        d = Document(io.BytesIO(data))
+        out = []
+        for p in d.paragraphs:
+            txt = (p.text or "").strip()
+            if not txt:
+                continue
+            st = (p.style.name if p.style else "") or ""
+            out.append(f"[{st}] {txt}" if st.lower().startswith(("heading", "title")) else txt)
+            if len(out) > 500:
+                break
+        for i, t in enumerate(d.tables[:40]):
+            try:
+                hdr = " | ".join((c.text or "").strip() for c in t.rows[0].cells)
+                out.append(f"[TABLE {i + 1} {len(t.rows)}x{len(t.columns)}] {hdr}")
+            except Exception:
+                continue
+        return "\n".join(out)
+    except Exception as e:
+        logger.warning("docx outline failed: %s", e)
+        return ""
+
+
+async def seed_templates():
+    if await db.templates.count_documents({}) > 0:
+        return
+    docs = []
+    for t in TEMPLATE_SEED:
+        tid = str(uuid.uuid4())
+        docs.append({"_id": tid, "id": tid, "name": t["name"], "url": t["url"], "fileType": t["fileType"],
+                     "measureCodes": parse_measure_codes(t["name"]), "status": "pending", "blueprint": None,
+                     "created_at": datetime.now(timezone.utc).isoformat()})
+    await db.templates.insert_many(docs)
+    logger.info("Seeded %d templates", len(docs))
+
+
+async def analyze_template(tid: str):
+    tpl = await db.templates.find_one({"id": tid})
+    if not tpl:
+        return
+    await db.templates.update_one({"id": tid}, {"$set": {"status": "analyzing"}})
+    try:
+        if tpl.get("storage_path"):
+            data, _ = await asyncio.to_thread(get_object, tpl["storage_path"])
+        else:
+            data = await asyncio.to_thread(_download, tpl["url"])
+        if tpl.get("fileType") == "docx":
+            outline = await asyncio.to_thread(extract_docx_outline, data)
+        else:
+            outline = await asyncio.to_thread(extract_pdf_text, data, 12)
+        bp = await call_claude_json(TEMPLATE_SYSTEM, f"Template name: {tpl['name']}\n\nDocument structure/outline:\n{outline[:14000]}")
+        codes = list(tpl.get("measureCodes") or parse_measure_codes(tpl["name"]))
+        for c in (bp.get("measureCodes") or []):
+            if c.upper() not in codes:
+                codes.append(c.upper())
+        await db.templates.update_one({"id": tid}, {"$set": {
+            "status": "ready", "blueprint": bp, "measureCodes": codes,
+            "analyzedAt": datetime.now(timezone.utc).isoformat()}})
+    except Exception as e:
+        logger.exception("template analyze failed")
+        await db.templates.update_one({"id": tid}, {"$set": {"status": "error", "error": str(e)}})
+
+
+async def analyze_all_templates():
+    tpls = await db.templates.find({}, {"id": 1}).to_list(100)
+    for t in tpls:
+        await analyze_template(t["id"])
+
+
+async def match_template(measure_codes):
+    tags = set()
+    for c in measure_codes:
+        tags |= set(MEASURE_TO_TAGS.get(c, []))
+    tpls = await db.templates.find({}, {"_id": 0}).to_list(100)
+    best, best_score, best_extra = None, -1, 999
+    for t in tpls:
+        tc = set(t.get("measureCodes") or [])
+        score = len(tags & tc)
+        extra = len(tc - tags)
+        if score > best_score or (score == best_score and extra < best_extra):
+            best, best_score, best_extra = t, score, extra
+    if best and best_score > 0:
+        return best
+    return tpls[0] if tpls else None
+
+
+@api_router.get("/templates")
+async def list_templates():
+    return await db.templates.find({}, {"_id": 0}).to_list(100)
+
+
+@api_router.get("/templates/{tid}")
+async def get_template(tid: str):
+    t = await db.templates.find_one({"id": tid}, {"_id": 0})
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return t
+
+
+@api_router.post("/templates/analyze-all")
+async def templates_analyze_all():
+    await db.templates.update_many({"status": {"$ne": "ready"}}, {"$set": {"status": "analyzing"}})
+    asyncio.create_task(analyze_all_templates())
+    return {"status": "analyzing"}
+
+
+@api_router.post("/templates/{tid}/analyze")
+async def template_analyze(tid: str):
+    asyncio.create_task(analyze_template(tid))
+    return {"status": "analyzing"}
+
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -1021,6 +1189,7 @@ app.add_middleware(
 @app.on_event("startup")
 async def startup():
     await seed()
+    await seed_templates()
     try:
         init_storage()
         logger.info("Storage initialized")

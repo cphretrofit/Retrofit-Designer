@@ -53,6 +53,7 @@ export default function ProjectOverview() {
               <span className="font-mono text-[11px] px-2 py-0.5 border border-border rounded-sm text-muted-foreground">{p.ref}</span>
               <StatusChip status={p.status} />
               <span className="text-[11px] text-muted-foreground font-mono">REV {p.revision}</span>
+              {p.templateName && <span className="text-[11px] text-muted-foreground font-mono truncate max-w-[280px]" title={p.templateName} data-testid="project-template-badge">· {p.templateName}</span>}
             </div>
             <h1 className="font-display font-300 text-4xl tracking-tight">{p.name}</h1>
             <div className="text-sm text-muted-foreground mt-1.5">{p.address}</div>
