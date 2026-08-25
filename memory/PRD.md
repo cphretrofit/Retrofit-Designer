@@ -29,6 +29,11 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Each `.docx` uploaded to object storage (`orthograph/templates/{id}.docx`); template records store `storage_path` (+ `original_filename`), no external URL needed. `analyze_template` now fetches bytes via `storage_path` (falls back to `url`).
 - Ran analyse-all → Claude Sonnet 4.6 extracts a reusable blueprint (summary, 10–14 sections, technical tables, cover elements, conventions, measure codes) per template. Frontend `/templates` polls + renders live status. Seed script: `/app/backend/seed_templates_from_dir.py`.
 
+### Phase 4 — Template match badge + project sweep (2026-06-25)
+- All 57 templates fully analysed (0 errors). Hardened `call_claude_json` (retry once + trailing-comma repair) to kill transient malformed-JSON failures; `analyze_all_templates` now only processes non-ready templates so re-runs converge monotonically.
+- Project Overview shows an upgraded, clickable "TEMPLATE — <name>" chip (`project-template-badge`) linking to the Library.
+- Swept all 8 existing projects → matched each to the closest template by measure set (`/app/backend/rematch_projects.py`), attaching templateId/templateName/templateBlueprint. NOTE: match scripts live in `/app/backend/` and editing them triggers a backend hot-reload that kills in-memory analysis jobs — run, don't edit, during an active job.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

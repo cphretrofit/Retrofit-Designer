@@ -724,17 +724,28 @@ Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations,
 
 async def call_claude_json(system_message: str, prompt: str) -> dict:
     from emergentintegrations.llm.chat import LlmChat, UserMessage
-    chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
-                   system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
-    resp = await chat.send_message(UserMessage(text=prompt))
-    text = resp if isinstance(resp, str) else str(resp)
-    t = text.strip()
-    if t.startswith("```"):
-        t = re.sub(r"^```[a-zA-Z]*", "", t).strip()
-        if t.endswith("```"):
-            t = t[:-3].strip()
-    s, e = t.find("{"), t.rfind("}")
-    return json.loads(t[s:e + 1])
+    last_err = None
+    for _ in range(2):
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                       system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
+        resp = await chat.send_message(UserMessage(text=prompt))
+        text = resp if isinstance(resp, str) else str(resp)
+        t = text.strip()
+        if t.startswith("```"):
+            t = re.sub(r"^```[a-zA-Z]*", "", t).strip()
+            if t.endswith("```"):
+                t = t[:-3].strip()
+        s, e = t.find("{"), t.rfind("}")
+        frag = t[s:e + 1]
+        try:
+            return json.loads(frag)
+        except json.JSONDecodeError as ex:
+            last_err = ex
+            try:
+                return json.loads(re.sub(r",(\s*[}\]])", r"\1", frag))
+            except json.JSONDecodeError:
+                continue
+    raise last_err
 
 
 async def call_claude(prompt: str) -> dict:
@@ -1127,7 +1138,7 @@ async def analyze_template(tid: str):
 
 
 async def analyze_all_templates():
-    tpls = await db.templates.find({}, {"id": 1}).to_list(100)
+    tpls = await db.templates.find({"status": {"$ne": "ready"}}, {"id": 1}).to_list(200)
     for t in tpls:
         await analyze_template(t["id"])
 

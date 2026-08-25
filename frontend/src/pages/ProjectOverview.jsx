@@ -5,7 +5,7 @@ import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
 import {
-  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle,
+  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers,
 } from "lucide-react";
 
 const MARK = {
@@ -53,10 +53,22 @@ export default function ProjectOverview() {
               <span className="font-mono text-[11px] px-2 py-0.5 border border-border rounded-sm text-muted-foreground">{p.ref}</span>
               <StatusChip status={p.status} />
               <span className="text-[11px] text-muted-foreground font-mono">REV {p.revision}</span>
-              {p.templateName && <span className="text-[11px] text-muted-foreground font-mono truncate max-w-[280px]" title={p.templateName} data-testid="project-template-badge">· {p.templateName}</span>}
             </div>
             <h1 className="font-display font-300 text-4xl tracking-tight">{p.name}</h1>
             <div className="text-sm text-muted-foreground mt-1.5">{p.address}</div>
+            {p.templateName && (
+              <button
+                onClick={() => navigate("/templates")}
+                title={`Matched design template: ${p.templateName}`}
+                data-testid="project-template-badge"
+                className="mt-3 group inline-flex items-center gap-2 h-7 pl-2 pr-3 rounded-sm border border-border bg-secondary/50 hover:bg-secondary hover:border-foreground/20 transition-colors max-w-[380px]"
+              >
+                <Layers className="h-3.5 w-3.5 text-muted-foreground shrink-0" strokeWidth={1.75} />
+                <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground shrink-0">Template</span>
+                <span className="text-[12px] font-medium truncate">{p.templateName}</span>
+                <ArrowRight className="h-3 w-3 text-muted-foreground shrink-0 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" strokeWidth={1.75} />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-8">
             <div className="text-right space-y-1.5">
