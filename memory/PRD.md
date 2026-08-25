@@ -87,6 +87,10 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Persisted/resumable AI import jobs**: `import_project` stores uploads to object storage + records job `inputs` and `attempts` in `db.import_jobs`; `run_import_job` reads inputs from the DB (not an in-memory payload). On startup, `processing` jobs are resumed (`asyncio.create_task`) or marked `error` after 3 attempts / if inputs are missing — an in-flight import is no longer lost on backend restart.
 - **Hardening (from iteration_5)**: field allow-list split into exact scalar set + dotted prefixes (rejects `partnerZZZ`/`statusfoo`); import now short-circuits to `error` with a friendly message when no readable content is extracted (fixes phantom "Unknown Property" projects from unreadable uploads). Tested end-to-end (iteration_5: frontend 100%, backend fixes verified via curl).
 
+### Phase 16 — Preview == PDF export (single source of truth) (2026-06-25)
+- The old Design Pack preview was a hand-built 6-page React mock that diverged from the real 15–22 page WeasyPrint export. Refactored the PDF route into a shared `_render_pack_html(project_id, origin)` and added `GET /api/projects/{id}/pack.html` that returns the **exact same HTML** the PDF is generated from (`build_pack_html`). Added an `@media screen` block to `PACK_CSS` so the identical markup paginates nicely on-screen (grey backdrop, white A4 cards) while WeasyPrint still uses `@page` for print.
+- `DesignPack.jsx` now renders that HTML in a same-origin iframe (`pack-frame`); Print calls the iframe's `contentWindow.print()`, Export PDF unchanged. Preview and export are now guaranteed byte-identical. Verified: pack.html = 15 pages / pack.pdf still 200; preview cover matches the PDF cover (QR, sign-off, hero, chips).
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

@@ -1448,6 +1448,10 @@ th { font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.09em; color:
 td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
 .ghost { font-weight: 300; font-size: 150px; line-height: 0.8; color: #ececec; }
 .pass { color: #16A34A; } .warn { color: #B45309; }
+@media screen {
+  body { background: #52525b; padding: 28px 0; }
+  .page { background: #fff; margin: 0 auto 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.28); }
+}
 """
 
 
@@ -1797,8 +1801,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{PACK_CSS}</style></head><body>{body}</body></html>'
 
 
-@api_router.get("/projects/{project_id}/pack.pdf")
-async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
+async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tuple:
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1814,11 +1817,23 @@ async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
     issued = datetime.now(timezone.utc).strftime("%d %b %Y")
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued)
+    return p, html
+
+
+@api_router.get("/projects/{project_id}/pack.pdf")
+async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
+    p, html = await _render_pack_html(project_id, origin)
     from weasyprint import HTML
     pdf = await asyncio.to_thread(lambda: HTML(string=html).write_pdf())
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
+
+
+@api_router.get("/projects/{project_id}/pack.html")
+async def preview_pack_html(project_id: str, origin: Optional[str] = Query(None)):
+    _, html = await _render_pack_html(project_id, origin)
+    return Response(content=html, media_type="text/html")
 
 
 # ---------------- Template library ----------------
