@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getDashboard } from "@/lib/api";
+import { getDashboard, getProjects } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -22,12 +22,22 @@ const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
 
 export default function Dashboard() {
   const [data, setData] = useState(null);
+  const [allProjects, setAllProjects] = useState([]);
+  const [q, setQ] = useState("");
   const navigate = useNavigate();
 
   useEffect(() => { getDashboard().then(setData).catch(() => {}); }, []);
+  useEffect(() => { getProjects().then(setAllProjects).catch(() => {}); }, []);
 
   const stats = data?.stats;
   const projects = data?.projects || [];
+  const ql = q.trim().toLowerCase();
+  const list = ql
+    ? allProjects.filter((p) =>
+        [p.name, p.ref, p.town, p.address, p.measureSummary, p.status]
+          .filter(Boolean)
+          .some((s) => String(s).toLowerCase().includes(ql)))
+    : projects;
 
   return (
     <div className="min-h-screen bg-background">
@@ -66,9 +76,19 @@ export default function Dashboard() {
 
         {/* Project table */}
         <div className="mt-8 border border-border rounded-sm bg-card">
-          <div className="flex items-center justify-between px-5 h-11 border-b border-border">
-            <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Recent Projects</span>
-            <span className="text-[11px] font-mono text-muted-foreground">{projects.length} shown</span>
+          <div className="flex items-center justify-between px-5 h-12 border-b border-border gap-4">
+            <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground whitespace-nowrap">{ql ? "Search Results" : "Recent Projects"}</span>
+            <div className="relative flex-1 max-w-sm ml-auto">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search properties by name, ref, town or measure…"
+                data-testid="property-search-input"
+                className="w-full h-8 pl-9 pr-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-foreground/30 transition-colors"
+              />
+            </div>
+            <span className="text-[11px] font-mono text-muted-foreground whitespace-nowrap" data-testid="project-count">{list.length} {ql ? "found" : "shown"}</span>
           </div>
           <div className="grid grid-cols-[1.6fr_1fr_1.1fr_0.9fr_auto] px-5 h-9 items-center text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground border-b border-border">
             <span>Property</span>
@@ -77,7 +97,7 @@ export default function Dashboard() {
             <span>Status</span>
             <span></span>
           </div>
-          {projects.map((p, i) => (
+          {list.map((p, i) => (
             <button
               key={p.id}
               onClick={() => navigate(`/project/${p.id}`)}
@@ -110,6 +130,11 @@ export default function Dashboard() {
               </div>
             </button>
           ))}
+          {list.length === 0 && (
+            <div className="px-5 py-12 text-center text-[13px] text-muted-foreground" data-testid="search-empty">
+              No properties match “{q}”.
+            </div>
+          )}
         </div>
       </main>
     </div>

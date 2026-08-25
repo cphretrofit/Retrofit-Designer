@@ -65,6 +65,10 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Roles + admin CRUD**: `/api/admin/users` list/create/update/reset-password/delete. Guards: can't delete/downgrade/deactivate the last active admin; users can't change their own role or reach admin routes. 5 owner admins seeded (see test_credentials.md).
 - **Frontend**: AuthProvider + ProtectedRoute/AdminRoute, premium Login page, User Management page, and a user menu (logout + admin-only Users link) in the TopBar. Verified: unauth→401/redirect, admin login, user RBAC 403, full CRUD.
 
+### Phase 12 — Self password change + property search (2026-06-25)
+- **Change my password**: added `/account/password` screen (current/new/confirm) reachable from the user menu, wired to `POST /api/auth/change-password`. Verified: wrong-current→400, success→200, old password stops working, new works.
+- **Property search** on the Design Command Centre: a search box in the Recent Projects panel filters across ALL projects by name, ref, town, address, measure and status, with a live count and empty state. Verified: "ashp"→3, "norwich"→1, no-match empty state.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
