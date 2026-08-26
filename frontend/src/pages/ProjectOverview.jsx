@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, confirmItem, confirmAllItems, updateField, API } from "@/lib/api";
+import { getProject, confirmItem, confirmAllItems, updateField, heritageLookup, API } from "@/lib/api";
 import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
 import { toast } from "sonner";
 import {
-  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers, Camera, Loader2, Truck, Check, X,
+  ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers, Camera, Loader2, Truck, Check, X, Landmark,
 } from "lucide-react";
 
 const MARK = {
@@ -103,6 +103,25 @@ export default function ProjectOverview() {
     toast.success("Delivery partner updated");
   };
 
+  const runHeritage = async () => {
+    let pc = (p.property || {}).postcode;
+    if (!pc) {
+      pc = window.prompt("Enter the property postcode for the heritage lookup (planning.data.gov.uk):", "");
+      if (!pc) return;
+      await updateField(id, { path: "property.postcode", value: pc.trim() });
+      setP((prev) => ({ ...prev, property: { ...(prev.property || {}), postcode: pc.trim() } }));
+    }
+    toast.loading("Checking heritage designations…", { id: "her" });
+    try {
+      const h = await heritageLookup(id);
+      setP((prev) => ({ ...prev, heritage: h }));
+      const d = (h.designations || []).length;
+      toast.success(d ? `${d} heritage designation(s) found` : "No statutory designations found", { id: "her", description: h.error ? h.error : (h.postcode || "") });
+    } catch (e) {
+      toast.error("Heritage lookup failed", { id: "her", description: e?.response?.data?.detail || "Add a postcode and try again" });
+    }
+  };
+
   if (!p) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: "Loading…" }]} /></div>;
   if (!p.property) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: p.name || "Project" }]} /><div className="max-w-md mx-auto py-24 text-center text-sm text-muted-foreground">Design data is being prepared for this project.</div></div>;
 
@@ -158,6 +177,10 @@ export default function ProjectOverview() {
               </button>
               <input ref={fileRef} type="file" accept="application/pdf" className="hidden" onChange={onPhotosFile} data-testid="import-photos-input" />
               <PartnerEditor value={p.partner} onSave={savePartner} />
+              <button onClick={runHeritage} data-testid="heritage-lookup-btn"
+                className="inline-flex items-center gap-2 h-7 px-3 rounded-sm border border-border bg-secondary/50 hover:bg-secondary hover:border-foreground/20 transition-colors text-[12px] font-medium">
+                <Landmark className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.75} /> Heritage check
+              </button>
             </div>
           </div>
           <div className="flex items-center gap-8">

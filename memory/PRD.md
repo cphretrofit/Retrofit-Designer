@@ -113,6 +113,14 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Re-analysis**: batched `analyze_all_templates` (4 concurrent) + `POST /templates/analyze-all?force=true`. Re-analysed the 7 templates matched to existing projects (rich: 14–16 works items, 9–15 spec clauses, 10–17 standards per measure); full 57-template re-analysis kicked off in background.
 - **Result**: RTF-2026-0140 pack went from ~16 → **43 dense pages**; verified via curl (6 Scope-of-Works pages, spec/standards/sequencing blocks) and screenshot (real 12-item "Scope of Works — Loft Insulation (PAS B9)" page, no clipping). Verification method: self-test (curl + screenshot) — not run through testing_agent.
 
+### Phase 21 — Visual pack upgrade: per-measure photos, Heritage Impact Statement + boundary map, defect images, drag-drop (2026-06-26)
+- **Per-measure imagery**: relevant tagged survey photos now embed as an "Existing Condition · Survey" strip on each measure's spec page (keyword→measure matching), not just a photo appendix.
+- **Heritage Impact Statement (planning.data.gov.uk + postcodes.io, keyless)**: `POST /projects/{id}/heritage/lookup` geocodes the postcode and finds Conservation Area / Listed Building / Article 4 / World Heritage designations; stores summary + mitigation + boundary geometry. Pack renders "Section 01 · Heritage & Planning Context" with designation chips, an auto-adapting statement, and a **Designation Map SVG** plotting the real boundary polygon + property point with an inside/outside point-in-polygon test (visual proof). Error state no longer falsely claims "no designations". Frontend "Heritage check" button on Project Overview (prompts for postcode if missing).
+- **Defect images**: defect photos embed in Section 08.
+- **Drag-and-drop** added to all four import slots + datasheets on the AI Auto-Draft screen.
+- Verified: testing_agent iteration_8 (13/13 + 11/11 regression) for photos/heritage/defects/drag-drop; boundary map + error-fix + UI trigger self-verified via curl + screenshot (Broomhill Conservation Area, property WITHIN boundary). Demo project RTF-2026-0140 has postcode S10 2SE + 2 defect photos.
+- Known: heritage is not auto-run on seed/import (run via the button); large pack.html (~4.3MB) has slow cold load — future: downscale embedded photos.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

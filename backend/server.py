@@ -739,6 +739,21 @@ async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile 
     return {"defects": defects}
 
 
+@api_router.post("/projects/{project_id}/heritage/lookup")
+async def heritage_lookup(project_id: str):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    pc = (proj.get("property") or {}).get("postcode") or proj.get("postcode")
+    if not pc:
+        raise HTTPException(status_code=422, detail="Add a property postcode before running a heritage lookup")
+    h = await asyncio.to_thread(_heritage_lookup_sync, pc)
+    if h:
+        h.update(_heritage_statement(h))
+    await db.projects.update_one({"id": project_id}, {"$set": {"heritage": h}})
+    return h
+
+
 @api_router.post("/reseed")
 async def reseed():
     await db.projects.delete_many({})
@@ -1436,6 +1451,149 @@ def _measure_spec(bp, m):
     return {}
 
 
+PHOTO_KW = {
+    "EWI": ["wall", "elevation", "render", "brick", "masonry", "facade", "external", "rear", "front", "gable"],
+    "SWI": ["wall", "elevation", "masonry", "cavity", "external"],
+    "IWI": ["wall", "internal", "plaster", "reveal", "room"],
+    "LOFT": ["loft", "attic", "roof space", "ceiling", "joist", "insulation"],
+    "RIR": ["roof", "rafter", "ridge", "eaves", "slope"],
+    "WIN": ["window", "glazing", "frame", "sill", "cill"],
+    "DOORS": ["door", "threshold", "entrance"],
+    "ASHP": ["heat pump", "boiler", "plant", "cylinder", "external unit", "radiator", "condenser"],
+    "SOLAR": ["roof", "pv", "panel", "solar", "south"],
+    "UFI": ["floor", "underfloor", "joist", "void", "sub-floor", "airbrick"],
+    "VENT": ["vent", "extract", "fan", "damp", "moisture", "mould", "trickle"],
+}
+
+
+def _photos_for_measure(code, photos, used):
+    kws = PHOTO_KW.get(code, [])
+    out = []
+    for ph in photos:
+        fig = ph.get("fig")
+        if fig in used or not ph.get("data"):
+            continue
+        text = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
+        if any(k in text for k in kws):
+            out.append(ph)
+            used.add(fig)
+            if len(out) >= 2:
+                break
+    return out
+
+
+def _geom_rings(geom):
+    t = geom.get("type")
+    c = geom.get("coordinates") or []
+    polys = [c] if t == "Polygon" else (c if t == "MultiPolygon" else [])
+    rings = []
+    for poly in polys[:3]:
+        if not poly:
+            continue
+        ext = poly[0]
+        step = max(1, len(ext) // 150)
+        rings.append([[float(x), float(y)] for x, y in ext[::step]])
+    return rings
+
+
+def _pip(x, y, ring):
+    inside = False
+    n = len(ring)
+    j = n - 1
+    for i in range(n):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if ((yi > y) != (yj > y)) and (x < (xj - xi) * (y - yi) / ((yj - yi) or 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
+def _heritage_map_svg(h):
+    lon, lat = h.get("longitude"), h.get("latitude")
+    rings = [r for d in (h.get("designations") or []) for r in (d.get("rings") or [])]
+    if not rings or lon is None or lat is None:
+        return ""
+    xs = [p[0] for r in rings for p in r] + [lon]
+    ys = [p[1] for r in rings for p in r] + [lat]
+    minx, maxx, miny, maxy = min(xs), max(xs), min(ys), max(ys)
+    dx = (maxx - minx) or 1e-4
+    dy = (maxy - miny) or 1e-4
+    minx -= dx * 0.12; maxx += dx * 0.12; miny -= dy * 0.12; maxy += dy * 0.12
+    W, H = 520, 300
+    sx = lambda x: (x - minx) / (maxx - minx) * W
+    sy = lambda y: H - (y - miny) / (maxy - miny) * H
+    paths = "".join(f'<polygon points="{" ".join(f"{sx(x):.1f},{sy(y):.1f}" for x, y in r)}" fill="rgba(0,85,255,0.12)" stroke="#0055FF" stroke-width="1.5"/>' for r in rings)
+    inside = any(_pip(lon, lat, r) for r in rings)
+    dot = f'<circle cx="{sx(lon):.1f}" cy="{sy(lat):.1f}" r="6" fill="#DC2626" stroke="#fff" stroke-width="2"/>'
+    label = "Property lies WITHIN the designation boundary" if inside else "Property lies outside the mapped boundary"
+    return (f'<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Designation Map</div>'
+            f'<svg viewBox="0 0 {W} {H}" style="width:100%; max-width:520px; height:auto; border:1px solid #e5e5e5; background:#fafafa;">{paths}{dot}</svg>'
+            f'<div class="mono faint" style="font-size:9px; margin-top:6px;">&#9679; Property &middot; {label} &middot; boundary data: planning.data.gov.uk</div>')
+
+
+def _heritage_lookup_sync(postcode):
+    pc = (postcode or "").strip().upper()
+    if not pc:
+        return None
+    try:
+        geo = requests.get(f"https://api.postcodes.io/postcodes/{requests.utils.quote(pc)}", timeout=(3.05, 15))
+        if geo.status_code != 200:
+            return {"postcode": pc, "error": "Postcode not found", "designations": []}
+        res = (geo.json() or {}).get("result") or {}
+        lat, lon = res.get("latitude"), res.get("longitude")
+        if lat is None or lon is None:
+            return {"postcode": pc, "error": "No coordinates for postcode", "designations": []}
+        params = [("latitude", lat), ("longitude", lon), ("limit", 100),
+                  ("field", "entity"), ("field", "dataset"), ("field", "name"), ("field", "reference")]
+        for ds in ("conservation-area", "listed-building", "article-4-direction-area", "world-heritage-site"):
+            params.append(("dataset", ds))
+        r = requests.get("https://www.planning.data.gov.uk/entity.json", params=params, timeout=(3.05, 20))
+        ents = (r.json().get("entities") or []) if r.status_code == 200 else []
+        designations = [{"dataset": e.get("dataset"), "name": e.get("name"), "reference": e.get("reference"), "entity": e.get("entity")} for e in ents]
+        for d in designations[:3]:
+            ent = d.get("entity")
+            if not ent:
+                continue
+            try:
+                g = requests.get(f"https://www.planning.data.gov.uk/entity/{ent}.geojson", timeout=(3.05, 15))
+                if g.status_code == 200:
+                    d["rings"] = _geom_rings((g.json() or {}).get("geometry") or {})
+            except Exception:
+                pass
+        return {"postcode": pc, "latitude": lat, "longitude": lon,
+                "admin_district": res.get("admin_district"), "designations": designations}
+    except Exception as e:
+        logger.warning("heritage lookup failed: %s", e)
+        return {"postcode": pc, "error": "Lookup service unavailable", "designations": []}
+
+
+def _heritage_statement(h):
+    if h.get("error"):
+        return {"designated": None,
+                "summary": f"A heritage designation lookup could not be completed ({h.get('error')}). Heritage status must be confirmed manually with the Local Planning Authority before issue.",
+                "mitigation": "Confirm any Conservation Area, Listed Building, Article 4 Direction or World Heritage Site designations with the Local Planning Authority and adjust the design accordingly."}
+    by = {}
+    for d in (h.get("designations") or []):
+        by.setdefault(d.get("dataset"), []).append(d)
+    ca, lb, a4, wh = by.get("conservation-area") or [], by.get("listed-building") or [], by.get("article-4-direction-area") or [], by.get("world-heritage-site") or []
+    lines = []
+    if ca:
+        lines.append(f"The property lies within the {ca[0].get('name') or 'designated'} Conservation Area (ref {ca[0].get('reference') or 'n/a'}). Heightened significance applies; external energy-efficiency measures must preserve or enhance the character and appearance of the area.")
+    if lb:
+        lines.append(f"A Listed Building record is present in the immediate vicinity ({lb[0].get('name') or 'listed structure'}, ref {lb[0].get('reference') or 'n/a'}). Listed Building Consent may be required before works commence.")
+    if a4:
+        lines.append(f"An Article 4 Direction is in force ({a4[0].get('name') or 'Article 4 area'}). Permitted development rights are restricted; express planning permission is likely required for external alterations.")
+    if wh:
+        lines.append(f"The property is within or adjacent to the {wh[0].get('name') or 'a'} World Heritage Site — the highest level of heritage significance applies.")
+    if lines:
+        return {"designated": True, "summary": " ".join(lines),
+                "mitigation": "Where external fabric measures affect a designated asset, install to rear/less-sensitive elevations where practicable, retain and match architectural detailing, use breathable and compatible materials in line with BS 5250, and obtain the relevant planning / Listed Building consents prior to commencing. All works to be agreed with the Local Planning Authority conservation officer."}
+    return {"designated": False,
+            "summary": "No statutory heritage designations (Conservation Area, Listed Building, Article 4 Direction or World Heritage Site) were identified at this location on the national planning dataset (planning.data.gov.uk). A standard retrofit approach applies, subject to confirmation on site.",
+            "mitigation": "No heritage-specific constraints identified. Standard workmanship, moisture management (BS 5250) and manufacturer specifications apply. Note: planning.data.gov.uk coverage is England-only and may be incomplete — confirm designations with the Local Planning Authority."}
+
+
 async def _doc_data_uri(url: str):
     m = re.search(r"/documents/([^/]+)/download", url or "")
     if not m:
@@ -1723,6 +1881,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         ("08", "Property Condition \u2014 Defects &amp; Remedial Actions", ""),
         ("09", "Pre-Issue Register \u2014 Items Before Issue", ""),
     ]
+    if p.get("heritage"):
+        toc.insert(1, ("01.1", "Heritage &amp; Planning Context", "sub"))
     sec_rows = ""
     for no, t, kind in toc:
         if kind == "sub":
@@ -1826,6 +1986,25 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         '<div class="faint upper" style="font-size:10px; margin-top:22px; margin-bottom:10px;">Design Readiness</div>'
         f'<div>{read_html}</div>')
 
+    # ---- Heritage & planning context ----
+    h = p.get("heritage") or {}
+    heritage_page = None
+    if h:
+        ds = h.get("designations") or []
+        chips = "".join(f'<span class="chip">{_esc((d.get("dataset") or "").replace("-", " ").title())}: {_esc(d.get("name") or d.get("reference") or "—")}</span>' for d in ds[:8]) \
+            or '<span class="chip">No statutory heritage designations found</span>'
+        loc = _esc(h.get("postcode") or "—") + ((" &middot; " + _esc(h.get("admin_district"))) if h.get("admin_district") else "")
+        heritage_page = (
+            '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Heritage &amp; Planning Context</div>'
+            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Heritage Impact Statement</div>'
+            f'<div class="muted" style="font-size:11px; margin-top:8px;">Source: planning.data.gov.uk &middot; {loc}</div>'
+            f'<div style="margin-top:16px;">{chips}</div>'
+            f'{_heritage_map_svg(h)}'
+            '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Assessment of Significance</div>'
+            f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("summary"))}</div>'
+            '<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:6px;">Design Mitigation</div>'
+            f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("mitigation"))}</div>')
+
     # ---- Measures schedule ----
     MST = {"designed": "#16A34A", "in_progress": "#B45309", "outstanding": "#B45309", "not_started": "#a3a3a3", "retained": "#525252"}
     MST_LBL = {"designed": "Designed", "in_progress": "In progress", "outstanding": "Outstanding", "not_started": "Not started", "retained": "Retained"}
@@ -1857,6 +2036,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     RLV = {"high": "#DC2626", "medium": "#B45309", "low": "#16A34A"}
     CHUNK_SPEC, CHUNK_WORKS = 10, 12
     spec_pages = []
+    used_figs = set()
     for idx, m in enumerate(measures, 1):
         title = _esc(m.get("name"))
         pas = _esc(m.get("pas") or m.get("code") or "")
@@ -1875,6 +2055,15 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     f'<span class="chip" style="margin:0;">PAS {pas}</span></div>')
 
         system_html = f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
+        _mp = _photos_for_measure(m.get("code"), photo_uris or [], used_figs)
+        if _mp:
+            _cells = "".join(
+                f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 0 0;">'
+                f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
+                f'<div style="margin-top:5px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span>'
+                f'<span style="font-size:10px; color:#262626;">{_esc(ph.get("caption"))}</span></div></div>'
+                for ph in _mp)
+            system_html += f'<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:8px;">Existing Condition &middot; Survey</div><div>{_cells}</div>'
 
         spec_chunks = _chunk(specifications, CHUNK_SPEC) or [[]]
         for ci, chunk in enumerate(spec_chunks):
@@ -2013,7 +2202,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Defects &amp; Remedial Actions</div>'
                     f'{defects_body}')
 
-    pages = [cover, contents_page, directory_page, divider, measures_schedule_page, performance,
+    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), divider, measures_schedule_page, performance,
              *spec_pages, *photo_pages, drawings_page, defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)

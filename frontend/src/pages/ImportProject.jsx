@@ -28,8 +28,20 @@ const STAGES = [
 
 function Slot({ slot, file, onPick, onClear }) {
   const inputId = `file-${slot.type.replace(/\s/g, "")}`;
+  const [over, setOver] = useState(false);
+  const onDrop = (e) => {
+    e.preventDefault(); setOver(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) onPick(f);
+  };
   return (
-    <div className={cn("border rounded-sm bg-card transition-colors", file ? "border-foreground/30" : "border-dashed border-border")}>
+    <div
+      onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+      onDragLeave={() => setOver(false)}
+      onDrop={onDrop}
+      data-testid={`dropzone-${slot.type}`}
+      className={cn("border rounded-sm bg-card transition-colors", over ? "border-solid" : (file ? "border-foreground/30" : "border-dashed border-border"))}
+      style={over ? { borderColor: "var(--c-action)", background: "var(--c-action-bg, rgba(0,85,255,0.04))" } : {}}>
       <label htmlFor={inputId} className="block p-4 cursor-pointer">
         <div className="flex items-start gap-3">
           <div className={cn("h-9 w-9 rounded-sm flex items-center justify-center shrink-0", file ? "bg-pass/10" : "bg-secondary")}
@@ -49,7 +61,7 @@ function Slot({ slot, file, onPick, onClear }) {
                 </button>
               </div>
             ) : (
-              <div className="text-[11.5px] text-muted-foreground mt-0.5">{slot.hint}</div>
+              <div className="text-[11.5px] text-muted-foreground mt-0.5">{over ? "Drop file to attach…" : slot.hint}</div>
             )}
           </div>
           {!file && <Upload className="h-4 w-4 text-muted-foreground/60 shrink-0" strokeWidth={1.5} />}
@@ -139,11 +151,15 @@ export default function ImportProject() {
             </div>
 
             {/* datasheets */}
-            <div className="mt-3 border border-dashed border-border rounded-sm bg-card p-4">
+            <div
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => { e.preventDefault(); const fs = Array.from(e.dataTransfer.files || []); if (fs.length) setDatasheets((d) => [...d, ...fs]); }}
+              data-testid="dropzone-datasheets"
+              className="mt-3 border border-dashed border-border rounded-sm bg-card p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <div className="text-[13px] font-medium">Product datasheets & extra evidence</div>
-                  <div className="text-[11.5px] text-muted-foreground mt-0.5">BBA certificates, product sheets, photos — stored and linked to the project</div>
+                  <div className="text-[11.5px] text-muted-foreground mt-0.5">BBA certificates, product sheets, photos — drag &amp; drop or browse; stored and linked to the project</div>
                 </div>
                 <label htmlFor="datasheets" className="flex items-center gap-2 h-8 px-3 border border-border rounded-sm text-[12.5px] cursor-pointer hover:bg-secondary transition-colors">
                   <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add files

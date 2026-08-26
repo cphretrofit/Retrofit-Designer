@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 8: independently verified heritage lookup API (incl. 404/422/auth paths), Heritage Impact Statement + 01.1 TOC sub-row in pack.html, per-measure 'Existing Condition · Survey' photo strips, embedded defect photos in Section 08, pack.pdf regression, and the new drag-and-drop upload UI on /import. 13/13 new backend tests pass, 11/11 iteration-7 regression tests (auth playbook + defect CRUD) pass. Frontend drag-and-drop verified for all 4 measure slots + datasheets (multi-file), plus dragover hint, clear buttons, click-to-browse input and Generate button enable/disable. No functional defects found; 3 non-blocking observations reported (heritage never auto-populated / no UI trigger, 4.35MB pack.html load latency, misleading heritage summary when the external API fails).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/projects/{id}/heritage/lookup", "issue": "When postcodes.io/planning.data.gov.uk is unreachable the response contains error='Lookup service unavailable' but _heritage_statement() still stamps designated=false with the summary 'No statutory heritage designations ... were identified'. The pack then prints a positive 'no designations' statement even though no lookup actually happened. Suggest: when h.get('error') is set, emit a 'Heritage lookup could not be completed - confirm with the LPA' summary instead."},
+      {"endpoint": "GET /api/projects/{id}/pack.html", "issue": "Response is now 4.35 MB (32 embedded data:image URIs). Cold response took 20.6s (warm 7.1s) and one browser navigation to pack.html exceeded a 30s timeout in Playwright. Consider downscaling/JPEG-recompressing embedded survey photos before base64 embedding."},
+      {"endpoint": "app config", "issue": "CORS_ORIGINS=\"*\" in backend/.env combined with allow_credentials=True. Starlette echoes the origin so cookie auth works, but the playbook asks for explicit origins - recommend setting the preview/prod origins explicitly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Heritage Impact Statement", "issue": "There is no frontend trigger for the heritage lookup (grep for 'heritage' in /app/frontend/src returns nothing), and neither the seed nor the AI import pipeline calls _heritage_lookup_sync. project.heritage exists on RTF-2026-0140 only because the lookup was curl'ed manually; after POST /api/reseed the Heritage Impact Statement page (and the 01.1 TOC row) will silently vanish from every pack. Add a 'Run heritage lookup' action in the project UI and/or call the lookup during seed/import.", "affected_selectors": []}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter8_heritage_pack.py",
+    "/app/test_reports/pytest/iter8.xml"
+  ],
+  "action_items": [
+    "Auto-populate project.heritage (seed + AI import) and/or expose a heritage-lookup button in the project UI so the Heritage Impact Statement survives a reseed and is reachable without curl",
+    "Handle heritage lookup failure explicitly instead of asserting 'no designations found'",
+    "Reduce embedded photo payload in pack.html (4.35 MB / up to 20s cold load)"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2431 lines - build_pack_html and the heritage helpers should be split into modules (pack_builder.py, heritage.py) per the 700-line guideline",
+    "_heritage_lookup_sync swallows all exceptions into a generic dict; postcodes.io 404 vs network failure are indistinguishable to the caller apart from the message string"
+  ],
+  "updated_files": ["/app/backend/tests/test_iter8_heritage_pack.py"],
+  "success_rate": {"backend": "100% (13/13 new + 11/11 iter-7 regression)", "frontend": "100% (drag-and-drop, clear, browse, counter, generate enable/disable all pass)"},
+  "seed_data_creation": "Temporary Mongo project TEST-NOPC-<random> created and deleted inside test_lookup_422_without_postcode. Project list back to the 8 seeded projects; RTF-2026-0140 retains postcode S10 2SE, 2 defects with photos and the heritage document.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Backend regression suites: tests/test_iter7_auth.py, tests/test_iter7_defects.py, tests/test_iter8_heritage_pack.py (run with plain `pytest tests/<file> -v`; pytest.ini injects xdist loadscope, do not pass -p no:xdist). pack.html for RTF-2026-0140 = 44 pages, 32 data:image URIs, 3 'Existing Condition · Survey' strips, Section 08 is page 43 with 2 embedded defect photos. When asserting on defect photos, split pack.html on `class=\"page\"` and match the page containing 'Section 08' - a naive find() on 'Defects &amp; Remedial Actions' hits the Contents row and gives a false positive. Playwright: pack.html navigation may exceed the default 30s timeout; log in via data-testid login-email/login-password/login-submit then goto /api/projects/{id}/pack.html. Drag-and-drop is simulated with evaluate_handle DataTransfer + dispatch_event('drop', {dataTransfer: dt}); the ready chip renders uppercase 'READY'.",
+  "rca_of_the_issue": "No product defect reproduced this iteration. The heritage-page fragility RCA: build_pack_html only emits heritage_page when p.get('heritage') is truthy, and the only writer of that field is POST /api/projects/{id}/heritage/lookup, which nothing (seed, import, frontend) calls - so the feature is invisible unless the endpoint is hit manually."
+}
