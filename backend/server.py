@@ -1405,6 +1405,37 @@ def _esc(s):
     return (str(s) if s is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _chunk(lst, n):
+    return [lst[i:i + n] for i in range(0, len(lst), n)]
+
+
+def _spec_list(items, ordered=True, start=1):
+    out = ""
+    for i, x in enumerate(items, start):
+        marker = (f'<span class="mono faint" style="width:26px; display:inline-block; font-size:10px; vertical-align:top;">{str(i).zfill(2)}</span>'
+                  if ordered else '<span style="width:16px; display:inline-block; color:#a3a3a3; vertical-align:top;">&#8250;</span>')
+        out += (f'<div style="display:flex; padding:5px 0; border-bottom:1px solid #f5f5f5;">{marker}'
+                f'<div style="flex:1; font-size:11.5px; color:#333; line-height:1.5;">{_esc(x)}</div></div>')
+    return out
+
+
+def _measure_spec(bp, m):
+    specs = (bp or {}).get("measureSpecs") or {}
+    if not specs:
+        return {}
+    norm = {str(k).upper(): v for k, v in specs.items()}
+    keys = []
+    if m.get("pas"):
+        keys.append(str(m["pas"]).upper())
+    if m.get("code"):
+        keys.append(str(m["code"]).upper())
+    keys += [t.upper() for t in MEASURE_TO_TAGS.get(m.get("code"), [])]
+    for k in keys:
+        if k in norm:
+            return norm[k] or {}
+    return {}
+
+
 async def _doc_data_uri(url: str):
     m = re.search(r"/documents/([^/]+)/download", url or "")
     if not m:
@@ -1599,11 +1630,17 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     strat_list = "".join(
         f'<div style="margin-bottom:7px; font-size:13px; color:#525252;"><span class="mono faint" style="font-size:10px; margin-right:12px;">'
         f'{_esc(("PAS " + m["pas"]) if m.get("pas") else m.get("code"))}</span>{_esc(m.get("name"))}</div>' for m in measures)
+    dr_items = ((p.get("templateBlueprint") or {}).get("designRequirements") or [])[:5]
+    dr_html = ""
+    if dr_items:
+        lis = "".join(f'<div style="font-size:10.5px; color:#666; padding:5px 0; border-bottom:1px solid #f5f5f5; line-height:1.45;">{_esc(x)}</div>' for x in dr_items)
+        dr_html = f'<div style="margin-top:30px; max-width:155mm;"><div class="faint upper" style="font-size:9px; margin-bottom:8px;">General Design Requirements &middot; PAS 2035:2023</div>{lis}</div>'
     divider = f'''
-      <div style="height:225mm; display:flex; flex-direction:column; justify-content:center;">
+      <div style="min-height:225mm; display:flex; flex-direction:column; justify-content:center;">
         <div class="ghost">02</div>
         <div class="disp" style="font-size:44px; line-height:1.05; margin-top:-8px;">Proposed<br>Retrofit<br>Strategy</div>
         <div style="margin-top:28px;">{strat_list}</div>
+        {dr_html}
       </div>'''
 
     # Existing -> Proposed performance
@@ -1814,19 +1851,66 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         '<table style="margin-top:18px;"><thead><tr><th style="width:12%;">Ref</th><th style="width:26%;">Measure</th><th>Specification</th><th style="text-align:right;">U-value</th><th style="text-align:right;">Status</th></tr></thead>'
         f'<tbody>{ms_rows}</tbody></table>')
 
-    # ---- Per-measure technical specification pages ----
+    # ---- Per-measure technical specification pages (rich, paginated) ----
     JST = {"pass": "#16A34A", "warn": "#B45309", "fail": "#DC2626", "not_started": "#a3a3a3", "n/a": "#a3a3a3"}
     JSY = {"pass": "&#10003;", "warn": "&#9888;", "fail": "&#10007;", "not_started": "&#9675;", "n/a": "&#8211;"}
     RLV = {"high": "#DC2626", "medium": "#B45309", "low": "#16A34A"}
+    CHUNK_SPEC, CHUNK_WORKS = 10, 12
     spec_pages = []
     for idx, m in enumerate(measures, 1):
         title = _esc(m.get("name"))
         pas = _esc(m.get("pas") or m.get("code") or "")
-        head = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} · Technical Specification</div>'
-                f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">'
-                f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em;">{title}</div>'
-                f'<span class="chip" style="margin:0;">PAS {pas}</span></div>')
-        system_html = f'<div class="muted" style="font-size:12px; margin-top:12px; line-height:1.45;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
+        spec = _measure_spec(bp, m)
+        specifications = (spec.get("specifications") or [])[:30]
+        works = (spec.get("worksItems") or [])[:60]
+        standards = (spec.get("standards") or [])[:40]
+        considerations = (spec.get("considerations") or [])[:20]
+        sequencing = (spec.get("sequencing") or [])[:16]
+        commissioning = (spec.get("commissioning") or [])[:16]
+
+        def _head(sub):
+            return (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} &middot; {sub}</div>'
+                    f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">'
+                    f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em;">{title}</div>'
+                    f'<span class="chip" style="margin:0;">PAS {pas}</span></div>')
+
+        system_html = f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
+
+        spec_chunks = _chunk(specifications, CHUNK_SPEC) or [[]]
+        for ci, chunk in enumerate(spec_chunks):
+            sub = "Technical Specification" if ci == 0 else "Design Requirements (cont.)"
+            body = _head(sub) + (system_html if ci == 0 else "")
+            if chunk:
+                body += ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:4px;">Design &amp; Specification Requirements</div>'
+                         f'<div>{_spec_list(chunk, True, ci * CHUNK_SPEC + 1)}</div>')
+            elif ci == 0 and not works and not standards and not considerations:
+                body += '<div class="muted" style="font-size:12px; margin-top:16px;">Detailed specification for this measure to be developed from the approved template.</div>'
+            spec_pages.append(body)
+
+        for ci, chunk in enumerate(_chunk(works, CHUNK_WORKS)):
+            sub = "Scope of Works" if ci == 0 else "Scope of Works (cont.)"
+            spec_pages.append(_head(sub) + f'<div style="margin-top:16px;">{_spec_list(chunk, True, ci * CHUNK_WORKS + 1)}</div>')
+
+        if standards or considerations:
+            body = _head("Standards & Considerations")
+            if standards:
+                chips = "".join(f'<span class="chip">{_esc(s)}</span>' for s in standards)
+                body += f'<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:8px;">Standards &amp; Compliance</div><div>{chips}</div>'
+            if considerations:
+                body += ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:4px;">Design Considerations</div>'
+                         f'<div>{_spec_list(considerations, False)}</div>')
+            spec_pages.append(body)
+
+        if sequencing or commissioning:
+            body = _head("Sequencing & Commissioning")
+            if sequencing:
+                body += ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:4px;">Installation Sequencing</div>'
+                         f'<div>{_spec_list(sequencing, True)}</div>')
+            if commissioning:
+                body += ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:4px;">Commissioning &amp; Handover</div>'
+                         f'<div>{_spec_list(commissioning, True)}</div>')
+            spec_pages.append(body)
+
         bu = m.get("buildup") or []
         bu_html = ""
         if bu:
@@ -1834,7 +1918,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                 f'<tr><td class="mono faint" style="width:10%;">{_esc(l.get("no"))}</td><td style="color:#262626;">{_esc(l.get("material"))}</td>'
                 f'<td class="mono" style="text-align:right; width:20%;">{_esc(l.get("thickness"))} mm</td><td class="mono muted" style="text-align:right; width:18%;">{_esc(l.get("lambda"))}</td></tr>'
                 for l in bu)
-            bu_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:2px;">Construction Build-up</div>'
+            bu_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Construction Build-up</div>'
                        '<table><thead><tr><th style="width:10%;">Layer</th><th>Material</th><th style="text-align:right;">Thickness</th><th style="text-align:right;">&#955; (W/mK)</th></tr></thead>'
                        f'<tbody>{rows}</tbody></table>'
                        '<div style="border:1px solid #e5e5e5; margin-top:14px; padding:10px 12px;">'
@@ -1851,6 +1935,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                       f'<div style="margin-top:4px;"><span class="mono faint" style="font-size:14px;">{ex_s}</span><span class="disp" style="font-size:40px; line-height:1;">{cu:.2f}</span> <span class="mono muted" style="font-size:12px;">{_esc(m.get("unit"))}</span></div></div>'
                       f'<div style="text-align:right;"><div class="faint upper" style="font-size:9.5px;">Target {tu:.2f}</div>'
                       f'<div class="mono" style="display:inline-block; margin-top:8px; padding:5px 11px; border:1px solid {bc}; color:{bc}; font-size:12px;">{"&#10003; PASS" if pass_ else "&#9888; REVIEW"}</div></div></div>')
+        if bu_html or u_html:
+            spec_pages.append(_head("Construction & Thermal Detail") + bu_html + u_html)
+
         jns = m.get("junctions") or []
         jn_html = ""
         if jns:
@@ -1863,40 +1950,34 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                        f'<td style="width:7%;"><span style="color:{jc}; font-size:12px;">{JSY.get(js, "&#8211;")}</span></td>'
                        f'<td class="mono faint" style="width:20%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
                        f'<td class="muted" style="font-size:10px;">{_esc(j.get("note"))}</td></tr>')
-            jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:2px;">Junction Schedule</div>'
+            jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Junction Schedule</div>'
                        '<table><thead><tr><th style="width:14%;">Detail</th><th style="width:19%;">Junction</th><th style="width:7%;"></th><th style="width:20%;">Detail Ref</th><th>Note</th></tr></thead>'
                        f'<tbody>{jr}</tbody></table>')
-        jn_on_a = (not bu and cu is None)
-        spec_pages.append(head + system_html + bu_html + u_html + (jn_html if jn_on_a else ""))
         checks = m.get("checks") or []
+        ch_html = ""
+        if checks:
+            cc = ""
+            for c in checks[:10]:
+                cs = c.get("status") or "pass"
+                ccol = JST.get(cs, "#a3a3a3")
+                cc += (f'<div style="display:inline-block; width:48%; vertical-align:top; border-bottom:1px solid #f0f0f0; padding:6px 0; margin-right:2%;">'
+                       f'<span style="color:{ccol}; font-size:12px; margin-right:8px;">{JSY.get(cs, "&#8211;")}</span>'
+                       f'<span class="muted" style="font-size:11px;">{_esc(c.get("label"))}</span></div>')
+            ch_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:6px;">Design Checks</div><div>{cc}</div>'
         risks = m.get("risks") or []
-        if (jns and not jn_on_a) or checks or risks:
-            ch_html = ""
-            if checks:
-                cc = ""
-                for c in checks[:10]:
-                    cs = c.get("status") or "pass"
-                    ccol = JST.get(cs, "#a3a3a3")
-                    cc += (f'<div style="display:inline-block; width:48%; vertical-align:top; border-bottom:1px solid #f0f0f0; padding:6px 0; margin-right:2%;">'
-                           f'<span style="color:{ccol}; font-size:12px; margin-right:8px;">{JSY.get(cs, "&#8211;")}</span>'
-                           f'<span class="muted" style="font-size:11px;">{_esc(c.get("label"))}</span></div>')
-                ch_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:6px;">Design Checks</div><div>{cc}</div>'
-            rk_html = ""
-            if risks:
-                rr = ""
-                for r in risks[:5]:
-                    lv = (r.get("level") or "low").lower()
-                    rc = RLV.get(lv, "#B45309")
-                    rr += (f'<div style="border-left:2px solid {rc}; padding:2px 0 8px 12px; margin-bottom:12px;">'
-                           f'<div><span style="font-size:12px; font-weight:500; color:#262626;">{_esc(r.get("title"))}</span>'
-                           f'<span class="mono" style="font-size:9px; color:{rc}; margin-left:8px; text-transform:uppercase;">{_esc(lv)}</span></div>'
-                           f'<div class="muted" style="font-size:10.5px; margin-top:3px; line-height:1.4;">{_esc(r.get("note"))}</div></div>')
-                rk_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:10px;">Risk Register</div><div>{rr}</div>'
-            jn_b = "" if jn_on_a else jn_html
-            headB = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} · Technical Specification (cont.)</div>'
-                     f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
-                     f'{jn_b}{ch_html}{rk_html}')
-            spec_pages.append(headB)
+        rk_html = ""
+        if risks:
+            rr = ""
+            for r in risks[:5]:
+                lv = (r.get("level") or "low").lower()
+                rc = RLV.get(lv, "#B45309")
+                rr += (f'<div style="border-left:2px solid {rc}; padding:2px 0 8px 12px; margin-bottom:12px;">'
+                       f'<div><span style="font-size:12px; font-weight:500; color:#262626;">{_esc(r.get("title"))}</span>'
+                       f'<span class="mono" style="font-size:9px; color:{rc}; margin-left:8px; text-transform:uppercase;">{_esc(lv)}</span></div>'
+                       f'<div class="muted" style="font-size:10.5px; margin-top:3px; line-height:1.4;">{_esc(r.get("note"))}</div></div>')
+            rk_html = f'<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:10px;">Risk Register</div><div>{rr}</div>'
+        if jn_html or ch_html or rk_html:
+            spec_pages.append(_head("Junctions, Checks & Risks") + jn_html + ch_html + rk_html)
 
     # ---- Defects & remedial actions ----
     defects = list(p.get("defects") or [])
@@ -1986,18 +2067,32 @@ async def preview_pack_html(project_id: str, origin: Optional[str] = Query(None)
 
 
 # ---------------- Template library ----------------
-TEMPLATE_SYSTEM = """You are analysing a PAS 2035:2023 retrofit DESIGN TEMPLATE (a reusable document skeleton).
-From its heading/table outline, extract the reusable STRUCTURE as JSON only:
+TEMPLATE_SYSTEM = """You are analysing a PAS 2035:2023 retrofit DESIGN document template. Extract the REUSABLE, DETAILED specification content as JSON so it can populate a site-specific design pack. Capture the ACTUAL substance — works items, specification clauses, standards, considerations — NOT just section titles.
+Return ONLY JSON:
 {
-  "summary": "one sentence on what this template is for",
-  "measureCodes": ["B9","ASHP","SOLAR"],
-  "propertyTypes": ["bungalow","mid-terrace"],
-  "sections": [{"no": 1, "title": "", "contains": "short description of the content/tables in this section"}],
+  "summary": "one sentence on what this template covers",
+  "measureCodes": ["B3","SOLAR"],
+  "propertyTypes": ["semi-detached"],
+  "designRequirements": ["general PAS 2035 design/coordination requirements that apply across measures, as full usable clauses"],
+  "measureSpecs": {
+    "<PAS code e.g. B3>": {
+      "title": "e.g. Windows & Doors (B3)",
+      "worksItems": ["each discrete item in the scope of works for this measure, as a full clause"],
+      "specifications": ["design & performance specification clauses (U-values, materials, products, standards to meet, tolerances)"],
+      "standards": ["applicable standards/regs e.g. 'PAS 2030:2023','Building Regs Part L','BS 7671','PAS 24'"],
+      "considerations": ["measure-relevant considerations incl. heritage, overheating, ventilation (Part F), fire safety (Part B), moisture (BS 5250), thermal bridging"],
+      "sequencing": ["installation sequencing notes / interactions with other measures"],
+      "commissioning": ["commissioning, testing and handover requirements"]
+    }
+  },
   "tables": ["table name (columns)"],
-  "coverElements": ["project ref","client","revision"],
   "conventions": "figure/photo/drawing numbering conventions"
 }
-Return ONLY JSON, no prose."""
+Rules:
+- Use the PAS measure code (B2,B3,B4,B5,B9,B10,C1,C5,ASHP,SOLAR,etc.) as each measureSpecs key.
+- Pull as much genuine detail as the document contains — aim for 6-20 worksItems and 4-15 specification clauses per measure where available.
+- Paraphrase lightly for clarity but keep clauses specific and audit-ready. Do NOT invent content the document does not imply.
+- Return ONLY JSON, no prose."""
 
 TEMPLATE_SEED = [
     {"name": "PAS2035 Retrofit Design — B10, C5, ASHP, SOLAR", "fileType": "docx",
@@ -2052,6 +2147,30 @@ def extract_docx_outline(data: bytes) -> str:
         return ""
 
 
+def extract_docx_full(data: bytes) -> str:
+    try:
+        from docx import Document
+        d = Document(io.BytesIO(data))
+        out = []
+        for p in d.paragraphs:
+            t = (p.text or "").strip()
+            if not t:
+                continue
+            st = (p.style.name if p.style else "") or ""
+            out.append(f"## {t}" if st.lower().startswith(("heading", "title")) else t)
+        for i, t in enumerate(d.tables):
+            out.append(f"[TABLE {i + 1}]")
+            for r in t.rows:
+                cells = [(c.text or "").strip() for c in r.cells]
+                line = " | ".join(dict.fromkeys([x for x in cells if x]))
+                if line:
+                    out.append(line)
+        return "\n".join(out)
+    except Exception as e:
+        logger.warning("docx full extract failed: %s", e)
+        return ""
+
+
 async def seed_templates():
     if await db.templates.count_documents({}) > 0:
         return
@@ -2076,10 +2195,10 @@ async def analyze_template(tid: str):
         else:
             data = await asyncio.to_thread(_download, tpl["url"])
         if tpl.get("fileType") == "docx":
-            outline = await asyncio.to_thread(extract_docx_outline, data)
+            outline = await asyncio.to_thread(extract_docx_full, data)
         else:
-            outline = await asyncio.to_thread(extract_pdf_text, data, 12)
-        bp = await call_claude_json(TEMPLATE_SYSTEM, f"Template name: {tpl['name']}\n\nDocument structure/outline:\n{outline[:14000]}")
+            outline = await asyncio.to_thread(extract_pdf_text, data, 20)
+        bp = await call_claude_json(TEMPLATE_SYSTEM, f"Template name: {tpl['name']}\n\nFull template content (paragraphs and tables):\n{outline[:48000]}")
         codes = list(tpl.get("measureCodes") or parse_measure_codes(tpl["name"]))
         for c in (bp.get("measureCodes") or []):
             if c.upper() not in codes:
@@ -2087,6 +2206,7 @@ async def analyze_template(tid: str):
         await db.templates.update_one({"id": tid}, {"$set": {
             "status": "ready", "blueprint": bp, "measureCodes": codes,
             "analyzedAt": datetime.now(timezone.utc).isoformat()}})
+        await db.projects.update_many({"templateId": tid}, {"$set": {"templateBlueprint": bp}})
     except Exception as e:
         logger.exception("template analyze failed")
         await db.templates.update_one({"id": tid}, {"$set": {"status": "error", "error": str(e)}})
@@ -2094,8 +2214,12 @@ async def analyze_template(tid: str):
 
 async def analyze_all_templates():
     tpls = await db.templates.find({"status": {"$ne": "ready"}}, {"id": 1}).to_list(200)
-    for t in tpls:
-        await analyze_template(t["id"])
+    sem = asyncio.Semaphore(4)
+
+    async def run(tid):
+        async with sem:
+            await analyze_template(tid)
+    await asyncio.gather(*[run(t["id"]) for t in tpls])
 
 
 async def match_template(measure_codes):
@@ -2129,8 +2253,9 @@ async def get_template(tid: str):
 
 
 @api_router.post("/templates/analyze-all")
-async def templates_analyze_all():
-    await db.templates.update_many({"status": {"$ne": "ready"}}, {"$set": {"status": "analyzing"}})
+async def templates_analyze_all(force: bool = Query(False)):
+    q = {} if force else {"status": {"$ne": "ready"}}
+    await db.templates.update_many(q, {"$set": {"status": "analyzing"}})
     asyncio.create_task(analyze_all_templates())
     return {"status": "analyzing"}
 

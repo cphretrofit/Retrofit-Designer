@@ -106,6 +106,13 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Hardening (from iteration_7 findings): defect photos are soft-deleted on defect delete/photo-replace and filtered out of the Evidence document list (no orphan growth); photo upload rejects non-image content-type (422).
 - Verified by testing_agent (iteration_7: 100% backend 11/11 + frontend all flow steps) plus curl re-verification of the orphan-cleanup fix.
 
+### Phase 20 — Deep template extraction → dense, audit-ready design packs (2026-06-26)
+- **Root cause**: templates were parsed into a shallow OUTLINE (section titles + one-line "contains") and the DOCX text was truncated to 14k chars, so per-measure pages were near-empty ("4 words to a page"). Original DOCX files (~4MB each, ~55KB text) hold the real detail.
+- **Rich extraction**: new `extract_docx_full()` pulls all paragraphs + de-duplicated table cells; `TEMPLATE_SYSTEM` rewritten to extract a rich schema — `designRequirements` (global PAS 2035 clauses) + per-measure `measureSpecs{<PAScode>: {title, worksItems, specifications, standards, considerations, sequencing, commissioning}}`. `analyze_template` now sends up to 48k chars and, on success, refreshes `templateBlueprint` on every project using that template.
+- **Dense rendering**: `build_pack_html` per-measure spec pages rewritten to paginate rich content across `.page`s (Design & Specification Requirements, Scope of Works, Standards & Compliance chips, Design Considerations, Installation Sequencing, Commissioning & Handover) then Construction & Thermal Detail and Junctions/Checks/Risks. General Design Requirements shown on the strategy divider. `_measure_spec()` maps project measure code→PAS blueprint via MEASURE_TO_TAGS.
+- **Re-analysis**: batched `analyze_all_templates` (4 concurrent) + `POST /templates/analyze-all?force=true`. Re-analysed the 7 templates matched to existing projects (rich: 14–16 works items, 9–15 spec clauses, 10–17 standards per measure); full 57-template re-analysis kicked off in background.
+- **Result**: RTF-2026-0140 pack went from ~16 → **43 dense pages**; verified via curl (6 Scope-of-Works pages, spec/standards/sequencing blocks) and screenshot (real 12-item "Scope of Works — Loft Insulation (PAS B9)" page, no clipping). Verification method: self-test (curl + screenshot) — not run through testing_agent.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
