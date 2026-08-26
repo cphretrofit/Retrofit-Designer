@@ -1482,6 +1482,52 @@ def _photos_for_measure(code, photos, used):
     return out
 
 
+def _measure_compliance(m, p):
+    code = (m.get("code") or "").upper()
+    sc = (p.get("property") or {}).get("siteConditions") or p.get("siteConditions") or {}
+    ptype = (sc.get("property_type") or p.get("propertyType") or (p.get("property") or {}).get("type") or "").lower()
+    is_bungalow = "bungalow" in ptype
+    e_shower = sc.get("electric_shower")
+    bath_up = sc.get("bathroom_upstairs")
+    downlights = sc.get("downlights")
+    items = []
+    if code in ("LOFT", "RIR"):
+        items.append(("Fire Safety", "Recessed downlights present — fit maintenance-free fire-rated loft caps over every fitting before insulating; do not cover transformers/drivers (Approved Document B)." if downlights in (True, None) else "No recessed downlights reported; confirm on site before insulating."))
+        if e_shower and (is_bungalow or bath_up):
+            items.append(("Electrical", "Electric shower present with a likely high-current cable routed through the loft (bungalow / first-floor bathroom) — survey the cable, clip it above the insulation or derate/re-route to BS 7671. DO NOT bury it under deep insulation."))
+        else:
+            items.append(("Electrical", "Survey all loft cabling; any cable covered by insulation must be derated or re-routed per BS 7671. Confirm whether a high-current electric-shower supply runs through the loft."))
+        items.append(("Ventilation", "Maintain roof-space ventilation to BS 5250:2021 Table 5 (e.g. 25mm continuous eaves + 5mm ridge). Fit eaves baffles; do not block cross-ventilation."))
+        items.append(("Thermal Bridging", "Insulate and draught-proof the loft hatch; carry insulation over the wall plate at the eaves for continuity; avoid gaps and compression."))
+        items.append(("Moisture", "Vapour-open build-up; manage interstitial condensation (BS 5250)."))
+    elif code in ("EWI", "SWI", "IWI"):
+        items.append(("Fire Safety", "Provide cavity fire barriers (horizontal at each compartment/floor line and vertically) and fire-stopping around all openings; verify system combustibility for the building height / relevant boundary (Approved Document B)."))
+        items.append(("Thermal Bridging", "Property-specific junction details (jamb, reveal, sill, eaves, verge, plinth). Any bespoke detail calculated to BRE IP1/06 with temperature factor fRsi > 0.75."))
+        items.append(("Ventilation", "Re-assess background and purge ventilation as the fabric is tightened; add trickle ventilators / mechanical extract to Approved Document F where required."))
+        items.append(("Electrical", "Extend and re-fix external services (meter box, lights, soil/vent pipes, cables) through the added insulation thickness safely."))
+        items.append(("Moisture", "Breathable, compatible system that avoids trapping moisture (BS 5250)."))
+    elif code in ("WIN", "DOORS", "WINDOWS"):
+        items.append(("Ventilation", "Provide trickle ventilators to Approved Document F equivalent areas; maintain rapid/purge ventilation to habitable rooms."))
+        items.append(("Fire Safety", "Provide compliant emergency egress windows to habitable rooms (including first floor); FD30 fire doors where required (Approved Document B)."))
+        items.append(("Thermal Bridging", "Insulated cavity closers/reveals with a continuous airtight perimeter seal."))
+    elif code in ("ASHP", "HP"):
+        items.append(("Electrical", "Dedicated circuit, isolation and earthing to BS 7671; confirm consumer-unit capacity and load."))
+        items.append(("Ventilation", "Site the external unit for free airflow and MCS 020 noise limits; manage condensate discharge frost-safely."))
+        items.append(("Moisture", "Insulate and support pipework to avoid cold-bridge condensation."))
+    elif code in ("SOLAR", "PV"):
+        items.append(("Electrical", "DC isolation, RCD protection and fire-safe cable routing to BS 7671 / IET Code of Practice; label all isolators."))
+        items.append(("Fire Safety", "Maintain roof fire integrity and firefighter access; keep DC cabling away from escape routes."))
+    elif code in ("UFI", "SFI"):
+        items.append(("Ventilation", "Maintain suspended-floor sub-floor cross-ventilation to Approved Document C (2010) §4.14 — keep airbricks clear and unobstructed."))
+        items.append(("Thermal Bridging", "Insulate to the perimeter with continuity to the wall insulation; support insulation tight between joists."))
+        items.append(("Moisture", "Vapour-permeable membrane with a ventilated void to prevent timber decay."))
+    elif code in ("VENT",):
+        items.append(("Ventilation", "Whole-dwelling ventilation strategy to Approved Document F (continuous/intermittent extract at source; PIV excluded from satisfying source extraction)."))
+        items.append(("Moisture", "Address any condensation/mould identified in the retrofit assessment."))
+    items.append(("Compliance", "Complete the Approved Document F ventilation checklist (Appendix D) pre-installation to confirm baseline compliance."))
+    return items
+
+
 def _geom_rings(geom):
     t = geom.get("type")
     c = geom.get("coordinates") or []
@@ -2066,6 +2112,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
             system_html += f'<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:8px;">Existing Condition &middot; Survey</div><div>{_cells}</div>'
 
         spec_chunks = _chunk(specifications, CHUNK_SPEC) or [[]]
+        prod = m.get("products") or []
+        if prod:
+            prows = ""
+            for x in prod[:12]:
+                prows += ('<tr><td style="color:#262626;">' + _esc(x.get("manufacturer")) + '</td><td>' + _esc(x.get("product")) + '</td><td class="mono faint">' + _esc(x.get("reference")) + '</td><td class="mono muted">' + _esc(x.get("standard")) + '</td></tr>')
+            system_html += ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Specified Products</div>'
+                            '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Ref</th><th>Cert / Standard</th></tr></thead><tbody>' + prows + '</tbody></table>')
         for ci, chunk in enumerate(spec_chunks):
             sub = "Technical Specification" if ci == 0 else "Design Requirements (cont.)"
             body = _head(sub) + (system_html if ci == 0 else "")
@@ -2089,6 +2142,25 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                 body += ('<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:4px;">Design Considerations</div>'
                          f'<div>{_spec_list(considerations, False)}</div>')
             spec_pages.append(body)
+
+        comp = _measure_compliance(m, p)
+        if comp:
+            groups = {}
+            for topic, text in comp:
+                groups.setdefault(topic, []).append(text)
+            TCOL = {"Fire Safety": "#DC2626", "Thermal Bridging": "#0055FF", "Ventilation": "#0891B2", "Electrical": "#B45309", "Moisture": "#0D9488", "Compliance": "#525252"}
+            blocks = ""
+            for topic in ["Fire Safety", "Thermal Bridging", "Ventilation", "Electrical", "Moisture", "Compliance"]:
+                if topic not in groups:
+                    continue
+                col = TCOL[topic]
+                rows = ""
+                for t in groups[topic]:
+                    rows += ('<div style="display:flex; padding:6px 0; border-bottom:1px solid #f5f5f5;">'
+                             '<span style="width:8px; height:8px; border-radius:50%; background:' + col + '; margin:5px 12px 0 0; flex-shrink:0;"></span>'
+                             '<div style="flex:1; font-size:11.5px; color:#333; line-height:1.5;">' + _esc(t) + '</div></div>')
+                blocks += ('<div style="margin-top:16px;"><div class="faint upper" style="font-size:9.5px; color:' + col + '; margin-bottom:2px;">' + topic + '</div>' + rows + '</div>')
+            spec_pages.append(_head("Design Compliance Checklist") + blocks)
 
         if sequencing or commissioning:
             body = _head("Sequencing & Commissioning")
@@ -2224,7 +2296,16 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         u = ph.get("url") or ""
         data = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
         photo_uris.append({**ph, "data": data})
-    hero_uri = await asyncio.to_thread(_remote_data_uri, p.get("heroImage")) if p.get("heroImage") else None
+    hero_uri = None
+    for ph in photo_uris:
+        t = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
+        if any(k in t for k in ("front", "elevation", "frontage", "street", "property", "dwelling", "facade")):
+            hero_uri = ph.get("data")
+            break
+    if not hero_uri and photo_uris:
+        hero_uri = photo_uris[0].get("data")
+    if not hero_uri and p.get("heroImage"):
+        hero_uri = await asyncio.to_thread(_remote_data_uri, p.get("heroImage"))
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
     for d in (p.get("defects") or []):

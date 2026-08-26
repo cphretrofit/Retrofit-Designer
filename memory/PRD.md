@@ -121,6 +121,13 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - Verified: testing_agent iteration_8 (13/13 + 11/11 regression) for photos/heritage/defects/drag-drop; boundary map + error-fix + UI trigger self-verified via curl + screenshot (Broomhill Conservation Area, property WITHIN boundary). Demo project RTF-2026-0140 has postcode S10 2SE + 2 defect photos.
 - Known: heritage is not auto-run on seed/import (run via the button); large pack.html (~4.3MB) has slow cold load — future: downscale embedded photos.
 
+### Phase 22 — PAS 2035 depth per measure: compliance checklist, products, real cover photo (2026-06-26)
+- **Design Compliance Checklist per measure** (research-grounded, rules engine `_measure_compliance`): covers Fire Safety, Thermal Bridging, Ventilation, Electrical, Moisture, with conditional logic driven by `property.siteConditions` — e.g. LOFT: fire-rated downlight caps when spotlights present; electric-shower cable in loft warning when electric shower + (bungalow or first-floor bathroom); BS 5250:2021 Table 5 roof ventilation; EWI cavity fire barriers + BRE IP1/06 fRsi>0.75 thermal-bridge calc; UFI Approved Doc C §4.14 sub-floor crossflow; WIN egress + trickle vents; ADF Appendix D checklist universal.
+- **Specified Products table per measure** (`measures[].products`: manufacturer/product/reference/standard) rendered on the spec page; editable via the field endpoint.
+- **Cover uses the actual property photo**: `_render_pack_html` now picks a front-elevation survey photo for the cover hero (falls back to first survey photo, then stock).
+- Verified via curl + screenshot: RTF-2026-0140 pack now 49 pages; all conditional compliance items fire; Knauf/LoftZone products show. Demo `siteConditions` + products seeded on RTF-2026-0140. (Self-verified; not yet through testing_agent this round.)
+- Backlog: workspace UI to enter products & site-condition answers; auto-run heritage on import; measure hero banners; lighter packs.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
