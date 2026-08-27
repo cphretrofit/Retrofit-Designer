@@ -52,6 +52,10 @@ export const uploadClientDatasheets = (id, files) => {
 export const deleteClientDatasheet = (id, docId) => api.delete(`/clients/${id}/datasheets/${docId}`).then((r) => r.data);
 export const applyClientLibrary = (id) => api.post(`/projects/${id}/apply-client-library`).then((r) => r.data);
 
+export const addSection = (id, s) => api.post(`/projects/${id}/sections`, s).then((r) => r.data);
+export const updateSection = (id, sid, s) => api.put(`/projects/${id}/sections/${sid}`, s).then((r) => r.data);
+export const deleteSection = (id, sid) => api.delete(`/projects/${id}/sections/${sid}`).then((r) => r.data);
+
 export const listUsers = () => api.get("/admin/users").then((r) => r.data);
 export const createUser = (payload) => api.post("/admin/users", payload).then((r) => r.data);
 export const updateUser = (uid, payload) => api.put(`/admin/users/${uid}`, payload).then((r) => r.data);

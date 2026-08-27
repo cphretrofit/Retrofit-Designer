@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
 import { DefectsPanel } from "@/components/DefectsPanel";
 import { SiteConditionsPanel } from "@/components/SiteConditionsPanel";
+import { CustomSectionsPanel } from "@/components/CustomSectionsPanel";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -706,6 +707,8 @@ export default function DesignWorkspace() {
         return <DefectsPanel projectId={id} initial={p.defects || []} onChange={(list) => setP((prev) => ({ ...prev, defects: list }))} />;
       case "conditions":
         return <SiteConditionsPanel projectId={id} project={p} onChange={(sc) => setP((prev) => ({ ...prev, property: { ...prev.property, siteConditions: sc } }))} />;
+      case "sections":
+        return <CustomSectionsPanel projectId={id} initial={p.customSections || []} onChange={(list) => setP((prev) => ({ ...prev, customSections: list }))} />;
       case "drawings":
         return (
           <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -771,7 +774,7 @@ export default function DesignWorkspace() {
   const sectionTitle = activeMeasure ? activeMeasure.name : {
     overview: "Overview", "existing-construction": "Existing Construction", survey: "Survey", photos: "Survey Photos",
     specifications: "Specifications", junctions: "Junctions", calculations: "Calculations", risks: "Risks",
-    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions",
+    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections",
   }[section] || "Overview";
 
   return (
@@ -798,6 +801,7 @@ export default function DesignWorkspace() {
               <NavItem icon={Camera} label="Photos" section="photos" active={section} onClick={() => setSection("photos")} />
               <NavItem icon={AlertOctagon} label="Defects" section="defects" active={section} onClick={() => setSection("defects")} badge={(p.defects?.length) || null} tone="critical" />
               <NavItem icon={Eye} label="Site Conditions" section="conditions" active={section} onClick={() => setSection("conditions")} />
+              <NavItem icon={FileText} label="Sections" section="sections" active={section} onClick={() => setSection("sections")} badge={(p.customSections?.length) || null} />
             </NavGroup>
             <NavGroup title="Measures">
               {p.measures.map((m) => (

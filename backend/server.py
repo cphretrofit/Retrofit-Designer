@@ -757,6 +757,50 @@ async def apply_client_library(project_id: str):
     return {"count": cnt, "measures": proj.get("measures"), "datasheetProducts": proj.get("datasheetProducts") or []}
 
 
+class SectionIn(BaseModel):
+    title: str = ""
+    body: str = ""
+
+
+@api_router.post("/projects/{project_id}/sections")
+async def add_section(project_id: str, payload: SectionIn):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    sec = {"id": str(uuid.uuid4()), "title": payload.title.strip() or "Untitled section", "body": payload.body}
+    secs = (p.get("customSections") or []) + [sec]
+    await db.projects.update_one({"id": project_id}, {"$set": {"customSections": secs}})
+    return {"section": sec, "customSections": secs}
+
+
+@api_router.put("/projects/{project_id}/sections/{sid}")
+async def update_section(project_id: str, sid: str, payload: SectionIn):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    secs = p.get("customSections") or []
+    found = False
+    for s in secs:
+        if s.get("id") == sid:
+            s["title"] = payload.title.strip() or s.get("title") or "Untitled section"
+            s["body"] = payload.body
+            found = True
+    if not found:
+        raise HTTPException(status_code=404, detail="Section not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"customSections": secs}})
+    return {"customSections": secs}
+
+
+@api_router.delete("/projects/{project_id}/sections/{sid}")
+async def delete_section(project_id: str, sid: str):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    secs = [s for s in (p.get("customSections") or []) if s.get("id") != sid]
+    await db.projects.update_one({"id": project_id}, {"$set": {"customSections": secs}})
+    return {"customSections": secs}
+
+
 ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
                        "coordinator", "designer", "town", "address", "measureSummary",
                        "epcBefore", "epcAfter", "partner", "itemsBeforeIssue"}
@@ -957,7 +1001,7 @@ async def parse_datasheets_endpoint(project_id: str):
             continue
         fn = d.get("original_filename") or "datasheet"
         ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
-        txt = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+        txt = await asyncio.to_thread(extract_text_any, data, ext)
         if txt.strip():
             texts.append(f"=== {fn} ===\n{txt[:6000]}")
     if not texts:
@@ -1037,6 +1081,41 @@ def _ocr_pdf(data: bytes, max_pages: int = 8) -> str:
         logger.warning("OCR failed: %s", e)
         return ""
     return "\n".join(out)
+
+
+def extract_xlsx_text(data: bytes, max_rows: int = 300) -> str:
+    import openpyxl
+    import io as _io
+    try:
+        wb = openpyxl.load_workbook(_io.BytesIO(data), data_only=True, read_only=True)
+    except Exception as e:
+        logger.warning("xlsx read failed: %s", e)
+        return ""
+    out = []
+    for ws in wb.worksheets:
+        out.append(f"=== SHEET: {ws.title} ===")
+        n = 0
+        for row in ws.iter_rows(values_only=True):
+            cells = [str(c).strip() for c in row if c is not None and str(c).strip()]
+            if cells:
+                out.append(" | ".join(cells))
+                n += 1
+            if n >= max_rows:
+                break
+    try:
+        wb.close()
+    except Exception:
+        pass
+    return "\n".join(out)[:24000]
+
+
+def extract_text_any(data: bytes, ext: str) -> str:
+    ext = (ext or "").lower()
+    if ext == "pdf":
+        return extract_pdf_text(data)
+    if ext in ("xlsx", "xlsm"):
+        return extract_xlsx_text(data)
+    return ""
 
 
 def extract_pdf_text(data: bytes, max_pages: int = 8) -> str:
@@ -1405,7 +1484,7 @@ async def _rebuild_client_catalog(client_id: str):
             continue
         fn = d.get("original_filename") or "datasheet"
         ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
-        txt = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+        txt = await asyncio.to_thread(extract_text_any, data, ext)
         if txt.strip():
             texts.append(f"=== {fn} ===\n{txt[:6000]}")
     prods = await parse_datasheet_products(texts) if texts else []
@@ -1700,7 +1779,7 @@ async def run_import_job(job_id: str):
                 except Exception as e:
                     logger.warning("import input fetch failed: %s", e)
 
-            text = (await asyncio.to_thread(extract_pdf_text, data)) if (ext == "pdf" and data) else ""
+            text = (await asyncio.to_thread(extract_text_any, data, ext)) if data else ""
             limit = TEXT_LIMIT.get(dtype, 11000)
             if text.strip():
                 content_chars += len(text.strip())
@@ -2473,6 +2552,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     if _dc:
         _pos = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0)
         toc.insert(_pos, ("01.3", "Design Considerations", "sub"))
+    _base = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0) + (1 if _dc else 0)
+    for i, s in enumerate(p.get("customSections") or []):
+        toc.insert(_base + i, ("+", (s.get("title") or "Section")[:44], "sub"))
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
@@ -2870,6 +2952,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                                '<div class="muted" style="font-size:11px; margin-top:8px;">Site-specific design considerations for this dwelling, determined from the survey photographs and assessment. Each is to be verified on site prior to installation.</div>'
                                f'<div style="margin-top:14px;">{rows}</div>')
 
+    # Custom sections (user-added "crucial information")
+    custom_pages = []
+    for s in (p.get("customSections") or []):
+        body = _esc(s.get("body") or "").replace("\n", "<br>")
+        custom_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Design Addendum</div>'
+                            f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{_esc(s.get("title"))}</div>'
+                            f'<div style="font-size:12px; line-height:1.62; margin-top:12px; color:#333;">{body}</div>')
+
     # Appendix — product datasheets & certificates
     dsd = p.get("_datasheetDocs") or []
     dprods = p.get("datasheetProducts") or []
@@ -2890,7 +2980,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
                           f'{files_html}{prod_html}')
 
-    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []), divider, measures_schedule_page, performance,
+    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []), *custom_pages, divider, measures_schedule_page, performance,
              *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)

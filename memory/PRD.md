@@ -165,6 +165,13 @@ Client's mandatory pack spec (from their real packs — build against a real Col
 - Bind real source documents (heat-pump report, solar calcs, surveys) into the appendix.
 - Note: client said don't over-index on U-value calculations; SAP projected score comes from the Job Card.
 
+### Phase 26 — xlsx support + Custom Sections + real job import (2026-08-27)
+- **xlsx ingestion**: `extract_xlsx_text` + `extract_text_any` — Job Cards, ADF1 ventilation checklists and Air Tightness Strategy spreadsheets now feed the AI (openpyxl). Wired into import, datasheet parse and client-library rebuild.
+- **Custom Sections** (client ask "add crucial info / add sections"): per-project `customSections` [{id,title,body}] with `POST/PUT/DELETE /projects/{id}/sections`; new Workspace → "Sections" panel; each renders as a "Design Addendum" page in the pack + a contents entry.
+- **Real job imported — 12 Marsh End (Coldrush)**, project id `a559329c-7ee0-4d55-9d04-7a3aa8a7fecc`. From Job Card + Scope + ADF1 + Air Tightness: SAP D(55)→C(71), measures Loft(B9)/Solar PV 2.4kWp/MEV-DMEV, real construction facts, and 10 site-specific Design Considerations. Confirms the depth is right on real data.
+
+Observed gaps to tackle next (unchanged priority): cover still uses a stock terrace when no property photo is uploaded (actual property image is MANDATORY — needs an assessment with photos); details block still shows "AI Draft"/"—" — the real Assessor/Coordinator/Designer/Installer names (e.g. Syed Shah / Reece Mawson / Alex Leighton / Coldrush) are in the xlsx and need capturing into the schema + editable details section; design-readiness %s still mocked.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.
