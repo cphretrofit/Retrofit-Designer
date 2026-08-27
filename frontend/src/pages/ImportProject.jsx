@@ -82,6 +82,7 @@ export default function ImportProject() {
   const [stage, setStage] = useState(0);
   const [clients, setClients] = useState([]);
   const [client, setClient] = useState("");
+  const [reference, setReference] = useState("");
   const [newClient, setNewClient] = useState("");
   const [addingClient, setAddingClient] = useState(false);
   const pollRef = useRef(null);
@@ -115,6 +116,7 @@ export default function ImportProject() {
     try {
       const fd = new FormData();
       fd.append("client", client);
+      fd.append("reference", reference);
       Object.entries(files).forEach(([type, file]) => { fd.append("files", file); fd.append("types", type); });
       const { data } = await axios.post(`${API}/projects/import`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       const jobId = data.job_id;
@@ -171,6 +173,9 @@ export default function ImportProject() {
                 <span className="text-[13px] font-medium">Who is this design for?</span>
                 {client && <span className="ml-auto flex items-center gap-1 text-[11.5px] font-mono" style={{ color: "var(--c-pass)" }}><Check className="h-3.5 w-3.5" strokeWidth={2} /> {client}</span>}
               </div>
+              <input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Property reference number (supplied per property)"
+                data-testid="reference-input"
+                className="w-full h-9 px-3 mb-3 bg-background border border-border rounded-sm text-[13px] outline-none focus:border-foreground/30 transition-colors" />
               <div className="flex flex-wrap gap-2">
                 {clients.map((c) => (
                   <button key={c.id} onClick={() => setClient(c.name)} data-testid={`client-pick-${c.id}`}

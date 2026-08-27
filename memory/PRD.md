@@ -145,6 +145,26 @@ Retrofit Designer (primary), Retrofit Coordinator (QA/sign-off), Client/Contract
 - **Coldrush demo**: client `d90b7747-...` seeded with 12 datasheets → 14-product catalogue (Ecodan/Fox ESS/DMEGC/Knauf/Thermahood/Klober/Manthorpe/Vent-Axia/Airbox), applied to project a9713cce. Script: `/app/backend/make_coldrush.py`.
 - Verified via curl (client CRUD, detail, apply count 14, isolation count 0) + Client Library UI screenshot.
 
+### Phase 25 — Pack depth, Phase 1 (2026-08-27)
+Reviewed our generated pack against the client's real 161-page ColdRush example. Started rebuilding depth.
+- **Design Considerations** (NEW, site-specific): AI-authored narrative section in the client's house style — Crossflow Ventilation, Pipework Lagging, Spotlights, Gas Meter Decommissioning, Overheating, Fire Safety, Thermal Bridging, Loft Hatch, Cold Water Tank — each Yes/No/N/A + a per-property paragraph citing BS 5250 / BS 7671 / ADB / ADF / BRE BR 262 / MCS. Generated at import from siteConditions + assessment text; endpoint `POST /projects/{id}/design-considerations/generate`. Renders as pack section "01.3 Design Considerations". Verified: 9 considerations for 67 Manor Road.
+- **Corrected measure labels** to PAS 2030:2023 Annex B (Building Fabric) codes (EWI B4, IWI B2, CWI B1, LOFT B9, RIR B10, UFI B6, WIN/DOORS B5); services (ASHP/SOLAR/VENT) show measure name, not a fake fabric code. (Was the wrong "PAS B9/H/M/F1".)
+- **Reference number** now asked at import start (per property) alongside client; stored as `project.jobRef`, shown on the cover. (Client supplies the ref.)
+
+### ROADMAP — Pack depth (confirmed by client, remaining phases)
+Client's mandatory pack spec (from their real packs — build against a real ColdRush job they will send):
+- **Front cover**: actual property image from the assessment (MANDATORY).
+- **Every page**: property address + reference number (ref supplied per property).
+- **Details section**: Client name, Assessor, Coordinator, Designer, Installer(s), Tenant (if applicable) — editable inputs.
+- **Ventilation requirements + Ventilation Strategy** (ADF1 Annex C, per-room) — MUST appear in every design (client can supply strategies).
+- **Measure-specific** Thermal Bridging, Fire Safety, Overheating considerations.
+- **Floor plan** with editable placement of DMEV, Loft, Trickle vents, ASHP.
+- **Heritage Impact** — system-completed (done).
+- **Measure evidence pages**: relevant photos per measure with typed compliance requirements/actions (shower cables, stored items, etc.) — editable.
+- Scope of Works, Schedule of Works, Measure Interaction Matrix.
+- Bind real source documents (heat-pump report, solar calcs, surveys) into the appendix.
+- Note: client said don't over-index on U-value calculations; SAP projected score comes from the Job Card.
+
 ## Testing
 - iteration_1: 5 flagship screens + backend endpoints (fixed critical non-hero white-screen).
 - iteration_2: AI import e2e — 26/26 backend, full frontend flow pass. Fixed HIGH id/ref reuse (stale evidence), off-loop I/O, 404 on unknown project docs, AI EPC/U-value quality, duplicate design-checks, import polling robustness, disabled-button contrast, right-rail overflow.

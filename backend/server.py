@@ -724,6 +724,25 @@ async def delete_client_datasheet(client_id: str, doc_id: str):
     return await get_client(client_id)
 
 
+@api_router.post("/projects/{project_id}/design-considerations/generate")
+async def gen_design_considerations_endpoint(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    text = ""
+    doc = await db.documents.find_one({"project_id": project_id, "is_deleted": False,
+                                       "doc_type": {"$in": ["Assessment", "Technical Survey", "Scope of Works", "ASHP Survey"]}})
+    if doc and doc.get("storage_path"):
+        try:
+            data, _ = await asyncio.to_thread(get_object, doc["storage_path"])
+            text = await asyncio.to_thread(extract_pdf_text, data)
+        except Exception:
+            text = ""
+    dc = await generate_design_considerations(p, text)
+    await db.projects.update_one({"id": project_id}, {"$set": {"designConsiderations": dc}})
+    return {"count": len(dc), "designConsiderations": dc}
+
+
 @api_router.post("/projects/{project_id}/apply-client-library")
 async def apply_client_library(project_id: str):
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
@@ -1283,6 +1302,34 @@ async def detect_site_conditions(vision_photos: list, extra_images=None, ptype: 
     return sc
 
 
+DESIGN_CONSIDERATIONS_SYSTEM = """You are a PAS 2035:2023 Retrofit Designer writing the "Design Considerations" section of a retrofit design for ONE dwelling, in the professional house style of a UK retrofit design pack.
+You are given the property's detected site conditions and the proposed retrofit measures. For EACH relevant consideration decide Present = "Yes" / "No" / "N/A" for THIS property, then write a concise, site-specific professional paragraph (2-4 sentences, third person) referencing the relevant standard where appropriate (BS 5250, BS 7671, Approved Document B, Approved Document F, PAS 2035, BRE BR 262, MCS). Base everything strictly on the evidence given; never invent site details you were not given — where something is unknown, state that it must be confirmed on site.
+
+Cover these topics where relevant to the measures: Crossflow Ventilation (loft), Pipework Lagging, Recessed Spotlights / Downlights, Gas Meter / Supply Decommissioning (only if an ASHP is replacing gas), Overheating (note south-facing glazing where applicable), Fire Safety, Thermal Bridging, Loft Hatch, Cold Water Tank.
+
+Return ONLY JSON:
+{"considerations":[{"topic":"Crossflow Ventilation","present":"No","narrative":"..."}]}"""
+
+
+async def generate_design_considerations(project: dict, assessment_text: str = ""):
+    sc = (project.get("property") or {}).get("siteConditions") or {}
+    measures = [f'{m.get("code")} — {m.get("name")}' for m in (project.get("measures") or [])]
+    scflat = {k: v for k, v in sc.items() if k != "evidence"}
+    prompt = ("Property type: " + ((project.get("property") or {}).get("type") or "unknown") +
+              "\nProposed measures: " + (", ".join(measures) or "unknown") +
+              "\nDetected site conditions: " + json.dumps(scflat) +
+              (("\n\nAssessment / survey extract:\n" + assessment_text[:4000]) if assessment_text else "") +
+              "\n\nWrite the site-specific Design Considerations for this dwelling.")
+    data = await call_claude_json(DESIGN_CONSIDERATIONS_SYSTEM, prompt)
+    out = []
+    for c in (data.get("considerations") or []):
+        topic = (c.get("topic") or "").strip()
+        narr = (c.get("narrative") or "").strip()
+        if topic and narr:
+            out.append({"topic": topic, "present": (c.get("present") or "").strip(), "narrative": narr})
+    return out
+
+
 DATASHEET_SYSTEM = """You extract PRODUCT information from UK retrofit manufacturer datasheets and BBA / certificate documents for ONE specific project.
 List every distinct product found. Map each to the retrofit measure it is used for using one of these codes: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT. Use "" if genuinely unclear.
 Return ONLY JSON:
@@ -1391,8 +1438,10 @@ async def _apply_client_catalog(project: dict):
     _assign_products(project, c["products"], source="catalog")
 
 
-PAS_MAP = {"EWI": "B2", "IWI": "B4", "SWI": "B2", "LOFT": "B9", "RIR": "B9", "UFI": "B5",
-           "WIN": "B3", "DOORS": "B3", "ASHP": "H", "SOLAR": "M", "VENT": "F1"}
+# PAS 2030:2023 Annex B (Building Fabric) codes. Services (ASHP/SOLAR/VENT) are shown by
+# their measure name rather than a fabric annex code, so the badge is never misleading.
+PAS_MAP = {"EWI": "B4", "IWI": "B2", "SWI": "B2", "CWI": "B1", "LOFT": "B9", "RIR": "B10",
+           "UFI": "B6", "WIN": "B5", "DOORS": "B5"}
 SERVICE_CODES = {"ASHP", "SOLAR", "VENT"}
 JN_BY_CODE = {
     "EWI": EWI_JN, "IWI": WIN_JN, "SWI": EWI_JN,
@@ -1702,6 +1751,8 @@ async def run_import_job(job_id: str):
         project = ai_build_project(ai, ref, photos)
         if job.get("client"):
             project["client"] = job["client"]
+        if job.get("reference"):
+            project["jobRef"] = job["reference"]
         try:
             tpl = await match_template([m["code"] for m in project["measures"]])
             if tpl:
@@ -1718,6 +1769,12 @@ async def run_import_job(job_id: str):
         except Exception as e:
             logger.warning("site condition detection failed: %s", e)
         try:
+            dc = await generate_design_considerations(project, "\n".join(parts))
+            if dc:
+                project["designConsiderations"] = dc
+        except Exception as e:
+            logger.warning("design considerations failed: %s", e)
+        try:
             await _apply_client_catalog(project)
         except Exception as e:
             logger.warning("client catalog apply failed: %s", e)
@@ -1732,7 +1789,7 @@ async def run_import_job(job_id: str):
 
 
 @api_router.post("/projects/import")
-async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...), client: Optional[str] = Form(None)):
+async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...), client: Optional[str] = Form(None), reference: Optional[str] = Form(None)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="AI key not configured")
     inputs = []
@@ -1760,6 +1817,7 @@ async def import_project(files: List[UploadFile] = File(...), types: List[str] =
     await db.import_jobs.insert_one({
         "id": job_id, "status": "processing", "project_id": None,
         "inputs": inputs, "attempts": 0, "client": (client or "").strip() or None,
+        "reference": (reference or "").strip() or None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     asyncio.create_task(run_import_job(job_id))
@@ -2271,7 +2329,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     drawings = dp.get("drawings") or []
 
     # Cover
-    meta = [("Project", p.get("ref")), ("Client", p.get("client")), ("Design Stage", p.get("designStage")), ("Revision", p.get("revision"))]
+    meta = [("Reference", p.get("jobRef") or p.get("ref")), ("Client", p.get("client")), ("Design Stage", p.get("designStage")), ("Revision", p.get("revision"))]
     meta_cells = "".join(
         f'<div style="display:inline-block; width:24%; vertical-align:top;"><div class="faint upper" style="font-size:9px;">{_esc(k)}</div>'
         f'<div class="mono" style="font-size:12px; margin-top:5px; color:#262626;">{_esc(v or "—")}</div></div>' for k, v in meta)
@@ -2390,6 +2448,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     # Site conditions (computed for TOC + evidence page)
     _sc = (p.get("property") or {}).get("siteConditions") or {}
     _sc_evidence = _sc.get("evidence") or []
+    _dc = p.get("designConsiderations") or []
     # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
     toc = [
@@ -2411,6 +2470,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         toc.insert(1, ("01.1", "Heritage &amp; Planning Context", "sub"))
     if _sc_evidence:
         toc.insert(2 if p.get("heritage") else 1, ("01.2", "Site Conditions &amp; Evidence", "sub"))
+    if _dc:
+        _pos = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0)
+        toc.insert(_pos, ("01.3", "Design Considerations", "sub"))
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
@@ -2790,6 +2852,24 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                      '<div class="muted" style="font-size:11px; margin-top:8px;">Determined from the survey photographs and floor plan. Each condition is supported by the referenced evidence photo and informs the PAS 2035 design compliance checklist. Confirm on site prior to installation.</div>'
                      f'<div style="margin-top:14px;">{cards}</div>')
 
+    # Design considerations (site-specific narrative)
+    considerations_page = None
+    if _dc:
+        rows = ""
+        for c in _dc:
+            pres = (c.get("present") or "").strip()
+            pl = pres.lower()
+            pcol = "#DC2626" if pl in ("yes", "present") else ("#16A34A" if pl in ("no", "not present") else "#666")
+            badge = f'<span class="mono" style="font-size:10px; color:{pcol};">{_esc(pres)}</span>' if pres else ""
+            rows += (f'<div style="padding:11px 0; border-bottom:1px solid #f0f0f0;">'
+                     f'<div style="display:flex; justify-content:space-between; align-items:baseline;">'
+                     f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(c.get("topic"))}</span>{badge}</div>'
+                     f'<div class="muted" style="font-size:11px; margin-top:5px; line-height:1.55;">{_esc(c.get("narrative"))}</div></div>')
+        considerations_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Considerations</div>'
+                               '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Considerations</div>'
+                               '<div class="muted" style="font-size:11px; margin-top:8px;">Site-specific design considerations for this dwelling, determined from the survey photographs and assessment. Each is to be verified on site prior to installation.</div>'
+                               f'<div style="margin-top:14px;">{rows}</div>')
+
     # Appendix — product datasheets & certificates
     dsd = p.get("_datasheetDocs") or []
     dprods = p.get("datasheetProducts") or []
@@ -2810,7 +2890,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
                           f'{files_html}{prod_html}')
 
-    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), divider, measures_schedule_page, performance,
+    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []), divider, measures_schedule_page, performance,
              *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
