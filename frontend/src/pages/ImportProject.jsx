@@ -1,17 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { API } from "@/lib/api";
+import { API, getClients, createClient } from "@/lib/api";
 import { TopBar } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
 import { toast } from "sonner";
 import {
-  FileText, Upload, X, Sparkles, CheckCircle2, Loader2, FileCheck2, Plus, ArrowRight,
+  FileText, Upload, X, Sparkles, CheckCircle2, Loader2, FileCheck2, Plus, ArrowRight, Building2, Check,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const SLOTS = [
   { type: "Assessment", label: "RdSAP Assessment / Site Notes", hint: "Property, constructions, existing ventilation" },
+  { type: "Technical Survey", label: "Technical Survey", hint: "Detailed technical survey, floor plans, site measurements" },
   { type: "Scope of Works", label: "Scope of Works", hint: "Proposed measures, target U-values, strategy" },
   { type: "ASHP Survey", label: "ASHP / Heat Loss Survey", hint: "Heat loss, ASHP model, emitters" },
   { type: "Job Card", label: "Job Card", hint: "Measures, SAP, per-room ventilation" },
@@ -77,25 +78,44 @@ function Slot({ slot, file, onPick, onClear }) {
 export default function ImportProject() {
   const navigate = useNavigate();
   const [files, setFiles] = useState({});
-  const [datasheets, setDatasheets] = useState([]);
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
+  const [clients, setClients] = useState([]);
+  const [client, setClient] = useState("");
+  const [newClient, setNewClient] = useState("");
+  const [addingClient, setAddingClient] = useState(false);
   const pollRef = useRef(null);
   const timerRef = useRef(null);
   useEffect(() => () => { clearInterval(pollRef.current); clearInterval(timerRef.current); }, []);
+  useEffect(() => { getClients(false).then(setClients).catch(() => {}); }, []);
+
+  const addClient = async () => {
+    const n = newClient.trim();
+    if (!n) return;
+    setAddingClient(true);
+    try {
+      const c = await createClient(n);
+      setClients((cs) => cs.some((x) => x.id === c.id) ? cs : [...cs, c]);
+      setClient(c.name); setNewClient("");
+      toast.success(`Client “${c.name}” added`);
+    } catch (e) { toast.error("Could not add client", { description: e?.response?.data?.detail }); }
+    finally { setAddingClient(false); }
+  };
 
   const setSlot = (type, file) => setFiles((f) => ({ ...f, [type]: file }));
   const clearSlot = (type) => setFiles((f) => { const n = { ...f }; delete n[type]; return n; });
-  const count = Object.keys(files).length + datasheets.length;
+  const count = Object.keys(files).length;
+  const selClient = clients.find((c) => c.name === client);
 
   const generate = async () => {
+    if (!client) { toast.error("Choose who this design is for"); return; }
     if (count === 0) { toast.error("Add at least one document"); return; }
     setBusy(true); setStage(0);
     timerRef.current = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 4000);
     try {
       const fd = new FormData();
+      fd.append("client", client);
       Object.entries(files).forEach(([type, file]) => { fd.append("files", file); fd.append("types", type); });
-      datasheets.forEach((file) => { fd.append("files", file); fd.append("types", "Datasheet"); });
       const { data } = await axios.post(`${API}/projects/import`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       const jobId = data.job_id;
       let attempts = 0;
@@ -144,45 +164,58 @@ export default function ImportProject() {
 
         {!busy ? (
           <>
+            {/* Step 1 — Who is this design for? */}
+            <div className="border border-border rounded-sm bg-card p-4 mb-3" data-testid="client-step">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-[11px] font-mono">1</span>
+                <span className="text-[13px] font-medium">Who is this design for?</span>
+                {client && <span className="ml-auto flex items-center gap-1 text-[11.5px] font-mono" style={{ color: "var(--c-pass)" }}><Check className="h-3.5 w-3.5" strokeWidth={2} /> {client}</span>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {clients.map((c) => (
+                  <button key={c.id} onClick={() => setClient(c.name)} data-testid={`client-pick-${c.id}`}
+                    className={cn("flex items-center gap-1.5 h-8 px-3 rounded-sm border text-[12.5px] transition-colors",
+                      client === c.name ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary")}>
+                    <Building2 className="h-3.5 w-3.5" strokeWidth={1.75} /> {c.name}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                <input value={newClient} onChange={(e) => setNewClient(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addClient())}
+                  placeholder="Add a new client…" data-testid="new-client-input"
+                  className="h-8 px-3 bg-background border border-border rounded-sm text-[12.5px] outline-none focus:border-foreground/30 transition-colors w-56" />
+                <button onClick={addClient} disabled={addingClient || !newClient.trim()} data-testid="new-client-add"
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] hover:bg-secondary transition-colors disabled:opacity-50">
+                  {addingClient ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />} Add
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 mb-3">
+              <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-[11px] font-mono">2</span>
+              <span className="text-[13px] font-medium">Upload the documents</span>
+            </div>
             <div className="grid sm:grid-cols-2 gap-3">
               {SLOTS.map((s) => (
                 <Slot key={s.type} slot={s} file={files[s.type]} onPick={(f) => setSlot(s.type, f)} onClear={() => clearSlot(s.type)} />
               ))}
             </div>
 
-            {/* datasheets */}
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={(e) => { e.preventDefault(); const fs = Array.from(e.dataTransfer.files || []); if (fs.length) setDatasheets((d) => [...d, ...fs]); }}
-              data-testid="dropzone-datasheets"
-              className="mt-3 border border-dashed border-border rounded-sm bg-card p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-[13px] font-medium">Product datasheets & extra evidence</div>
-                  <div className="text-[11.5px] text-muted-foreground mt-0.5">BBA certificates, product sheets, photos — drag &amp; drop or browse; stored and linked to the project</div>
-                </div>
-                <label htmlFor="datasheets" className="flex items-center gap-2 h-8 px-3 border border-border rounded-sm text-[12.5px] cursor-pointer hover:bg-secondary transition-colors">
-                  <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add files
-                </label>
-                <input id="datasheets" type="file" multiple accept=".pdf,.png,.jpg,.jpeg,.xlsx,.docx" className="hidden"
-                       data-testid="input-datasheets"
-                       onChange={(e) => setDatasheets((d) => [...d, ...Array.from(e.target.files)])} />
+            {/* Datasheets come from the client library */}
+            <div className="mt-3 border border-border rounded-sm bg-card p-4" data-testid="client-library-note">
+              <div className="text-[13px] font-medium">Product datasheets</div>
+              <div className="text-[11.5px] text-muted-foreground mt-0.5">
+                {client
+                  ? (selClient?.productCount
+                      ? `${selClient.productCount} products in ${client}’s library — the AI will select the ones your job card and scope require, automatically.`
+                      : `${client} has no datasheets yet. Add them from the Clients page, then they’ll auto-apply to every ${client} job.`)
+                  : "Datasheets are pulled from the selected client’s library based on your job card — pick a client above."}
               </div>
-              {datasheets.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {datasheets.map((f, i) => (
-                    <span key={i} className="flex items-center gap-1.5 text-[11.5px] font-mono bg-secondary px-2 py-1 rounded-sm">
-                      {f.name}
-                      <button onClick={() => setDatasheets((d) => d.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" strokeWidth={2} /></button>
-                    </span>
-                  ))}
-                </div>
-              )}
             </div>
 
             <div className="mt-6 flex items-center justify-between">
               <span className="text-[12px] text-muted-foreground font-mono">{count} document{count === 1 ? "" : "s"} attached</span>
-              <button onClick={generate} disabled={count === 0}
+              <button onClick={generate} disabled={count === 0 || !client}
                 className="flex items-center gap-2 h-10 px-5 bg-primary text-primary-foreground rounded-sm text-[13px] font-medium hover:opacity-90 transition-opacity disabled:bg-secondary disabled:text-muted-foreground disabled:opacity-100"
                 data-testid="generate-draft-button">
                 <Sparkles className="h-4 w-4" strokeWidth={1.75} /> Generate Draft Design <ArrowRight className="h-4 w-4" strokeWidth={1.5} />

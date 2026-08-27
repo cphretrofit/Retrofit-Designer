@@ -35,6 +35,23 @@ export const uploadDefectPhoto = (id, did, file) => {
 
 export const heritageLookup = (id) => api.post(`/projects/${id}/heritage/lookup`).then((r) => r.data);
 
+export const detectSiteConditions = (id) => api.post(`/projects/${id}/site-conditions/detect`).then((r) => r.data);
+export const saveSiteConditions = (id, siteConditions) =>
+  api.put(`/projects/${id}/site-conditions`, { siteConditions }).then((r) => r.data);
+export const parseDatasheets = (id) => api.post(`/projects/${id}/datasheets/parse`).then((r) => r.data);
+
+export const getClients = (includeArchived = false) => api.get(`/clients?include_archived=${includeArchived}`).then((r) => r.data);
+export const createClient = (name) => api.post(`/clients`, { name }).then((r) => r.data);
+export const updateClient = (id, patch) => api.patch(`/clients/${id}`, patch).then((r) => r.data);
+export const getClient = (id) => api.get(`/clients/${id}`).then((r) => r.data);
+export const uploadClientDatasheets = (id, files) => {
+  const fd = new FormData();
+  files.forEach((f) => fd.append("files", f));
+  return api.post(`/clients/${id}/datasheets`, fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
+};
+export const deleteClientDatasheet = (id, docId) => api.delete(`/clients/${id}/datasheets/${docId}`).then((r) => r.data);
+export const applyClientLibrary = (id) => api.post(`/projects/${id}/apply-client-library`).then((r) => r.data);
+
 export const listUsers = () => api.get("/admin/users").then((r) => r.data);
 export const createUser = (payload) => api.post("/admin/users", payload).then((r) => r.data);
 export const updateUser = (uid, payload) => api.put(`/admin/users/${uid}`, payload).then((r) => r.data);

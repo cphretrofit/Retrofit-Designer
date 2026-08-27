@@ -1,0 +1,28 @@
+{
+  "summary": "Iteration 11 full-stack test of CLIENTS + per-client datasheet library. Backend: 13/13 pytest cases pass (clients CRUD incl. case-insensitive dedupe, archive/restore, re-activate-on-POST, auth gate 401, client detail 14 products/12 docs, client datasheet upload+delete with catalogue rebuild, apply-client-library idempotency 3x = 14 with zero duplicate persisted rows, client isolation, pack.html appendix + pack.pdf). Frontend: /clients list + add/archive/restore, row -> /clients/:id detail (4 catalog groups ASHP/LOFT/SOLAR/VENT, 12 datasheets, Upload control), /import Step 1 'Who is this design for?' with pills + add-new, Generate Draft Design correctly disabled until client AND >=1 doc, old per-project datasheet dropzone confirmed GONE and replaced by client-library note reflecting Coldrush's 14 products, Workspace Evidence 'Apply client library' toasts 'Applied 14 product(s) from the client library' and ASHP measure shows exactly 4 Mitsubishi rows (no duplication). No regressions found.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": { "ui_bugs": [], "integration_issues": [], "design_issues": [] },
+  "test_report_links": [
+    "/app/backend/tests/test_iter11_clients.py",
+    "/app/backend/tests/test_iter11_upload.py",
+    "/app/test_reports/pytest/iter11.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 3132 lines — well over the 700-line guideline; clients/datasheet-library, pack rendering and project CRUD should be split into routers/modules.",
+    "_apply_client_catalog() returns early when the client has no products, so it never strips previously applied source='catalog' rows. If a client's library is emptied (all datasheets deleted), re-running apply-client-library on their projects leaves stale catalog products in measures. Recommend calling _assign_products(project, [], source='catalog') in the no-products branch.",
+    "Client resolution is by name regex (project.client string) rather than by client_id on the project. Renaming a client via PATCH /api/clients/{id} silently orphans its projects from the library. Consider storing client_id on projects.",
+    "delete_client_datasheet() returns 200 even when doc_id/client_id do not match anything (update_one matched_count unchecked) — should 404 on no match."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter11_clients.py",
+    "/app/backend/tests/test_iter11_upload.py"
+  ],
+  "success_rate": { "backend": "100%", "frontend": "100%" },
+  "seed_data_creation": "Created and then archived throwaway clients: 'TEST_QA Client Iter11', 'TEST_QA Upload Client', 'TEST_UI Client A'. Coldrush verified untouched at 12 documents / 14 products; no reseed needed.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Regression suites: test_iter11_clients.py (fast) and test_iter11_upload.py (uploads to a throwaway TEST_ client so Coldrush stays at 12 docs/14 products). Idempotency regression from iteration_10 is FIXED and covered. Note RTF-2026-0140 legitimately has 2 LOFT products with source=None (pre-existing/manual) — assert on source=='catalog' rows only when testing isolation, not on manufacturer names. Three archived TEST_ clients remain in the DB (visible in /clients Archived section).",
+  "rca_of_the_issue": "Iteration-10 duplicate accumulation is resolved: _assign_products() now strips prior rows matching the same source before re-adding, plus normalised manufacturer|product dedupe. Verified 3 consecutive applies keep exactly 14 unique catalog rows persisted in measures[*].products."
+}

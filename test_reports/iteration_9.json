@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 9: tested the new AI site-condition auto-detection (Claude Sonnet 4.6 vision) and per-project datasheet product parsing, end to end. Backend: 22 new pytest cases in /app/backend/tests/test_iter9_site_conditions.py (auth guards, detect with/without photos, PUT persistence, datasheet parse + project isolation, pack.html new sections + TOC, pack.pdf, siteConditions -> PAS compliance clauses + HTML escaping) plus the 12 existing regression tests — 34/34 passing on the final run. Frontend: verified login, new 'Site Conditions' nav item, SiteConditionsPanel (empty state, live detect ~30s on RTF-2026-0142, 6 evidence cards, verdict select / floor-type input / detail input, evidence thumbnails all loading, Save persists after reload), measure 'Specified Products' add / inline-edit / persist / remove via PATCH, 'Parse datasheets' button in Evidence, and Design Pack preview rendering both new sections (19 pages). Two real issues found: (1) intermittent FIG citation that maps to no photo, (2) 'Parse datasheets' reports success while extracting 0 products.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/projects/{id}/site-conditions/detect", "issue": "INTERMITTENT (~1 in 2 runs on e7e48949-743a-4ae8-af67-07ce16ea0a91): the model cites a FIG number that does not exist in the survey-photo set (observed fig='09' for bathroom_upstairs, present=false, confidence=high, while only FIG 01-08 exist — it was referring to an assessment PDF page). detect_site_conditions() keeps fig='09' with url=None, so the UI card and the pack page print 'FIG 09 · high' next to a blank/'No evidence photo' placeholder — a stated condition with an unresolvable evidence citation, which breaks the 'every condition backed by an evidence photo' requirement. Fix: after fig normalisation, validate fig against fig_url; if unmapped either clear fig or label it as 'assessment/floor-plan page' evidence (and pass numbered labels for the extra rasterised pages so the model can cite them properly)."},
+      {"endpoint": "POST /api/projects/{id}/datasheets/parse", "issue": "Returns 200 with products=[] / datasheetProducts=[] when the project's doc_type=Datasheet files contain no product data (real case: project e7e48949 has 8 PAS assessment reports / EPC / photo packs classified as 'Datasheet', so extraction legitimately yields nothing). The endpoint gives no signal that nothing was extracted, so the UI shows a success toast and no change. Suggest returning a count/message (or 422 'no products found in the uploaded datasheets')."},
+      {"endpoint": "documents collection", "issue": "Data hygiene: duplicate document records exist with project_id=null (8 Datasheet + 1 Assessment mirroring project e7e48949's files), presumably from the AI-import staging step. No leak today because parse/pack query by project_id, but orphans should be cleaned up or linked."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SiteConditionsPanel", "issue": "Evidence card shows 'FIG 09 · high' under a dashed 'No evidence photo' placeholder when the AI cites an out-of-range FIG (see backend issue 1). Panel should hide/soften the FIG caption when there is no resolvable photo.", "selector": "[data-testid^=\"site-condition-\"]", "priority": "MEDIUM"},
+      {"component": "DesignWorkspace / Evidence", "issue": "'Parse datasheets' shows toast 'Datasheets parsed into products' even when 0 products were extracted and nothing changed — misleading. Show the extracted count or a warning toast.", "selector": "[data-testid=\"parse-datasheets-btn\"]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Site Conditions panel", "issues": ["Detect runs 20-40s and only the small button icon becomes a spinner; the label stays 'Detect from photos' with no progress/'reading photos…' hint — users may re-click or assume it's frozen.", "Re-detect silently overwrites manually edited verdicts/details (no confirm)."]},
+      {"screen": "Measure detail — Specified Products", "issues": ["Row delete button is opacity-0 until row hover (needed force-click in tests); not keyboard/touch discoverable."]},
+      {"screen": "Design Pack preview — cover (project RTF-2026-0165)", "issues": ["Cover hero image is a cropped EPC bar-chart screenshot with a large blank area beneath it instead of a property photo — poor first page for an issued pack."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_site_conditions.py",
+    "/app/test_reports/pytest/iter9.xml"
+  ],
+  "action_items": [
+    "Validate the AI-cited evidence_fig against the fig->url map in detect_site_conditions(); drop or re-label citations that resolve to no photo (and give the extra assessment/floor-plan images their own citable labels).",
+    "Make POST /projects/{id}/datasheets/parse report how many products were extracted; frontend toast should reflect 0-product results (warning, not success).",
+    "Hide the 'FIG nn' caption in SiteConditionsPanel when there is no evidence photo URL.",
+    "Optional UX: busy label ('Reading survey photos…') on the detect button and a confirm before Re-detect overwrites manual edits.",
+    "Clean up orphan documents with project_id=null created by the AI import."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 2916 lines — detection/vision, datasheet parsing and pack HTML building should be split into modules (llm_vision.py, pack_html.py).",
+    "detect_site_conditions_endpoint overwrites property.siteConditions wholesale, discarding any human-verified verdicts; consider merging by key or storing detection separately from verified values.",
+    "SiteConditionsPanel seeds state from the `project` prop with useState only (no useEffect sync) — the panel will show stale conditions if the parent refetches the project while mounted.",
+    "detect only sends the first 8 designPack photos (_project_vision_photos slice) plus 3 assessment pages, capped at 10 images total; on RTF-2026-0140 (40 photos) 32 photos are never seen by the model — worth documenting or making the selection interior-biased so bathroom/ceiling conditions can actually be evidenced.",
+    "parse_datasheets_endpoint truncates each datasheet to 6000 chars with no per-document product traceability (parsed rows do not record which file they came from), which weakens the appendix as evidence."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter9_site_conditions.py"],
+  "success_rate": {"backend": "100% (34/34 on final run; 1 non-deterministic evidence-fig assertion failed on the first run)", "frontend": "~90% (all flows work; 2 messaging/caption defects)"},
+  "seed_data_creation": "No reseed. Live vision detection was run on e7e48949-743a-4ae8-af67-07ce16ea0a91 and RTF-2026-0142 (the latter now has siteConditions.evidence). TEST_ product row on measure SOLAR of e7e48949 was created and deleted; site-condition edits on e7e48949 and RTF-2026-0149 were restored to their originals.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Run `pytest tests/test_iter9_site_conditions.py` from /app/backend (uses REACT_APP_BACKEND_URL). Vision detect takes 20-40s; the fixture calls it once per module. Frontend routes are /project/{id}/design/{section} (NOT /projects/...). Projects with survey photos: e7e48949-743a-4ae8-af67-07ce16ea0a91 (8 photos + 8 mis-classified 'Datasheet' PDFs), RTF-2026-0140 (40 photos), RTF-2026-0142 (4 photos, now has evidence). RTF-2026-0138 has 0 photos and 0 datasheets — use it for the 422 paths. RTF-2026-0140's LOFT measure already carries 2 products (Knauf/LoftZone) that are not in code or seed — treat product isolation checks as before/after snapshots, not absolute emptiness. Re-check test_evidence_fig_maps_to_real_photo after the fig-validation fix; it is the only assertion that surfaced the FIG-without-photo defect.",
+  "rca_of_the_issue": "FIG-without-photo: the vision prompt numbers only the survey photos (FIG 01..08) but the request also attaches up to 3 unnumbered rasterised assessment/floor-plan pages. The model still needs to cite something for facts it read on those pages, so it invents the next FIG number (09). detect_site_conditions() normalises the string ('FIG 09' -> '09') but never checks membership in fig_url, so the evidence row is persisted with fig='09', url=None and is rendered as a citation with no image in both the panel and the design pack. 0-product parse: the only project with doc_type='Datasheet' documents holds PAS assessment reports rather than manufacturer datasheets, so Claude correctly returns products=[]; the endpoint and the UI toast do not distinguish that from a successful extraction."
+}

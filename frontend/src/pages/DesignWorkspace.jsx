@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, updateField, updatePhotos, mediaUrl } from "@/lib/api";
+import { getProject, updateField, updatePhotos, mediaUrl, applyClientLibrary } from "@/lib/api";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
@@ -8,11 +8,12 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
 import { DefectsPanel } from "@/components/DefectsPanel";
+import { SiteConditionsPanel } from "@/components/SiteConditionsPanel";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -103,6 +104,9 @@ function EditableCell({ value, onSave, numeric = false, align = "left", testid, 
 function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
   const fp = (suffix) => `measures.${mi}.${suffix}`;
   const buildup = m.buildup || [];
+  const products = m.products || [];
+  const addProduct = () => onSaveField(fp("products"), [...products, { manufacturer: "", product: "", reference: "", standard: "" }]);
+  const removeProduct = (i) => onSaveField(fp("products"), products.filter((_, j) => j !== i));
   const renum = (arr) => arr.map((l, i) => ({ ...l, no: String(i + 1).padStart(2, "0") }));
   const addLayer = () => onSaveField(fp("buildup"), renum([...buildup, { material: "New layer", thickness: 0, lambda: null }]));
   const removeLayer = (li) => onSaveField(fp("buildup"), renum(buildup.filter((_, i) => i !== li)));
@@ -227,6 +231,43 @@ function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
           </section>
         )}
       </div>
+
+      {/* Specified products */}
+      <section className="border border-border rounded-sm bg-card" data-testid="products-section">
+        <div className="px-4 h-10 flex items-center justify-between border-b border-border">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Specified Products</span>
+          <button onClick={addProduct} data-testid="product-add" className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add product
+          </button>
+        </div>
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground border-b border-border">
+              <th className="text-left font-normal px-4 py-2">Manufacturer</th>
+              <th className="text-left font-normal py-2">Product</th>
+              <th className="text-left font-normal py-2">Ref</th>
+              <th className="text-left font-normal py-2">Cert / Standard</th>
+              <th className="w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {products.map((pr, pi) => (
+              <tr key={pi} className="border-b border-border/60 last:border-0 hover:bg-secondary/40 transition-colors group/row">
+                <td className="py-1.5 px-2 font-sans"><EditableCell value={pr.manufacturer} mono={false} onSave={(v) => onSaveField(fp(`products.${pi}.manufacturer`), v)} testid={`product-${pi}-manufacturer`} /></td>
+                <td className="py-1.5 font-sans"><EditableCell value={pr.product} mono={false} onSave={(v) => onSaveField(fp(`products.${pi}.product`), v)} testid={`product-${pi}-product`} /></td>
+                <td className="py-1.5"><EditableCell value={pr.reference} onSave={(v) => onSaveField(fp(`products.${pi}.reference`), v)} testid={`product-${pi}-reference`} /></td>
+                <td className="py-1.5"><EditableCell value={pr.standard} onSave={(v) => onSaveField(fp(`products.${pi}.standard`), v)} testid={`product-${pi}-standard`} /></td>
+                <td className="pr-3 py-1.5 text-right">
+                  <button onClick={() => removeProduct(pi)} data-testid={`product-remove-${pi}`} className="opacity-40 hover:opacity-100 focus:opacity-100 text-muted-foreground hover:text-[var(--c-critical)] transition-opacity"><Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /></button>
+                </td>
+              </tr>
+            ))}
+            {products.length === 0 && (
+              <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-muted-foreground font-sans">No products yet — add manually, or upload datasheets and click “Parse datasheets” in Evidence.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </section>
 
       {/* Junction manager */}
       {m.junctions?.length > 0 && (
@@ -438,9 +479,17 @@ export default function DesignWorkspace() {
   const [p, setP] = useState(null);
   const [focus, setFocus] = useState(false);
   const [dragIdx, setDragIdx] = useState(null);
+  const [dsBusy, setDsBusy] = useState(false);
 
   const load = () => getProject(id).then(setP).catch(() => {});
   useEffect(() => { load(); }, [id]);
+
+  const parseDs = async () => {
+    setDsBusy(true);
+    try { const r = await applyClientLibrary(id); await load(); toast.success(`Applied ${r.count ?? 0} product(s) from the client library`); }
+    catch (e) { toast.error("Could not apply client library", { description: e?.response?.data?.detail }); }
+    finally { setDsBusy(false); }
+  };
 
   const setSection = (s) => navigate(`/project/${id}/design/${s}`);
 
@@ -655,6 +704,8 @@ export default function DesignWorkspace() {
         );
       case "defects":
         return <DefectsPanel projectId={id} initial={p.defects || []} onChange={(list) => setP((prev) => ({ ...prev, defects: list }))} />;
+      case "conditions":
+        return <SiteConditionsPanel projectId={id} project={p} onChange={(sc) => setP((prev) => ({ ...prev, property: { ...prev.property, siteConditions: sc } }))} />;
       case "drawings":
         return (
           <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -700,7 +751,18 @@ export default function DesignWorkspace() {
           </SimpleSection>
         );
       case "evidence":
-        return <DocumentsList projectId={id} />;
+        return (
+          <div className="anim-in space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div className="text-[12px] text-muted-foreground">Surveys &amp; evidence for this job. Product datasheets are managed per client — use “Apply client library” to pull the right products into this design.</div>
+              <button onClick={parseDs} disabled={dsBusy} data-testid="parse-datasheets-btn"
+                className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0">
+                {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />} Apply client library
+              </button>
+            </div>
+            <DocumentsList projectId={id} />
+          </div>
+        );
       default:
         return <MeasureCards measures={p.measures} onOpen={setSection} />;
     }
@@ -709,7 +771,7 @@ export default function DesignWorkspace() {
   const sectionTitle = activeMeasure ? activeMeasure.name : {
     overview: "Overview", "existing-construction": "Existing Construction", survey: "Survey", photos: "Survey Photos",
     specifications: "Specifications", junctions: "Junctions", calculations: "Calculations", risks: "Risks",
-    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects",
+    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions",
   }[section] || "Overview";
 
   return (
@@ -735,6 +797,7 @@ export default function DesignWorkspace() {
               <NavItem icon={Ruler} label="Survey" section="survey" active={section} onClick={() => setSection("survey")} />
               <NavItem icon={Camera} label="Photos" section="photos" active={section} onClick={() => setSection("photos")} />
               <NavItem icon={AlertOctagon} label="Defects" section="defects" active={section} onClick={() => setSection("defects")} badge={(p.defects?.length) || null} tone="critical" />
+              <NavItem icon={Eye} label="Site Conditions" section="conditions" active={section} onClick={() => setSection("conditions")} />
             </NavGroup>
             <NavGroup title="Measures">
               {p.measures.map((m) => (

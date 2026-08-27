@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDashboard, getProjects } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -55,6 +55,13 @@ export default function Dashboard() {
             <h1 className="font-display font-300 text-3xl tracking-tight">Design Command Centre</h1>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate("/clients")}
+              className="flex items-center gap-2 h-9 px-4 border border-border rounded-sm text-[13px] font-medium hover:bg-secondary transition-colors"
+              data-testid="clients-nav-button"
+            >
+              <Building2 className="h-4 w-4" strokeWidth={1.75} /> Clients
+            </button>
             <button
               onClick={() => navigate("/templates")}
               className="flex items-center gap-2 h-9 px-4 border border-border rounded-sm text-[13px] font-medium hover:bg-secondary transition-colors"

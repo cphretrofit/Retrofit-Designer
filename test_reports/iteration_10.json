@@ -1,0 +1,60 @@
+{
+  "summary": "Iteration 10 retest of the 4 requested capability areas. Backend: 16/16 new pytest cases pass (/app/backend/tests/test_iter10.py) plus a 3-run latency/repeatability test. All iteration_9 MEDIUM items verified fixed: (A) evidence-led detection — every evidence item now either carries a fig that resolves to a real /api/documents/{id}/download image (verified 200 + content-type image) or fig='' with source='Assessment / floor plan'; zero broken 'FIG nn'. (B) datasheets/parse returns count>0 with correct per-measure mapping and 422 with a meaningful detail on projects with no manufacturer datasheets. (C) 'Technical Survey' import slot present in PHOTO_DOC_TYPES and on /import; Coldrush pack.html renders 'Appendix A · Supporting Documents' with the 'Supporting Documents, Surveys & Certificates' table (Document + Type) and the TOC entry 'Supporting Documents & Datasheets'; pack.pdf 200 (%PDF, >20KB). (D) Coldrush products isolated — none of its product names appear on RTF-2026-0138 / RTF-2026-0149. Frontend: SiteConditionsPanel state syncs after re-detect, 'Reading photos…' busy label + disabled button, window.confirm before overwrite, FIG caption hidden and source label shown when there is no photo, all evidence thumbnails load (naturalWidth>0). Measure detail Specified Products render for ASHP/LOFT/SOLAR/VENT, delete button always visible (opacity 0.4), add + inline edit + remove persist via PATCH. Parse toast shows 'Parsed 17 product(s) into the design' on success and 'Could not parse datasheets — No readable datasheets found...' on 422. One genuine new defect found: parse is not idempotent and accumulates near-duplicate products.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "POST /api/projects/{id}/datasheets/parse",
+        "issue": "NOT IDEMPOTENT — _assign_products() de-dupes on the exact tuple (product, reference), which never matches across AI wording variance, so every re-parse appends near-duplicate rows. Coldrush grew from 14 to 43 products over 5 parse runs during this test (ASHP now has 'FTC6 Standard Pre-Plumbed Cylinder' 7 times with refs 'EHPT15X/17X/21X', 'EHPT15X-UKHDW1S', …; LOFT has 4 'Universal 20k Tile Vent' and 4 Knauf rows). These duplicates also render in pack.html/pdf. Fix: tag parsed rows (e.g. source='datasheet') and REPLACE them on re-parse, keeping manual rows, plus a normalised (lower/alnum) dedupe key."
+      },
+      {
+        "endpoint": "POST /api/projects/{id}/datasheets/parse",
+        "issue": "Intermittent 502 (Cloudflare 'origin returned an invalid or incomplete response') when the ~30s AI call overlaps other long requests (pack.pdf / vision detect). Reproduced twice (once in a parallel pytest run, once from the UI); 4 sequential runs afterwards all returned 200 in 27-31s. Long AI endpoints should be made async/queued or the blocking sync work (WeasyPrint, PDF rasterise) moved fully off the event loop."
+      },
+      {
+        "endpoint": "db.documents",
+        "issue": "Carried over from iteration_9 and still open: 36 orphan documents with project_id null/missing (of 137). Also inconsistent doc_type casing: both 'Assessment' and 'assessment' exist."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Site Conditions panel (after successful detect)",
+        "issues": ["No success toast after a 20-40s detect completes — the only feedback is the button reverting to 'Re-detect'. A 'Detected N conditions' toast would match the parse-datasheets pattern."]
+      },
+      {
+        "screen": "Measure detail — Specified Products (Coldrush)",
+        "issues": ["Duplicate/near-duplicate parsed rows make the table noisy (ASHP 11 rows, LOFT 15 rows for 12 datasheets) — consequence of the non-idempotent parse above; long 'reference' strings (whole Knauf product lists) overflow the REF column readability."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter10.py",
+    "/app/backend/tests/test_iter10_parse_latency.py",
+    "/app/test_reports/pytest/iter10.xml"
+  ],
+  "action_items": [
+    "Make datasheet parsing idempotent: replace previously-parsed products (source tag) instead of appending, and normalise the dedupe key. Also de-duplicate the polluted Coldrush product lists (43 rows -> ~14).",
+    "Harden the slow AI endpoints against gateway 502s under concurrency (background job / streaming keepalive, or ensure no sync blocking in the event loop).",
+    "Optional: success toast after site-condition detect; clean up the 36 orphan project_id=null documents and normalise doc_type casing ('assessment' -> 'Assessment')."
+  ],
+  "critical_code_review_comments": [
+    "server.py:1167 _assign_products — exact-tuple dedupe is the root cause of product accumulation; parsed products need provenance so a re-parse can replace them.",
+    "server.py:1136-1142 — the fig fallback is keyword-based ('assessment', 'floor plan', ' plan', 'epc'…) on the model's free-text reasoning; safe (fig is always cleared when the url is missing) but the source label will be blank for many legitimately-assessment-derived items. Consider giving the extra assessment pages their own citable labels (e.g. 'ASSESSMENT p2') and passing them in the listing.",
+    "server.py is ~2930 lines — well past the 700-line guideline; split routes / pack rendering / AI helpers into modules."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter10.py",
+    "/app/backend/tests/test_iter10_parse_latency.py"
+  ],
+  "success_rate": {"backend": "100% (16/16 functional; 1 intermittent ingress 502 under concurrency)", "frontend": "100% of requested flows verified"},
+  "seed_data_creation": "None. No reseed. Test rows were created and removed (TEST_QA Product on Coldrush ASHP, added then deleted, verified via reload). NOTE: the requested repeated parse runs left Coldrush with 43 accumulated products (see backend minor issue 1).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "New regression files: tests/test_iter10.py (evidence-fig validation, Coldrush parse count/mapping/422/404/auth, isolation, pack appendix + PDF, Technical Survey doc type) and tests/test_iter10_parse_latency.py (3 sequential parse runs). Run these with `-n 0` — running the AI endpoints in parallel via xdist causes intermittent ingress 502s (not an app bug per se, see report). Frontend gotchas: EditableCell renders the display element with data-testid `{testid}-trigger` and the input with `{testid}` (e.g. product-0-product-trigger / product-0-product). window.confirm on Re-detect must be handled with an awaited async dialog handler in Python Playwright or the click hangs. Coldrush = a9713cce-9685-4f8b-b300-c222a5903776, vision project = e7e48949-743a-4ae8-af67-07ce16ea0a91, no-datasheet project = RTF-2026-0138.",
+  "rca_of_the_issue": "Product accumulation: parse_datasheets_endpoint calls _assign_products(), which appends any parsed record whose (product, reference) tuple is not already present. The LLM returns semantically identical products with different wording/reference formatting on each run ('EHPT15X-UKHDW1S' vs 'EHPT15X / 17X / 21X-UKHDW1S'), so the guard never fires and each parse monotonically grows measures[i].products; the design pack then renders the duplicates. Reproduction: POST /api/projects/{coldrush}/datasheets/parse 3-5 times and read measures[*].products (14 -> 43). Mitigation: persist provenance on parsed rows and replace them wholesale on re-parse, with a normalised comparison key."
+}

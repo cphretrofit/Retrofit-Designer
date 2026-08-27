@@ -604,6 +604,140 @@ async def get_project(project_id: str):
     return doc
 
 
+DEFAULT_CLIENTS = ["Coldrush", "Saffron", "North Yorkshire County Council"]
+
+
+async def _seed_clients():
+    if await db.clients.count_documents({}) > 0:
+        return
+    names = set(DEFAULT_CLIENTS)
+    for p in await db.projects.find({}, {"client": 1}).to_list(1000):
+        if p.get("client"):
+            names.add(p["client"].strip())
+    for n in sorted(n for n in names if n):
+        await db.clients.insert_one({"id": str(uuid.uuid4()), "name": n, "status": "active",
+                                     "createdAt": datetime.now(timezone.utc).isoformat()})
+
+
+class ClientIn(BaseModel):
+    name: str
+
+
+class ClientPatch(BaseModel):
+    name: Optional[str] = None
+    status: Optional[str] = None
+
+
+@api_router.get("/clients")
+async def list_clients(include_archived: bool = False):
+    await _seed_clients()
+    q = {} if include_archived else {"status": "active"}
+    cs = await db.clients.find(q, {"_id": 0}).to_list(500)
+    counts = {}
+    for pr in await db.projects.find({}, {"client": 1}).to_list(1000):
+        c = (pr.get("client") or "").strip()
+        if c:
+            counts[c.lower()] = counts.get(c.lower(), 0) + 1
+    for c in cs:
+        c["projectCount"] = counts.get((c.get("name") or "").strip().lower(), 0)
+        c["productCount"] = len(c.get("products") or [])
+    return sorted(cs, key=lambda x: x.get("name", "").lower())
+
+
+@api_router.post("/clients")
+async def create_client(payload: ClientIn):
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="Client name required")
+    existing = await db.clients.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}})
+    if existing:
+        if existing.get("status") == "archived":
+            await db.clients.update_one({"id": existing["id"]}, {"$set": {"status": "active"}})
+        return await db.clients.find_one({"id": existing["id"]}, {"_id": 0})
+    c = {"id": str(uuid.uuid4()), "name": name, "status": "active",
+         "createdAt": datetime.now(timezone.utc).isoformat()}
+    await db.clients.insert_one(dict(c))
+    return c
+
+
+@api_router.patch("/clients/{client_id}")
+async def update_client(client_id: str, payload: ClientPatch):
+    upd = {}
+    if payload.name is not None:
+        upd["name"] = payload.name.strip()
+    if payload.status is not None:
+        if payload.status not in ("active", "archived"):
+            raise HTTPException(status_code=422, detail="Invalid status")
+        upd["status"] = payload.status
+        upd["archivedAt"] = datetime.now(timezone.utc).isoformat() if payload.status == "archived" else None
+    if not upd:
+        raise HTTPException(status_code=422, detail="Nothing to update")
+    r = await db.clients.update_one({"id": client_id}, {"$set": upd})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Client not found")
+    return await db.clients.find_one({"id": client_id}, {"_id": 0})
+
+
+@api_router.get("/clients/{client_id}")
+async def get_client(client_id: str):
+    c = await db.clients.find_one({"id": client_id}, {"_id": 0})
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    docs = await db.documents.find({"client_id": client_id, "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(100)
+    c["documents"] = [{"id": d["id"], "name": d.get("original_filename") or "Datasheet",
+                       "url": f"/api/documents/{d['id']}/download"} for d in docs]
+    c["products"] = c.get("products") or []
+    return c
+
+
+@api_router.post("/clients/{client_id}/datasheets")
+async def upload_client_datasheets(client_id: str, files: List[UploadFile] = File(...)):
+    c = await db.clients.find_one({"id": client_id})
+    if not c:
+        raise HTTPException(status_code=404, detail="Client not found")
+    for f in files:
+        data = await f.read()
+        fn = f.filename or "datasheet.pdf"
+        ctype = f.content_type or "application/pdf"
+        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "pdf"
+        path = f"{APP_NAME}/uploads/{uuid.uuid4()}.{ext}"
+        stored = None
+        try:
+            stored = (await asyncio.to_thread(put_object, path, data, ctype))["path"]
+        except Exception as e:
+            logger.warning("client datasheet put failed: %s", e)
+        await db.documents.insert_one({
+            "id": str(uuid.uuid4()), "client_id": client_id, "project_id": None, "storage_path": stored,
+            "original_filename": fn, "content_type": ctype, "doc_type": "Datasheet",
+            "size": len(data), "is_deleted": False, "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    await _rebuild_client_catalog(client_id)
+    return await get_client(client_id)
+
+
+@api_router.delete("/clients/{client_id}/datasheets/{doc_id}")
+async def delete_client_datasheet(client_id: str, doc_id: str):
+    r = await db.documents.update_one({"id": doc_id, "client_id": client_id}, {"$set": {"is_deleted": True}})
+    if r.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Datasheet not found for this client")
+    await _rebuild_client_catalog(client_id)
+    return await get_client(client_id)
+
+
+@api_router.post("/projects/{project_id}/apply-client-library")
+async def apply_client_library(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not (p.get("client") or "").strip():
+        raise HTTPException(status_code=422, detail="This project has no client set")
+    proj = dict(p)
+    await _apply_client_catalog(proj)
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": proj.get("measures"), "datasheetProducts": proj.get("datasheetProducts") or []}})
+    cnt = sum(len([x for x in (m.get("products") or []) if x.get("source") == "catalog"]) for m in proj.get("measures") or [])
+    return {"count": cnt, "measures": proj.get("measures"), "datasheetProducts": proj.get("datasheetProducts") or []}
+
+
 ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
                        "coordinator", "designer", "town", "address", "measureSummary",
                        "epcBefore", "epcAfter", "partner", "itemsBeforeIssue"}
@@ -752,6 +886,70 @@ async def heritage_lookup(project_id: str):
         h.update(_heritage_statement(h))
     await db.projects.update_one({"id": project_id}, {"$set": {"heritage": h}})
     return h
+
+
+class SiteConditionsIn(BaseModel):
+    siteConditions: dict
+
+
+@api_router.post("/projects/{project_id}/site-conditions/detect")
+async def detect_site_conditions_endpoint(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    vps = await _project_vision_photos(p)
+    if not vps:
+        raise HTTPException(status_code=422, detail="No survey photos available — import survey photos before detecting site conditions")
+    extra = []
+    adoc = await db.documents.find_one({"project_id": project_id, "doc_type": "Assessment", "is_deleted": False})
+    if adoc and adoc.get("storage_path"):
+        try:
+            data, _ = await asyncio.to_thread(get_object, adoc["storage_path"])
+            extra = [_img_b64(b) for b in (await asyncio.to_thread(_rasterize_pdf, data, 3))]
+        except Exception:
+            extra = []
+    sc = await detect_site_conditions(vps, extra, (p.get("property") or {}).get("type") or "")
+    await db.projects.update_one({"id": project_id}, {"$set": {"property.siteConditions": sc}})
+    return sc or {}
+
+
+@api_router.put("/projects/{project_id}/site-conditions")
+async def save_site_conditions_endpoint(project_id: str, payload: SiteConditionsIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"property.siteConditions": payload.siteConditions}})
+    return payload.siteConditions
+
+
+@api_router.post("/projects/{project_id}/datasheets/parse")
+async def parse_datasheets_endpoint(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    docs = await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": False}).to_list(50)
+    texts = []
+    for d in docs:
+        if not d.get("storage_path"):
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+        except Exception:
+            continue
+        fn = d.get("original_filename") or "datasheet"
+        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+        txt = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+        if txt.strip():
+            texts.append(f"=== {fn} ===\n{txt[:6000]}")
+    if not texts:
+        raise HTTPException(status_code=422, detail="No readable datasheets found for this project — upload product datasheets (PDF) first")
+    prods = await parse_datasheet_products(texts)
+    if not prods:
+        raise HTTPException(status_code=422, detail="No products could be extracted — check the uploaded files are manufacturer product datasheets")
+    proj = dict(p)
+    _assign_products(proj, prods)
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": proj.get("measures"), "datasheetProducts": proj.get("datasheetProducts") or []}})
+    return {"count": len(prods), "products": prods, "measures": proj.get("measures"), "datasheetProducts": proj.get("datasheetProducts") or []}
 
 
 @api_router.post("/reseed")
@@ -938,6 +1136,259 @@ async def call_claude_json(system_message: str, prompt: str) -> dict:
 
 async def call_claude(prompt: str) -> dict:
     return await call_claude_json(EXTRACT_SYSTEM, prompt)
+
+
+def _img_b64(data, max_px=1100, quality=70):
+    try:
+        sd, _ = _shrink_image(data, max_px=max_px, quality=quality)
+        return base64.b64encode(sd).decode()
+    except Exception:
+        return base64.b64encode(data).decode()
+
+
+def _rasterize_pdf(data, max_pages=3, dpi=140):
+    out = []
+    try:
+        doc = pymupdf.open(stream=data, filetype="pdf")
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            out.append(page.get_pixmap(dpi=dpi).tobytes("png"))
+        doc.close()
+    except Exception as e:
+        logger.warning("rasterize failed: %s", e)
+    return out
+
+
+async def _fetch_doc_bytes(url: str):
+    m = re.search(r"/documents/([^/]+)/download", url or "")
+    if not m:
+        return None
+    rec = await db.documents.find_one({"id": m.group(1)})
+    if not rec or not rec.get("storage_path"):
+        return None
+    try:
+        data, _ = await asyncio.to_thread(get_object, rec["storage_path"])
+        return data
+    except Exception:
+        return None
+
+
+async def _project_vision_photos(p: dict):
+    out = []
+    for ph in ((p.get("designPack") or {}).get("photos") or [])[:8]:
+        u = ph.get("url") or ""
+        b = await _fetch_doc_bytes(u)
+        if not b and u.startswith("http"):
+            try:
+                b = await asyncio.to_thread(_download, u)
+            except Exception:
+                b = None
+        if b:
+            out.append({"fig": ph.get("fig"), "caption": ph.get("caption") or "", "b64": _img_b64(b), "url": u})
+    return out
+
+
+def _extract_json(text):
+    t = (text if isinstance(text, str) else str(text)).strip()
+    if t.startswith("```"):
+        t = re.sub(r"^```[a-zA-Z]*", "", t).strip()
+        if t.endswith("```"):
+            t = t[:-3].strip()
+    s, e = t.find("{"), t.rfind("}")
+    frag = t[s:e + 1]
+    try:
+        return json.loads(frag)
+    except json.JSONDecodeError:
+        return json.loads(re.sub(r",(\s*[}\]])", r"\1", frag))
+
+
+async def call_claude_vision_json(system_message: str, prompt: str, images: list) -> dict:
+    from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    contents = [ImageContent(image_base64=b) for b in (images or []) if b]
+    last = None
+    for _ in range(2):
+        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=str(uuid.uuid4()),
+                       system_message=system_message).with_model("anthropic", "claude-sonnet-4-6")
+        msg = UserMessage(text=prompt, file_contents=contents) if contents else UserMessage(text=prompt)
+        resp = await chat.send_message(msg)
+        try:
+            return _extract_json(resp)
+        except Exception as ex:
+            last = ex
+            continue
+    raise last
+
+
+SITE_COND_SYSTEM = """You are a PAS 2035:2023 retrofit surveyor. You are given numbered survey PHOTOGRAPHS (FIG 01, FIG 02, ...) of ONE property, and possibly floor-plan / assessment pages.
+Determine the site conditions below ONLY from what is actually visible in the images (and any text on floor plans). For every condition you MUST cite the FIG number of the single image that best proves it. If no image gives evidence, set "present" to null and "confidence" to "unknown" - NEVER guess.
+
+Return ONLY JSON:
+{
+  "property_type": "house | bungalow | flat | maisonette | '' ",
+  "conditions": [
+    {"key":"electric_shower","label":"Electric shower","present":true,"detail":"e.g. 'electric shower in first-floor bathroom'","evidence_fig":"07","reasoning":"what in the photo proves it","confidence":"high|medium|low"},
+    {"key":"bathroom_upstairs","label":"Bathroom on upper floor","present":true,"detail":"","evidence_fig":"","reasoning":"","confidence":""},
+    {"key":"downlights","label":"Recessed spotlights / downlights","present":true,"detail":"rooms affected","evidence_fig":"","reasoning":"","confidence":""},
+    {"key":"loft_crossflow","label":"Loft cross-flow ventilation (eaves)","present":false,"detail":"whether eaves ventilation gaps are visible","evidence_fig":"","reasoning":"","confidence":""},
+    {"key":"loft_storage","label":"Stored items / boarding in loft","present":true,"detail":"","evidence_fig":"","reasoning":"","confidence":""},
+    {"key":"floor_type","label":"Ground floor type","present":null,"value":"suspended timber | solid concrete | unknown","detail":"","evidence_fig":"","reasoning":"","confidence":""}
+  ]
+}
+Only include conditions you can actually assess from the evidence. Be conservative and evidence-led."""
+
+
+async def detect_site_conditions(vision_photos: list, extra_images=None, ptype: str = ""):
+    if not vision_photos and not extra_images:
+        return None
+    imgs = [vp["b64"] for vp in vision_photos] + list(extra_images or [])
+    imgs = imgs[:10]
+    listing = "\n".join(f'FIG {vp.get("fig")}: {vp.get("caption")}' for vp in vision_photos) or "(no captioned photos)"
+    prompt = (f"Property type hint: {ptype or 'unknown'}\n"
+              f"The attached images are, in order, these survey photographs:\n{listing}\n\n"
+              "Assess the site conditions with visual evidence and cite the FIG that proves each.")
+    data = await call_claude_vision_json(SITE_COND_SYSTEM, prompt, imgs)
+    conds = data.get("conditions") or []
+    fig_url = {str(vp.get("fig")): vp.get("url") for vp in vision_photos}
+    fig_cap = {str(vp.get("fig")): vp.get("caption") for vp in vision_photos}
+    sc = {"property_type": data.get("property_type") or ptype or ""}
+    evidence = []
+    for c in conds:
+        key = c.get("key")
+        if not key:
+            continue
+        if key == "floor_type":
+            sc["floor_type"] = c.get("value") or c.get("detail")
+        else:
+            sc[key] = c.get("present")
+        fig = str(c.get("evidence_fig") or "").strip()
+        fig = re.sub(r"(?i)^fig[\s:#]*", "", fig).strip()
+        if fig.isdigit():
+            fig = fig.zfill(2)
+        url = fig_url.get(fig)
+        source = ""
+        if not url:
+            # The model sometimes cites a fact read from the assessment / floor-plan pages
+            # (which have no survey-photo FIG). Never keep a citation that resolves to no image.
+            low = (c.get("reasoning") or "").lower()
+            if any(k in low for k in ("assessment", "floor plan", "floorplan", " plan", "epc", "survey report", "pas ")):
+                source = "Assessment / floor plan"
+            fig = ""
+        evidence.append({"key": key, "label": c.get("label") or key, "present": c.get("present"),
+                         "value": c.get("value"), "detail": c.get("detail") or "",
+                         "reasoning": c.get("reasoning") or "", "confidence": (c.get("confidence") or "").lower(),
+                         "fig": fig, "url": url, "source": source, "caption": fig_cap.get(fig)})
+    sc["evidence"] = evidence
+    sc["detectedAt"] = datetime.now(timezone.utc).isoformat()
+    return sc
+
+
+DATASHEET_SYSTEM = """You extract PRODUCT information from UK retrofit manufacturer datasheets and BBA / certificate documents for ONE specific project.
+List every distinct product found. Map each to the retrofit measure it is used for using one of these codes: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT. Use "" if genuinely unclear.
+Return ONLY JSON:
+{"products":[{"manufacturer":"","product":"","reference":"model / product code","standard":"BBA cert no. or standard met","measure":"LOFT"}]}
+Use the exact names and codes printed on the datasheets. Do not invent products."""
+
+
+async def parse_datasheet_products(texts: list) -> list:
+    if not texts:
+        return []
+    prompt = "Extract the product records from these project datasheets:\n\n" + "\n\n".join(texts)
+    data = await call_claude_json(DATASHEET_SYSTEM, prompt)
+    return data.get("products") or []
+
+
+def _norm(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+def _assign_products(project: dict, products: list, source: str = "datasheet"):
+    # Drop previously auto-assigned rows of this source so re-applying is idempotent; keep manual rows.
+    for m in project.get("measures") or []:
+        if m.get("products"):
+            m["products"] = [x for x in m["products"] if x.get("source") != source]
+    project["datasheetProducts"] = [x for x in (project.get("datasheetProducts") or []) if x.get("source") != source]
+    if not products:
+        return
+    by_code = {}
+    seen = {}
+    for pr in products:
+        code = (pr.get("measure") or "").upper()
+        rec = {"manufacturer": pr.get("manufacturer") or "", "product": pr.get("product") or "",
+               "reference": pr.get("reference") or "", "standard": pr.get("standard") or "", "source": source}
+        if not (rec["manufacturer"] or rec["product"]):
+            continue
+        key = _norm(rec["manufacturer"]) + "|" + _norm(rec["product"])
+        s = seen.setdefault(code, set())
+        if key in s:
+            continue
+        s.add(key)
+        by_code.setdefault(code, []).append(rec)
+    matched = set()
+    for m in project.get("measures") or []:
+        c = (m.get("code") or "").upper()
+        if c in by_code:
+            existing = m.get("products") or []
+            man_keys = {(_norm(x.get("manufacturer")) + "|" + _norm(x.get("product"))) for x in existing}
+            for rec in by_code[c]:
+                k = _norm(rec["manufacturer"]) + "|" + _norm(rec["product"])
+                if k not in man_keys:
+                    existing.append(rec)
+                    man_keys.add(k)
+            m["products"] = existing
+            matched.add(c)
+    leftover = []
+    for code, recs in by_code.items():
+        if code not in matched:
+            leftover += recs
+    if leftover:
+        project["datasheetProducts"] = (project.get("datasheetProducts") or []) + leftover
+
+
+async def _rebuild_client_catalog(client_id: str):
+    """Re-derive a client's product catalogue from all its uploaded datasheets."""
+    docs = await db.documents.find({"client_id": client_id, "doc_type": "Datasheet", "is_deleted": False}).to_list(100)
+    texts = []
+    for d in docs:
+        if not d.get("storage_path"):
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+        except Exception:
+            continue
+        fn = d.get("original_filename") or "datasheet"
+        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+        txt = (await asyncio.to_thread(extract_pdf_text, data)) if ext == "pdf" else ""
+        if txt.strip():
+            texts.append(f"=== {fn} ===\n{txt[:6000]}")
+    prods = await parse_datasheet_products(texts) if texts else []
+    catalog = []
+    seen = set()
+    for pr in prods:
+        rec = {"manufacturer": pr.get("manufacturer") or "", "product": pr.get("product") or "",
+               "reference": pr.get("reference") or "", "standard": pr.get("standard") or "",
+               "measure": (pr.get("measure") or "").upper(), "source": "catalog"}
+        if not (rec["manufacturer"] or rec["product"]):
+            continue
+        k = _norm(rec["manufacturer"]) + "|" + _norm(rec["product"])
+        if k in seen:
+            continue
+        seen.add(k)
+        catalog.append(rec)
+    await db.clients.update_one({"id": client_id}, {"$set": {"products": catalog}})
+    return catalog
+
+
+async def _apply_client_catalog(project: dict):
+    """Auto-fill a project's measures with products from its client's library (by measure code)."""
+    name = (project.get("client") or "").strip()
+    if not name:
+        return
+    c = await db.clients.find_one({"name": {"$regex": f"^{re.escape(name)}$", "$options": "i"}})
+    if not c or not c.get("products"):
+        _assign_products(project, [], source="catalog")
+        return
+    _assign_products(project, c["products"], source="catalog")
 
 
 PAS_MAP = {"EWI": "B2", "IWI": "B4", "SWI": "B2", "LOFT": "B9", "RIR": "B9", "UFI": "B5",
@@ -1165,7 +1616,7 @@ def _shrink_image(data: bytes, max_px: int = 1000, quality: int = 72):
 
 
 TEXT_LIMIT = {"ASHP Survey": 9000, "Datasheet": 3000}
-PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey")
+PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey", "Technical Survey")
 
 
 async def run_import_job(job_id: str):
@@ -1184,6 +1635,9 @@ async def run_import_job(job_id: str):
         photos = []
         fig = 1
         content_chars = 0
+        vision_photos = []
+        datasheet_texts = []
+        page_images_b64 = []
         for item in inputs:
             did = item["doc_id"]
             doc_ids.append(did)
@@ -1204,6 +1658,10 @@ async def run_import_job(job_id: str):
                 parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:limit]}")
             else:
                 parts.append(f"=== DOCUMENT: {dtype} ({fn}) === [no extractable text — image-only PDF]")
+            if dtype == "Datasheet" and text.strip():
+                datasheet_texts.append(f"=== {fn} ===\n{text[:6000]}")
+            if dtype in ("Assessment", "Technical Survey") and ext == "pdf" and data and not page_images_b64:
+                page_images_b64 = [_img_b64(b) for b in (await asyncio.to_thread(_rasterize_pdf, data, 3))]
 
             if ext == "pdf" and data and dtype in PHOTO_DOC_TYPES and len(photos) < 8:
                 for pm in (await asyncio.to_thread(extract_tagged_photos, data, 8)):
@@ -1228,6 +1686,8 @@ async def run_import_job(job_id: str):
                     photos.append({"fig": f"{fig:02d}", "caption": pm["caption"],
                                    "observation": pm["observation"],
                                    "url": f"/api/documents/{pid}/download"})
+                    vision_photos.append({"fig": f"{fig:02d}", "caption": pm["caption"],
+                                          "b64": _img_b64(pm["data"]), "url": f"/api/documents/{pid}/download"})
                     fig += 1
 
         prompt = "Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts)
@@ -1240,6 +1700,8 @@ async def run_import_job(job_id: str):
         ai = await call_claude(prompt)
         ref = await next_ref()
         project = ai_build_project(ai, ref, photos)
+        if job.get("client"):
+            project["client"] = job["client"]
         try:
             tpl = await match_template([m["code"] for m in project["measures"]])
             if tpl:
@@ -1248,6 +1710,17 @@ async def run_import_job(job_id: str):
                 project["templateBlueprint"] = tpl.get("blueprint")
         except Exception as e:
             logger.warning("template match failed: %s", e)
+        try:
+            ptype = (project.get("property") or {}).get("type") or ""
+            sc = await detect_site_conditions(vision_photos, page_images_b64, ptype)
+            if sc:
+                project.setdefault("property", {})["siteConditions"] = sc
+        except Exception as e:
+            logger.warning("site condition detection failed: %s", e)
+        try:
+            await _apply_client_catalog(project)
+        except Exception as e:
+            logger.warning("client catalog apply failed: %s", e)
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)
@@ -1259,7 +1732,7 @@ async def run_import_job(job_id: str):
 
 
 @api_router.post("/projects/import")
-async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...)):
+async def import_project(files: List[UploadFile] = File(...), types: List[str] = Form(...), client: Optional[str] = Form(None)):
     if not EMERGENT_LLM_KEY:
         raise HTTPException(status_code=500, detail="AI key not configured")
     inputs = []
@@ -1286,7 +1759,7 @@ async def import_project(files: List[UploadFile] = File(...), types: List[str] =
     job_id = str(uuid.uuid4())
     await db.import_jobs.insert_one({
         "id": job_id, "status": "processing", "project_id": None,
-        "inputs": inputs, "attempts": 0,
+        "inputs": inputs, "attempts": 0, "client": (client or "").strip() or None,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
     asyncio.create_task(run_import_job(job_id))
@@ -1500,6 +1973,10 @@ def _measure_compliance(m, p):
         items.append(("Ventilation", "Maintain roof-space ventilation to BS 5250:2021 Table 5 (e.g. 25mm continuous eaves + 5mm ridge). Fit eaves baffles; do not block cross-ventilation."))
         items.append(("Thermal Bridging", "Insulate and draught-proof the loft hatch; carry insulation over the wall plate at the eaves for continuity; avoid gaps and compression."))
         items.append(("Moisture", "Vapour-open build-up; manage interstitial condensation (BS 5250)."))
+        if sc.get("loft_crossflow") is False:
+            items.append(("Ventilation", "No cross-flow ventilation observed in the loft (see site evidence photos) — install eaves / over-fascia ventilators to BS 5250:2021 before insulating to avoid condensation and mould."))
+        if sc.get("loft_storage"):
+            items.append(("Thermal Bridging", "Stored items / boarding observed in the loft (see site evidence) — provide raised loft-boarding legs so the full insulation depth is maintained; do not compress insulation under boarding."))
     elif code in ("EWI", "SWI", "IWI"):
         items.append(("Fire Safety", "Provide cavity fire barriers (horizontal at each compartment/floor line and vertically) and fire-stopping around all openings; verify system combustibility for the building height / relevant boundary (Approved Document B)."))
         items.append(("Thermal Bridging", "Property-specific junction details (jamb, reveal, sill, eaves, verge, plinth). Any bespoke detail calculated to BRE IP1/06 with temperature factor fRsi > 0.75."))
@@ -1910,6 +2387,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
       <table style="margin-top:24px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
       <tbody>{draw_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
+    # Site conditions (computed for TOC + evidence page)
+    _sc = (p.get("property") or {}).get("siteConditions") or {}
+    _sc_evidence = _sc.get("evidence") or []
     # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
     toc = [
@@ -1929,6 +2409,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     ]
     if p.get("heritage"):
         toc.insert(1, ("01.1", "Heritage &amp; Planning Context", "sub"))
+    if _sc_evidence:
+        toc.insert(2 if p.get("heritage") else 1, ("01.2", "Site Conditions &amp; Evidence", "sub"))
+    if p.get("_datasheetDocs") or p.get("datasheetProducts"):
+        toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
     for no, t, kind in toc:
         if kind == "sub":
@@ -2274,8 +2758,60 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                     '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Defects &amp; Remedial Actions</div>'
                     f'{defects_body}')
 
-    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), divider, measures_schedule_page, performance,
-             *spec_pages, *photo_pages, drawings_page, defects_page, items_page]
+    # Site conditions & evidence page
+    site_page = None
+    if _sc_evidence:
+        cards = ""
+        for e in _sc_evidence:
+            present = e.get("present")
+            val = e.get("value")
+            verdict = _esc(val) if val else ("Present" if present is True else ("Not present" if present is False else "Not visible — confirm on site"))
+            flag = present is True and e.get("key") in ("electric_shower", "downlights", "loft_storage")
+            vcol = "#DC2626" if flag else ("#16A34A" if present is False else "#262626")
+            img = (f'<div style="width:130px; height:92px; border:1px solid #e5e5e5; overflow:hidden; flex-shrink:0;"><img src="{e["_data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
+                   if e.get("_data") else '<div style="width:130px; height:92px; border:1px dashed #e5e5e5; flex-shrink:0;"></div>')
+            conf = e.get("confidence") or ""
+            fig = e.get("fig")
+            meta = ""
+            if fig:
+                meta += f'<span class="mono faint" style="font-size:8.5px;">FIG {_esc(fig)}</span>'
+            if conf:
+                meta += f'<span class="mono" style="font-size:8px; color:#999; margin-left:6px;">{_esc(conf)} confidence</span>'
+            cards += (f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img}'
+                      f'<div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
+                      f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(e.get("label"))}</span>'
+                      f'<span class="mono" style="font-size:11px; color:{vcol};">{verdict}</span></div>'
+                      + (f'<div class="muted" style="font-size:11px; margin-top:4px; line-height:1.45;">{_esc(e.get("detail"))}</div>' if e.get("detail") else "")
+                      + (f'<div style="font-size:10.5px; color:#666; margin-top:5px; line-height:1.4;"><span class="faint upper" style="font-size:8px; margin-right:6px;">Evidence</span>{_esc(e.get("reasoning"))}</div>' if e.get("reasoning") else "")
+                      + (f'<div style="margin-top:5px;">{meta}</div>' if meta else "")
+                      + '</div></div>')
+        site_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Site Conditions</div>'
+                     '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Site Conditions &amp; Photographic Evidence</div>'
+                     '<div class="muted" style="font-size:11px; margin-top:8px;">Determined from the survey photographs and floor plan. Each condition is supported by the referenced evidence photo and informs the PAS 2035 design compliance checklist. Confirm on site prior to installation.</div>'
+                     f'<div style="margin-top:14px;">{cards}</div>')
+
+    # Appendix — product datasheets & certificates
+    dsd = p.get("_datasheetDocs") or []
+    dprods = p.get("datasheetProducts") or []
+    datasheet_page = None
+    if dsd or dprods:
+        files_html = ""
+        if dsd:
+            frows = "".join(f'<tr><td class="mono faint" style="width:6%;">{i + 1:02d}</td><td>{_esc(d.get("name"))}</td><td class="mono muted" style="width:26%;">{_esc(d.get("type"))}</td></tr>' for i, d in enumerate(dsd))
+            files_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:8px; margin-bottom:2px;">Supporting Documents, Surveys &amp; Certificates</div>'
+                          f'<table><thead><tr><th style="width:6%;">#</th><th>Document</th><th style="width:26%;">Type</th></tr></thead><tbody>{frows}</tbody></table>')
+        prod_html = ""
+        if dprods:
+            prows = "".join('<tr><td style="color:#262626;">' + _esc(x.get("manufacturer")) + '</td><td>' + _esc(x.get("product")) + '</td><td class="mono faint">' + _esc(x.get("reference")) + '</td><td class="mono muted">' + _esc(x.get("standard")) + '</td></tr>' for x in dprods[:20])
+            prod_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Additional Specified Products</div>'
+                         '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Ref</th><th>Cert / Standard</th></tr></thead><tbody>' + prows + '</tbody></table>')
+        datasheet_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Appendix A &middot; Supporting Documents</div>'
+                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Product Datasheets &amp; Supporting Documents</div>'
+                          '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
+                          f'{files_html}{prod_html}')
+
+    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), divider, measures_schedule_page, performance,
+             *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"
@@ -2315,6 +2851,28 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                 d["_photo_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
             except Exception:
                 d["_photo_data"] = None
+    for e in (((p.get("property") or {}).get("siteConditions") or {}).get("evidence") or []):
+        u = e.get("url") or ""
+        if u:
+            try:
+                e["_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
+            except Exception:
+                e["_data"] = None
+    try:
+        _dsd = await db.documents.find({"project_id": project_id, "is_deleted": False,
+                                        "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Scope of Works", "Job Card", "Assessment"]}}, {"_id": 0}).to_list(80)
+        p["_datasheetDocs"] = [{"name": d.get("original_filename") or "Document", "type": d.get("doc_type") or ""} for d in _dsd]
+    except Exception:
+        p["_datasheetDocs"] = []
+    try:
+        _cname = (p.get("client") or "").strip()
+        if _cname:
+            _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}})
+            if _cl:
+                _cdocs = await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(100)
+                p["_datasheetDocs"] = (p.get("_datasheetDocs") or []) + [{"name": d.get("original_filename") or "Datasheet", "type": f"Datasheet · {_cname} library"} for d in _cdocs]
+    except Exception:
+        pass
     issued = datetime.now(timezone.utc).strftime("%d %b %Y")
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued)
     return p, html

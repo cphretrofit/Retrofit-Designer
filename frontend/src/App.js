@@ -12,6 +12,8 @@ import DesignWorkspace from "@/pages/DesignWorkspace";
 import DesignPack from "@/pages/DesignPack";
 import ImportProject from "@/pages/ImportProject";
 import Templates from "@/pages/Templates";
+import Clients from "@/pages/Clients";
+import ClientDetail from "@/pages/ClientDetail";
 import UserManagement from "@/pages/UserManagement";
 import ChangePassword from "@/pages/ChangePassword";
 
@@ -27,6 +29,8 @@ function App() {
             <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><ImportProject /></ProtectedRoute>} />
             <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
+            <Route path="/clients" element={<ProtectedRoute><Clients /></ProtectedRoute>} />
+            <Route path="/clients/:id" element={<ProtectedRoute><ClientDetail /></ProtectedRoute>} />
             <Route path="/project/:id" element={<ProtectedRoute><ProjectOverview /></ProtectedRoute>} />
             <Route path="/project/:id/design" element={<ProtectedRoute><DesignWorkspace /></ProtectedRoute>} />
             <Route path="/project/:id/design/:section" element={<ProtectedRoute><DesignWorkspace /></ProtectedRoute>} />
