@@ -60,6 +60,9 @@ Added the reference-grade narrative sections and lifted the visual design. All v
 ### Phase 33 — Design Summary dashboard (2026-06) [VERIFIED]
 One-page "Design Summary" (`_design_summary_html`) inserted right after the cover (page 2), before Contents; added as TOC entry "00". KPI stat-card row (EPC band uplift with band colours via `_parse_epc`/`_EPC_BAND_COL`, SAP score delta, measures count, outstanding-items count) + Measures Schedule table (family colour dots, PAS code, status) + Outstanding Before Issue table (top 6 unconfirmed items by severity, "+N further" note; green ready-to-issue state when none). Matches pack aesthetic (`_np`/`_kpi`). Verified by PDF render on 12 Marsh End (D→C, 55→71 +16, 3 measures, 12 outstanding); page counters intact (2/45, 2/48).
 
+### Phase 34 — Aerial heritage map (2026-06) [VERIFIED]
+Heritage page now shows a **street map (OSM)** and a **satellite aerial view (Esri World Imagery, zoom 18)** side by side, each with a red property marker and correct attribution. `_static_map_data_uri(lat, lon, zoom, provider)` generalised (`provider="osm"|"aerial"`; Esri tile order z/y/x). Render step caches `heritage._map_data` + `heritage._aerial_data`. Verified on 12 Marsh End (heritage page 7/48, both maps centred on Marsh End, Thame).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

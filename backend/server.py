@@ -2384,7 +2384,7 @@ async def _doc_data_uri(url: str):
     return f"data:{ct};base64,{base64.b64encode(data).decode()}"
 
 
-def _static_map_data_uri(lat, lon, zoom=16):
+def _static_map_data_uri(lat, lon, zoom=16, provider="osm"):
     try:
         import math
         from PIL import Image, ImageDraw
@@ -2400,7 +2400,11 @@ def _static_map_data_uri(lat, lon, zoom=16):
                 tx, ty = x0 - 1 + gx, y0 - 1 + gy
                 if tx < 0 or ty < 0 or tx >= n or ty >= n:
                     continue
-                rr = requests.get(f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png", headers=headers, timeout=12)
+                if provider == "aerial":
+                    turl = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{ty}/{tx}"
+                else:
+                    turl = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
+                rr = requests.get(turl, headers=headers, timeout=12)
                 if rr.status_code == 200:
                     canvas.paste(Image.open(io.BytesIO(rr.content)).convert("RGB"), (gx * S, gy * S))
         px = int((xf - (x0 - 1)) * S)
@@ -3295,11 +3299,23 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                       + _hrow("Article 4 Direction", "article-4-direction-area") + _hrow("World Heritage Site", "world-heritage-site")
                       + '</tbody></table>')
         map_img = ""
-        if h.get("_map_data"):
-            map_img = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Location Map</div>'
-                       '<div style="width:100%; max-width:600px; border:1px solid #e5e5e5; overflow:hidden;">'
-                       f'<img src="{h["_map_data"]}" style="width:100%; display:block;"></div>'
-                       f'<div class="mono faint" style="font-size:9px; margin-top:6px;">&#9679; Property location &middot; {_esc(h.get("postcode") or "")} &middot; map data &copy; OpenStreetMap contributors</div>')
+        if h.get("_map_data") or h.get("_aerial_data"):
+            cells = ""
+            if h.get("_map_data"):
+                cells += ('<td style="border:0; padding:0 5px 0 0; width:50%; vertical-align:top;">'
+                          '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">STREET MAP</div>'
+                          '<div style="border:1px solid #e5e5e5; overflow:hidden;">'
+                          f'<img src="{h["_map_data"]}" style="width:100%; display:block;"></div>'
+                          '<div class="mono faint" style="font-size:7.5px; margin-top:4px;">map data &copy; OpenStreetMap contributors</div></td>')
+            if h.get("_aerial_data"):
+                cells += ('<td style="border:0; padding:0 0 0 5px; width:50%; vertical-align:top;">'
+                          '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">AERIAL VIEW</div>'
+                          '<div style="border:1px solid #e5e5e5; overflow:hidden;">'
+                          f'<img src="{h["_aerial_data"]}" style="width:100%; display:block;"></div>'
+                          '<div class="mono faint" style="font-size:7.5px; margin-top:4px;">imagery &copy; Esri, Maxar, Earthstar Geographics</div></td>')
+            map_img = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Location</div>'
+                       f'<table style="width:100%;"><tr>{cells}</tr></table>'
+                       f'<div class="mono faint" style="font-size:9px; margin-top:6px;">&#9679; Property location &middot; {_esc(h.get("postcode") or "")}</div>')
         heritage_page = (
             '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Heritage &amp; Planning Context</div>'
             '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Heritage Impact Statement</div>'
@@ -3770,11 +3786,16 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         hero_uri = _real[0].get("data")
     hero_is_property = hero_uri is not None
     h0 = p.get("heritage") or {}
-    if h0.get("latitude") is not None and h0.get("longitude") is not None and not h0.get("_map_data"):
-        md = await asyncio.to_thread(_static_map_data_uri, h0["latitude"], h0["longitude"])
-        if md:
-            h0["_map_data"] = md
-            p["heritage"] = h0
+    if h0.get("latitude") is not None and h0.get("longitude") is not None:
+        if not h0.get("_map_data"):
+            md = await asyncio.to_thread(_static_map_data_uri, h0["latitude"], h0["longitude"], 16, "osm")
+            if md:
+                h0["_map_data"] = md
+        if not h0.get("_aerial_data"):
+            ad = await asyncio.to_thread(_static_map_data_uri, h0["latitude"], h0["longitude"], 18, "aerial")
+            if ad:
+                h0["_aerial_data"] = ad
+        p["heritage"] = h0
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
     fp = p.get("floorPlan") or {}
