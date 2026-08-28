@@ -2504,6 +2504,272 @@ td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
 """
 
 
+MEASURE_COLORS = {"LOFT": "#B45309", "ASHP": "#0055FF", "SOLAR": "#CA8A04", "WIN": "#0891B2",
+                  "WALL": "#7C3AED", "VENT": "#16A34A", "FLOOR": "#BE185D", "GEN": "#525252"}
+
+
+def _mfam(code, name=""):
+    c = (code or "").upper()
+    n = (name or "").lower()
+    if "loft" in n or "roof insul" in n or c in ("LOFT", "RIR", "LI"):
+        return "LOFT"
+    if "heat pump" in n or "ashp" in n or c in ("ASHP", "HP"):
+        return "ASHP"
+    if "solar" in n or "pv" in n or c in ("SOLAR", "PV", "SPV"):
+        return "SOLAR"
+    if "window" in n or "door" in n or c in ("WIN", "WINDOWS", "DOORS", "WD"):
+        return "WIN"
+    if "wall" in n or c in ("EWI", "IWI", "SWI", "CWI"):
+        return "WALL"
+    if "vent" in n or c in ("VENT", "DMEV", "MEV", "MVHR"):
+        return "VENT"
+    if "floor" in n or c in ("UFI", "SFI", "FLOOR"):
+        return "FLOOR"
+    return "GEN"
+
+
+def _measure_icon(fam, col):
+    paths = {
+        "LOFT": '<path d="M2 9 L9 3 L16 9"/><path d="M4 10 H14 M4 13 H14"/>',
+        "ASHP": '<rect x="2.5" y="4.5" width="13" height="9" rx="1"/><path d="M5 9 h8 M9 5 v8"/>',
+        "SOLAR": '<rect x="2.5" y="3.5" width="13" height="9"/><path d="M2.5 6.5 H15.5 M2.5 9.5 H15.5 M7 3.5 V12.5 M11 3.5 V12.5"/>',
+        "WIN": '<rect x="3" y="2.5" width="12" height="13"/><path d="M9 2.5 V15.5 M3 9 H15"/>',
+        "WALL": '<path d="M2.5 4 H15.5 M2.5 7 H15.5 M2.5 10 H15.5 M2.5 13 H15.5 M6 4 V7 M11 7 V10 M6 10 V13"/>',
+        "VENT": '<circle cx="9" cy="9" r="6"/><path d="M9 9 L13 6 M9 9 L6 13 M9 9 L13 12"/>',
+        "FLOOR": '<path d="M2.5 12 H15.5"/><path d="M4 12 V8 M7 12 V8 M10 12 V8 M13 12 V8"/>',
+    }.get(fam, '<circle cx="9" cy="9" r="6"/>')
+    return f'<svg width="17" height="17" viewBox="0 0 18 18" fill="none" stroke="{col}" stroke-width="1.4" style="vertical-align:-2px; margin-right:6px;">{paths}</svg>'
+
+
+METHODOLOGY = {
+    "LOFT": [
+        "Confirm the loft is safe to access; survey for asbestos, vermin, live cabling, stored items and any signs of damp or condensation before work begins.",
+        "Clear or reposition stored items; where storage is retained, provide raised loft boarding on legs so the full insulation depth is not compressed.",
+        "Inspect and reinstate roof-space ventilation to BS 5250:2021 (continuous 25mm eaves equivalent plus high-level ventilation); fit eaves baffles to keep a clear cross-flow path.",
+        "Fit maintenance-free fire-rated caps over all recessed downlighters before insulating; do not cover transformers, drivers or heat-producing equipment (Approved Document B).",
+        "Survey all cabling; lift and clip any cable that would be buried above the insulation, or de-rate/re-route to BS 7671 — check high-current electric-shower supplies in particular.",
+        "Lay the first layer of mineral wool between the joists to joist depth, tight-butted with no gaps.",
+        "Cross-lay the second layer perpendicular over the joists to the specified total depth (typically 270-300mm) for a continuous, even blanket.",
+        "Insulate and draught-strip the loft access hatch; carry insulation over the wall plate at the eaves without blocking ventilation to maintain continuity.",
+        "Keep insulation clear of flues and chimneys by the required margins; box and insulate any cold-water tank (sides and top, not underneath).",
+        "Leave the loft clean; record depths and photograph the completed installation for the handover pack.",
+    ],
+    "ASHP": [
+        "Confirm the room-by-room heat-loss calculation and design flow temperature; verify emitter sizing and the unit's output at design conditions.",
+        "Agree the external unit location for free airflow, MCS 020 noise compliance and frost-safe condensate discharge; confirm fixings and anti-vibration mounts.",
+        "Install the external unit level on its base/brackets, maintaining manufacturer clearances for airflow and servicing.",
+        "Run and insulate primary pipework; fit hydraulic components (buffer/volumiser, pump, expansion vessel, filling loop, magnetic filter) to the manufacturer's schematic.",
+        "Install the hot-water cylinder, secondary pipework and heat emitters; balance the system to the design flows.",
+        "Provide a dedicated electrical supply, isolation and earthing to BS 7671; confirm consumer-unit capacity and load.",
+        "Flush and clean the system to BS 7593, add inhibitor and confirm water quality.",
+        "Fit and configure controls (weather compensation, zoning, DHW scheduling); set the heating curve to the design flow temperature.",
+        "Commission the heat pump, record performance and complete the MCS commissioning checklist.",
+        "Hand over with user instructions, commissioning certificate, warranty registration and maintenance guidance.",
+    ],
+    "SOLAR": [
+        "Confirm array layout, string design and expected generation from the shading/orientation assessment; verify roof structure adequacy.",
+        "Install roof anchors and mounting rail to the manufacturer's system, maintaining weather-tightness and required edge/fire set-backs.",
+        "Mount the PV modules and secure to the rail with the specified clamps, maintaining module clearances.",
+        "Install the inverter (and battery storage where specified) in a suitable ventilated location; mount the generation meter.",
+        "Run DC cabling in fire-safe routes with DC isolation; keep cabling clear of escape routes and label all isolators (BS 7671 / IET Code of Practice).",
+        "Complete AC connection, RCD protection and earthing/bonding; obtain DNO G98/G99 approval as required.",
+        "Test and commission (insulation resistance, polarity, functional tests); record string voltages and generation.",
+        "Register the installation (MCS) and notify the DNO; provide warranties and performance documentation.",
+        "Hand over with guidance on monitoring, isolation and maintenance.",
+    ],
+    "WIN": [
+        "Confirm sizes, opening configurations, glazing specification (U-value/g-value) and any required egress, fire and acoustic performance.",
+        "Provide compliant emergency-egress openings to habitable rooms (including first floor) and FD-rated doors where required (Approved Document B).",
+        "Carefully remove existing frames minimising damage to reveals and finishes; check for and manage any asbestos-containing materials.",
+        "Install insulated cavity closers and fit frames plumb, level and packed to the manufacturer's fixing schedule.",
+        "Provide trickle ventilators to the Approved Document F equivalent areas; confirm background ventilation to each room.",
+        "Seal internally with a continuous airtight seal and externally with a weather-tight, vapour-open seal; insulate reveals to limit thermal bridging.",
+        "Make good internal and external finishes; adjust and lubricate all opening lights and locks.",
+        "Test operation and security; record and photograph for the handover pack.",
+    ],
+    "WALL": [
+        "Confirm wall construction, condition and exposure zone; carry out adhesion/pull-off and moisture testing as required.",
+        "Rectify defects (pointing, render, damp, disrepair) before insulating; confirm a sound, dry substrate.",
+        "Install the insulation system strictly to the certified (BBA) build-up and manufacturer instructions.",
+        "Provide cavity fire barriers (horizontal at each floor/compartment line and vertically) and fire-stopping around openings; verify combustibility for the building height/boundary (Approved Document B).",
+        "Detail all junctions (jamb, reveal, sill, eaves, verge, plinth) to bespoke details calculated to BRE IP1/06 (fRsi > 0.75) to control thermal bridging and condensation.",
+        "Extend and re-fix external services (meter box, lights, soil/vent pipes, cabling) safely through the added thickness.",
+        "Re-assess background and purge ventilation as the fabric is tightened; add trickle ventilators/extract to Approved Document F where required.",
+        "Apply finishes, inspect for continuity, and photograph for the handover pack.",
+    ],
+    "VENT": [
+        "Confirm the whole-dwelling ventilation strategy to Approved Document F and the ADF1 wet-room extract schedule.",
+        "Install continuous/intermittent extract at source in each wet room (kitchen, bathroom, WC, utility) at the specified rate.",
+        "Provide background ventilation (trickle ventilators / equivalent area) to habitable rooms.",
+        "Route ducting the shortest practical run to outside; insulate ducts in cold zones to prevent condensation and avoid flexible duct where possible.",
+        "Provide adequate transfer/undercut paths between rooms to support the whole-house strategy.",
+        "Electrically connect and control units to BS 7671; label isolation.",
+        "Commission and measure achieved extract rates to BS EN 12599 and adjust to meet design.",
+        "Provide the commissioning certificate and user guidance to the tenant.",
+    ],
+    "FLOOR": [
+        "Confirm floor construction (suspended timber or solid) and condition; check the sub-floor for damp and ventilation.",
+        "Maintain suspended-floor sub-floor cross-ventilation to Approved Document C; keep airbricks clear and unobstructed.",
+        "Install a vapour-permeable membrane with a ventilated void to prevent timber decay.",
+        "Fit insulation supported tight between joists to the specified depth with no gaps or slumping.",
+        "Insulate to the perimeter with continuity to the wall insulation to limit thermal bridging.",
+        "Reinstate floor finishes; record and photograph for the handover pack.",
+    ],
+    "GEN": [
+        "Confirm the measure specification, substrate condition and any pre-installation defects to be rectified.",
+        "Install strictly to the manufacturer's instructions and the relevant PAS 2030:2023 requirements.",
+        "Manage ventilation, thermal bridging, fire safety and moisture risk in line with the design.",
+        "Commission, test and record the installation; provide certificates and handover documentation.",
+    ],
+}
+
+
+def _measure_methodology(fam):
+    return METHODOLOGY.get(fam, METHODOLOGY["GEN"])
+
+
+SCOPE_WORKS = {
+    "LOFT": ["Top-up / cross-lay loft insulation to the specified depth", "Insulate and draught-proof the loft hatch", "Maintain eaves ventilation and fit fire-rated caps to downlighters"],
+    "ASHP": ["Supply and install the air source heat pump and hot-water cylinder", "Install/upgrade emitters, pipework and controls", "Electrical supply, commissioning and handover"],
+    "SOLAR": ["Supply and install the roof-mounted solar PV array and inverter", "DC/AC wiring, isolation and generation metering", "Testing, DNO/MCS registration and handover"],
+    "WIN": ["Replace windows and external doors to the specified performance", "Provide trickle ventilators and compliant egress", "Make good reveals and finishes"],
+    "WALL": ["Install the specified wall insulation system", "Fire barriers, junction details and re-fixing of services", "Finishes and ventilation re-assessment"],
+    "VENT": ["Install wet-room extract and background ventilation to ADF", "Ducting to outside and controls", "Commissioning to BS EN 12599 and handover"],
+    "FLOOR": ["Install floor insulation to the specified depth", "Maintain sub-floor ventilation", "Reinstate floor finishes"],
+    "GEN": ["Install the measure to specification", "Associated builder's work and making good", "Commissioning and handover"],
+}
+
+
+def _np(kicker, title, inner, intro=""):
+    intro_html = f'<div class="muted" style="font-size:11px; margin-top:8px; max-width:168mm; line-height:1.55;">{intro}</div>' if intro else ""
+    return (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">{kicker}</div>'
+            f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
+            f'{intro_html}<div style="margin-top:16px;">{inner}</div>')
+
+
+def _sub(t):
+    return f'<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:6px;">{t}</div>'
+
+
+def _para(t):
+    return f'<div style="font-size:11.5px; line-height:1.62; color:#333; margin-bottom:10px;">{t}</div>'
+
+
+def _foreword_html(p):
+    inner = (_para("This Retrofit Design has been prepared under PAS 2035:2023 to define the energy efficiency measures (EEMs) proposed for this dwelling and the standards, sequencing and interactions that govern their installation. It is to be read alongside the Retrofit Assessment and the whole-dwelling improvement plan.")
+             + _para("The design follows a whole-house, fabric-first approach. Measures are considered together rather than in isolation, so that improvements to airtightness, insulation, heating and ventilation work as a system. Moisture risk is managed throughout in accordance with BS 5250, with a ventilation strategy provided to maintain healthy indoor air quality as the fabric is tightened.")
+             + _para("The Retrofit Coordinator is responsible for co-ordinating the project through to completion, resolving the items in the Pre-Issue Register and ensuring all installers work to the specifications set out in this document and the manufacturers' instructions."))
+    return _np("Design Statement &middot; Foreword", "Foreword", inner)
+
+
+def _preliminaries_html(p):
+    prop = p.get("property") or {}
+    ec = prop.get("existingConstruction") or {}
+    ptype = str(prop.get("type") or "dwelling").lower()
+    age = prop.get("age") or "not stated"
+    wall = str(ec.get("Wall Construction") or "as recorded in the assessment").lower()
+    inner = (_sub("Retrofit Designer") + _para("The Retrofit Designer holds the relevant PAS 2035 competency and declares no conflict of interest in the specification of products or systems. The design has been reviewed against the assessment information for completeness and buildability.")
+             + _sub("Construction &amp; Traditional Building Considerations") + _para(f"The property is a {ptype} (age band {_esc(str(age))}) of {wall} construction. Where traditional (pre-1919) or non-standard construction is present, measures are specified with reference to BS 7913 and appropriate vapour-open, moisture-safe build-ups.")
+             + _sub("Access &amp; Exposure") + _para("Site access, working constraints and the local exposure zone have been considered in specifying systems and detailing. Any access constraints identified on site must be agreed with the Retrofit Coordinator prior to works.")
+             + _sub("Scope of the Design") + _para("This design covers the measures in the Measures Schedule together with their interactions, ventilation, thermal bridging, fire safety and moisture management. It does not replace the manufacturers' installation instructions, which take precedence for product-specific requirements."))
+    return _np("Design Statement &middot; Preliminaries", "Preliminaries", inner)
+
+
+def _scope_html(p, measures):
+    groups = ""
+    for m in measures:
+        fam = _mfam(m.get("code"), m.get("name"))
+        col = MEASURE_COLORS[fam]
+        items = SCOPE_WORKS.get(fam, SCOPE_WORKS["GEN"])
+        lis = "".join(f'<div style="font-size:11px; color:#333; padding:3px 0;"><span style="color:#a3a3a3; margin-right:8px;">&#8250;</span>{_esc(x)}</div>' for x in items)
+        groups += (f'<div style="margin-bottom:14px; border-left:2px solid {col}; padding-left:12px;">'
+                   f'<div style="font-size:12.5px; font-weight:500; color:#262626;">{_esc(m.get("name"))} <span class="mono faint" style="font-size:9px;">PAS {_esc(m.get("pas") or m.get("code") or "")}</span></div>'
+                   f'<div style="margin-top:4px;">{lis}</div></div>')
+    intro = "The works below deliver the proposed whole-house retrofit. Quantities and product references are confirmed in each measure's technical specification. Any defects listed in the Property Condition section are to be rectified before or concurrent with these works."
+    return [_np("Retrofit Strategy &middot; Scope of Works", "Scope of Works", groups or '<div class="muted" style="font-size:12px;">Measures to be confirmed.</div>', intro)]
+
+
+def _sequence_html(p, measures):
+    fams = [_mfam(m.get("code"), m.get("name")) for m in measures]
+    steps = ["Pre-install: complete the Pre-Issue Register, confirm access, isolate services as required and rectify any recorded defects."]
+    labelmap = {"VENT": "Install ventilation provision (extract and background) ahead of fabric tightening.",
+                "WALL": "Install wall insulation with all junction and fire-barrier details.",
+                "WIN": "Install windows and external doors with trickle ventilators and airtight perimeter seals.",
+                "LOFT": "Install loft insulation, hatch and eaves ventilation.",
+                "FLOOR": "Install floor insulation maintaining sub-floor ventilation.",
+                "ASHP": "Install and commission the heat pump, cylinder, emitters and controls.",
+                "SOLAR": "Install, test and register the solar PV system."}
+    for f in ["VENT", "WALL", "WIN", "LOFT", "FLOOR", "ASHP", "SOLAR"]:
+        if f in fams and labelmap.get(f):
+            steps.append(labelmap[f])
+    steps.append("Commissioning & handover: commission all systems, complete certificates and provide the tenant handover pack and guidance.")
+    return _np("Retrofit Strategy &middot; Sequence of Installation", "Sequence of Installation",
+               f'<div style="margin-top:4px;">{_spec_list(steps, True)}</div>',
+               "Indicative installation sequence to co-ordinate trades and manage measure interactions. Confirm the final programme with the Retrofit Coordinator.")
+
+
+def _standards_html(p, measures):
+    stds = ["PAS 2035:2023", "PAS 2030:2023", "TrustMark", "Building Regs Part L", "Part F (Ventilation)",
+            "Part O (Overheating)", "Part B (Fire)", "Part C (Moisture)", "BS 7671 (Electrical)",
+            "BS 5250 (Moisture)", "BS 7913 (Traditional)", "MCS (ASHP & PV)"]
+    chips = "".join(f'<span class="chip">{_esc(s)}</span>' for s in stds)
+    inner = (_sub("Standards &amp; Regulations") + f'<div>{chips}</div>'
+             + _sub("Compliance Notes") + _para("All works will be carried out in accordance with the above standards, the manufacturers' instructions and the certified system requirements. Products are specified with valid BBA / third-party certification where applicable, and installers hold the relevant PAS 2030:2023 / MCS scope."))
+    return _np("Compliance &middot; Standards", "Standards &amp; Compliance", inner)
+
+
+def _exclusions_html(p, measures):
+    ex = ["Structural alterations beyond those required to install the specified measures.",
+          "Removal of or licensed works to asbestos-containing materials (to be surveyed and managed separately).",
+          "Reinstatement of decorative finishes beyond making good directly disturbed by the works.",
+          "Rectification of pre-existing defects not identified in the Retrofit Assessment (to be instructed as a variation).",
+          "Works to services or appliances not forming part of the specified measures.",
+          "Provision of scaffolding or access beyond that allowed for in the installer's quotation."]
+    return _np("Compliance &middot; Exclusions", "Exclusions", _spec_list(ex, False),
+               "The following are excluded from the scope of this design unless expressly stated within a measure specification.")
+
+
+def _commissioning_html(p, measures):
+    items = ["Commission each system to the relevant standard (e.g. BS EN 12599 ventilation; BS 7593 / MCS heat pump; DNO/MCS solar PV).",
+             "Complete and retain commissioning certificates and test results.",
+             "Register product warranties and provide manufacturer documentation.",
+             "Provide Building Regulations compliance certificates (Part L/F/P as applicable).",
+             "Compile a handover pack: as-installed specifications, certificates, warranties and O&M / maintenance guidance.",
+             "Provide the tenant/occupier with clear guidance on the safe, efficient use of the installed measures.",
+             "Independent Retrofit Design and pre-installation inspection sign-off (PAS 2030 Annex B9) completed and validated by the Retrofit Coordinator."]
+    return _np("Handover &middot; Commissioning", "Commissioning &amp; Handover", _spec_list(items, False),
+               "Requirements to be satisfied at completion to close out the retrofit in line with PAS 2035:2023 and TrustMark.")
+
+
+def _interaction(a, b):
+    s = {_mfam(a), _mfam(b)}
+    if s in ({"VENT", "WIN"}, {"VENT", "WALL"}, {"VENT", "LOFT"}, {"VENT", "FLOOR"}, {"WALL", "WIN"}):
+        return "amber"
+    return "green"
+
+
+def _interaction_matrix_html(measures):
+    ms = measures[:8]
+    if len(ms) < 2:
+        return _np("Retrofit Strategy &middot; Interaction Matrix", "Measures Interaction Matrix",
+                   _para("A single measure is proposed; a full measures interaction matrix is not applicable. Interactions with the existing fabric and services are addressed within the measure specification."))
+    IC = {"green": "#16A34A", "amber": "#B45309", "orange": "#C2410C", "red": "#DC2626"}
+    labels = [(m.get("pas") or m.get("code") or _mfam(m.get("code"), m.get("name"))) for m in ms]
+    header = '<td style="border:0;"></td>' + "".join(f'<td class="mono faint" style="border:0; text-align:center; font-size:8.5px; padding:4px;">{_esc(l)}</td>' for l in labels)
+    rows = ""
+    for i, m in enumerate(ms):
+        cells = f'<td style="border:0; font-size:9px; color:#262626; padding:4px 10px 4px 0; white-space:nowrap;"><span class="mono">{_esc(labels[i])}</span> <span class="faint">{_esc((m.get("name") or "")[:20])}</span></td>'
+        for j, n in enumerate(ms):
+            bg = "#e5e5e5" if i == j else IC[_interaction(m.get("code"), n.get("code"))]
+            cells += f'<td style="border:1px solid #fff; background:{bg}; width:32px; height:32px;"></td>'
+        rows += f'<tr>{cells}</tr>'
+    legend = "".join(f'<span class="chip" style="border-color:{IC[k]}; color:{IC[k]};">{lbl}</span>'
+                     for k, lbl in [("green", "No interaction"), ("amber", "Potential — managed in design"), ("orange", "Other interaction"), ("red", "Incompatible")])
+    grid = f'<table style="margin-top:8px; border-collapse:separate; border-spacing:0; width:auto;"><tbody><tr>{header}</tr>{rows}</tbody></table>'
+    inner = grid + f'<div style="margin-top:20px;">{legend}</div>' + _para("Interactions are managed within the individual measure specifications and the sequence of installation. Where amber cells are shown, the design specifically addresses the interface — for example ventilation provision as the fabric is tightened, and junction/reveal detailing between the wall and window measures.")
+    return _np("Retrofit Strategy &middot; Interaction Matrix", "Measures Interaction Matrix (Figure D.1)", inner)
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -2673,8 +2939,20 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     if (p.get("floorPlan") or {}).get("imageUrl"):
         toc.insert(_base, ("01.5", "Floor Plan &amp; Measure Placements", "sub"))
         _base += 1
+    toc.insert(_base, ("01.6", "Foreword", "sub"))
+    toc.insert(_base + 1, ("01.7", "Preliminaries", "sub"))
+    _base += 2
     for i, s in enumerate(p.get("customSections") or []):
         toc.insert(_base + i, ("+", (s.get("title") or "Section")[:44], "sub"))
+
+    def _ins_after(num, subs):
+        for _i in range(len(toc)):
+            if toc[_i][0] == num:
+                for _j, _s in enumerate(subs):
+                    toc.insert(_i + 1 + _j, _s)
+                return
+    _ins_after("02", [("02.1", "Scope of Works", "sub"), ("02.2", "Sequence of Installation", "sub"), ("02.3", "Measures Interaction Matrix", "sub")])
+    _ins_after("04", [("04.1", "Standards &amp; Compliance", "sub"), ("04.2", "Exclusions", "sub"), ("04.3", "Commissioning &amp; Handover", "sub")])
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
@@ -2844,11 +3122,16 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         sequencing = (spec.get("sequencing") or [])[:16]
         commissioning = (spec.get("commissioning") or [])[:16]
 
+        fam = _mfam(m.get("code"), m.get("name"))
+        col = MEASURE_COLORS[fam]
+        icon = _measure_icon(fam, col)
+
         def _head(sub):
-            return (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} &middot; {sub}</div>'
-                    f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:4px;">'
-                    f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em;">{title}</div>'
-                    f'<span class="chip" style="margin:0;">PAS {pas}</span></div>')
+            return (f'<div style="display:flex; align-items:center; gap:8px;"><span style="width:9px; height:9px; border-radius:2px; background:{col}; display:inline-block;"></span>'
+                    f'<span class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} &middot; {sub}</span></div>'
+                    f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:6px; border-bottom:2px solid {col}; padding-bottom:8px;">'
+                    f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em;">{icon}{title}</div>'
+                    f'<span class="chip" style="margin:0; border-color:{col}; color:{col};">PAS {pas}</span></div>')
 
         system_html = f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
         _mp = _photos_for_measure(m.get("code"), photo_uris or [], used_figs)
@@ -2882,6 +3165,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         for ci, chunk in enumerate(_chunk(works, CHUNK_WORKS)):
             sub = "Scope of Works" if ci == 0 else "Scope of Works (cont.)"
             spec_pages.append(_head(sub) + f'<div style="margin-top:16px;">{_spec_list(chunk, True, ci * CHUNK_WORKS + 1)}</div>')
+
+        meth = _measure_methodology(fam)
+        for ci, chunk in enumerate(_chunk(meth, 11)):
+            sub = "Installation Methodology" if ci == 0 else "Installation Methodology (cont.)"
+            spec_pages.append(_head(sub)
+                              + '<div class="muted" style="font-size:11px; margin-top:14px; line-height:1.5;">Indicative installation methodology to PAS 2030:2023 and the manufacturer&rsquo;s instructions. Confirm the final method and sequence on site.</div>'
+                              + f'<div style="margin-top:10px;">{_spec_list(chunk, True, ci * 11 + 1)}</div>')
 
         if standards or considerations:
             body = _head("Standards & Considerations")
@@ -3171,7 +3461,22 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
                           f'{files_html}{prod_html}')
 
-    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []), ventilation_page, *([floorplan_page] if floorplan_page else []), *custom_pages, divider, measures_schedule_page, performance,
+    foreword_page = _foreword_html(p)
+    preliminaries_page = _preliminaries_html(p)
+    scope_pages = _scope_html(p, measures)
+    sequence_page = _sequence_html(p, measures)
+    matrix_page = _interaction_matrix_html(measures)
+    standards_page = _standards_html(p, measures)
+    exclusions_page = _exclusions_html(p, measures)
+    commissioning_page = _commissioning_html(p, measures)
+    pages = [cover, contents_page, directory_page,
+             *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []),
+             ventilation_page, *([floorplan_page] if floorplan_page else []),
+             foreword_page, preliminaries_page, *custom_pages,
+             divider,
+             *scope_pages, sequence_page, matrix_page,
+             measures_schedule_page, performance,
+             standards_page, exclusions_page, commissioning_page,
              *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
