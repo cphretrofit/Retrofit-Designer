@@ -57,6 +57,9 @@ Added the reference-grade narrative sections and lifted the visual design. All v
 - **Installer**: `run_import_job` now falls back to the client company when the docs don't name an installer; extraction prompt clarified that the Installer is usually the installing company on the Job Card. Verified: 12 Marsh End installer = "Coldrush".
 - **Heritage — more data + map**: heritage page now renders a **Designation Register table** (Conservation Area / Listed Building / Article 4 / World Heritage Site — each with Result + Detail) AND a real **location map image**. Map is stitched server-side from OpenStreetMap tiles (`_static_map_data_uri`, 3×3 tiles via PIL) with a red marker at the exact lat/lon and OSM attribution. Wikimedia/staticmap providers were 403/unreachable from the pod; `tile.openstreetmap.org` works with a UA header. Verified on 12 Marsh End (marker on Marsh End, Thame).
 
+### Phase 33 — Design Summary dashboard (2026-06) [VERIFIED]
+One-page "Design Summary" (`_design_summary_html`) inserted right after the cover (page 2), before Contents; added as TOC entry "00". KPI stat-card row (EPC band uplift with band colours via `_parse_epc`/`_EPC_BAND_COL`, SAP score delta, measures count, outstanding-items count) + Measures Schedule table (family colour dots, PAS code, status) + Outstanding Before Issue table (top 6 unconfirmed items by severity, "+N further" note; green ready-to-issue state when none). Matches pack aesthetic (`_np`/`_kpi`). Verified by PDF render on 12 Marsh End (D→C, 55→71 +16, 3 measures, 12 outstanding); page counters intact (2/45, 2/48).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

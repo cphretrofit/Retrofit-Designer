@@ -2849,6 +2849,128 @@ def _overheating_html(p, measures):
     return _np("Design Statement &middot; Overheating", "Overheating Statement (Part O)", inner)
 
 
+def _parse_epc(s):
+    """Return (band, score) from strings like 'D (55)', 'C 72', 'D'. band/score may be None."""
+    if not s:
+        return (None, None)
+    txt = str(s).strip().upper()
+    band = None
+    m = re.match(r'\s*([A-G])\b', txt)
+    if m:
+        band = m.group(1)
+    sc = None
+    m2 = re.search(r'(\d{1,3})', txt)
+    if m2:
+        try:
+            n = int(m2.group(1))
+            if 1 <= n <= 100:
+                sc = n
+        except Exception:
+            sc = None
+    return (band, sc)
+
+
+_EPC_BAND_COL = {"A": "#008054", "B": "#19B459", "C": "#8DCE46", "D": "#FFD500",
+                 "E": "#FCAA65", "F": "#EF8023", "G": "#E9153B"}
+
+
+def _design_summary_html(p, measures):
+    eb, sb = _parse_epc(p.get("epcBefore"))
+    ea, sa = _parse_epc(p.get("epcAfter"))
+
+    def _kpi(label, body, foot):
+        return (f'<div style="border:1px solid #e5e5e5; padding:14px 15px; min-height:96px;">'
+                f'<div class="faint upper" style="font-size:8px;">{label}</div>'
+                f'<div style="margin-top:9px;">{body}</div>'
+                f'<div class="faint mono" style="font-size:8px; margin-top:8px;">{foot}</div></div>')
+
+    # KPI 1 — EPC band uplift
+    def _band_badge(band):
+        if not band:
+            return '<span class="disp faint" style="font-size:30px;">—</span>'
+        col = _EPC_BAND_COL.get(band, "#525252")
+        return (f'<span class="disp" style="font-size:30px; color:{col};">{band}</span>')
+    epc_body = (f'{_band_badge(eb)}'
+                f'<span class="mono faint" style="font-size:16px; margin:0 10px; vertical-align:6px;">&#8594;</span>'
+                f'{_band_badge(ea)}')
+    epc_kpi = _kpi("EPC Rating", epc_body, "EXISTING TO PROPOSED")
+
+    # KPI 2 — SAP score delta
+    if sb is not None and sa is not None:
+        delta = sa - sb
+        sap_body = (f'<span class="disp" style="font-size:30px;">{sb}</span>'
+                    f'<span class="mono faint" style="font-size:16px; margin:0 8px; vertical-align:6px;">&#8594;</span>'
+                    f'<span class="disp pass" style="font-size:30px;">{sa}</span>'
+                    f'<span class="mono pass" style="font-size:12px; margin-left:8px;">+{delta}</span>')
+        sap_foot = f"{'+' if delta >= 0 else ''}{delta} SAP POINTS"
+    else:
+        sap_body = '<span class="disp faint" style="font-size:30px;">—</span>'
+        sap_foot = "SAP SCORE NOT STATED"
+    sap_kpi = _kpi("SAP Score", sap_body, sap_foot)
+
+    # KPI 3 — measures count
+    meas_kpi = _kpi("Retrofit Measures", f'<span class="disp" style="font-size:30px;">{len(measures)}</span>',
+                    "PROPOSED FOR THIS DWELLING")
+
+    # KPI 4 — outstanding items
+    items = p.get("itemsBeforeIssue") or []
+    outstanding = [it for it in items if not it.get("confirmedBy")]
+    n_out = len(outstanding)
+    out_col = "#DC2626" if n_out else "#16A34A"
+    out_body = f'<span class="disp" style="font-size:30px; color:{out_col};">{n_out}</span>'
+    out_kpi = _kpi("Outstanding Items", out_body,
+                   f"{len(items)} TOTAL &middot; {len(items) - n_out} CONFIRMED")
+
+    kpis = ('<table style="margin-top:22px;"><tr>'
+            f'<td style="border:0; padding:0 6px 0 0; width:25%; vertical-align:top;">{epc_kpi}</td>'
+            f'<td style="border:0; padding:0 6px; width:25%; vertical-align:top;">{sap_kpi}</td>'
+            f'<td style="border:0; padding:0 6px; width:25%; vertical-align:top;">{meas_kpi}</td>'
+            f'<td style="border:0; padding:0 0 0 6px; width:25%; vertical-align:top;">{out_kpi}</td>'
+            '</tr></table>')
+
+    # Measures table
+    m_rows = ""
+    for i, m in enumerate(measures, 1):
+        fam = _mfam(m.get("code"), m.get("name"))
+        col = MEASURE_COLORS[fam]
+        pas = m.get("pas") or m.get("code") or "—"
+        st = (m.get("status") or "").replace("_", " ").title() or "Designed"
+        m_rows += (f'<tr><td class="mono faint" style="width:7%; padding-top:9px; vertical-align:top;">{str(i).zfill(2)}</td>'
+                   f'<td style="padding-top:9px; vertical-align:top;"><span style="display:inline-block; width:8px; height:8px; background:{col}; margin-right:9px; vertical-align:middle;"></span>'
+                   f'<span style="color:#262626;">{_esc(m.get("name"))}</span></td>'
+                   f'<td class="mono" style="width:20%; color:#525252; padding-top:9px; vertical-align:top;">PAS {_esc(pas)}</td>'
+                   f'<td style="width:20%; font-size:10.5px; color:#525252; text-align:right; padding-top:9px; vertical-align:top;">{_esc(st)}</td></tr>')
+    m_rows = m_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Measures to be confirmed.</td></tr>'
+    meas_table = ('<div class="faint upper" style="font-size:9.5px; margin-top:26px; margin-bottom:6px;">Measures Schedule</div>'
+                  '<table><thead><tr><th style="width:7%;">#</th><th>Measure</th><th style="width:20%;">PAS 2030:2023</th><th style="width:20%; text-align:right;">Status</th></tr></thead>'
+                  f'<tbody>{m_rows}</tbody></table>')
+
+    # Outstanding items summary (by severity, then top items)
+    SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
+    SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
+    if outstanding:
+        oi = ""
+        for it in outstanding[:6]:
+            sev = it.get("severity") or "info_required"
+            c = SEV_COL.get(sev, "#0055FF")
+            oi += (f'<tr><td style="width:24%; vertical-align:top; padding-top:8px;">'
+                   f'<span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{c}; margin-right:7px; vertical-align:middle;"></span>'
+                   f'<span style="font-size:10px; color:{c};">{SEV_LBL.get(sev, sev)}</span></td>'
+                   f'<td style="vertical-align:top; padding-top:8px; font-size:11px;">{_esc(it.get("text"))}</td></tr>')
+        more = f'<div class="faint mono" style="font-size:9px; margin-top:8px;">+ {len(outstanding) - 6} further item(s) in the Pre-Issue Register (Section 09).</div>' if len(outstanding) > 6 else ""
+        out_block = ('<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Outstanding Before Issue</div>'
+                     f'<table><tbody>{oi}</tbody></table>{more}')
+    else:
+        out_block = ('<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Outstanding Before Issue</div>'
+                     '<div class="pass" style="font-size:12px; margin-top:2px;">&#10003; No outstanding items — this design is ready to issue.</div>')
+
+    inner = kpis + meas_table + out_block
+    return _np("At a Glance &middot; Design Summary", "Design Summary",
+               inner,
+               "A one-page overview of the whole job — the energy uplift, the proposed measures and anything still outstanding — before the detailed design that follows.")
+
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -2991,6 +3113,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
     toc = [
+        ("00", "Design Summary", ""),
         ("01", "Project Information", ""),
         ("02", "Retrofit Strategy", ""),
         ("03", "Retrofit Measures", ""),
@@ -3597,7 +3720,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     standards_page = _standards_html(p, measures)
     exclusions_page = _exclusions_html(p, measures)
     commissioning_page = _commissioning_html(p, measures)
-    pages = [cover, contents_page, *directory_pages,
+    summary_page = _design_summary_html(p, measures)
+    pages = [cover, summary_page, contents_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *site_pages, *([considerations_page] if considerations_page else []),
              ventilation_page, *([floorplan_page] if floorplan_page else []),
              foreword_page, preliminaries_page, overheating_page, *custom_pages,
