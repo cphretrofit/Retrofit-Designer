@@ -1227,7 +1227,7 @@ Rules:
 - epcBefore and epcAfter MUST be an EPC band with optional SAP score like "D (68)" or "C (72)", or "—" if unknown. Never write a sentence in these fields; put any explanation in itemsBeforeIssue instead.
 - Keep measures[].name concise (max ~22 characters).
 - defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a clear description, the likely cause, the evidence observed (and photo/figure reference if any), severity (high|medium|low), the remedial action required before install, and the relevant clause/standard (PAS 2035, Building Regulations Part, BS). Use [] if the documents mention none.
-- people: extract the REAL names of the Retrofit Assessor, Retrofit Coordinator, Retrofit Designer, Installer (company or person) and Tenant/Resident from the job card, air-tightness strategy or assessment. Use "" for any not stated — NEVER invent a name.
+- people: extract the REAL names of the Retrofit Assessor, Retrofit Coordinator, Retrofit Designer, Installer (company or person) and Tenant/Resident from the job card, air-tightness strategy or assessment. The Installer is usually the installing company / contractor named on the Job Card (often the client organisation). Use "" for any not stated — NEVER invent a name.
 - ventilation: extract the ventilation requirements and strategy from the ADF1 ventilation checklist / job card. Populate rooms with each wet room (kitchen, bathroom, WC, utility) and its extract system + rate, plus the whole-dwelling and background (trickle/equivalent-area) provision. Use [] rooms if none stated.
 - siteConditionsFromDocs: from the JOB CARD / assessment TEXT (NOT photos), record any of these conditions the documents explicitly state: electric shower, recessed spotlights/downlights, stored items/boarding in loft, bathroom on an upper floor, ground floor type. Give present true/false (or value for floor_type), a short detail quoting where it is stated, and the source document name. Use [] where a condition is not stated in the documents. This complements the photo-based vision detection.
 
@@ -1940,6 +1940,8 @@ async def run_import_job(job_id: str):
             project["client"] = job["client"]
         if job.get("reference"):
             project["jobRef"] = job["reference"]
+        if (not project.get("installer") or project.get("installer") == "—") and project.get("client"):
+            project["installer"] = project["client"]
         try:
             tpl = await match_template([m["code"] for m in project["measures"]])
             if tpl:
@@ -2380,6 +2382,41 @@ async def _doc_data_uri(url: str):
         if sm:
             data, ct = sd, sm
     return f"data:{ct};base64,{base64.b64encode(data).decode()}"
+
+
+def _static_map_data_uri(lat, lon, zoom=16):
+    try:
+        import math
+        from PIL import Image, ImageDraw
+        n = 2 ** zoom
+        xf = (lon + 180.0) / 360.0 * n
+        yf = (1.0 - math.asinh(math.tan(math.radians(lat))) / math.pi) / 2.0 * n
+        x0, y0 = int(xf), int(yf)
+        S, grid = 256, 3
+        canvas = Image.new("RGB", (S * grid, S * grid), "#e8e8e8")
+        headers = {"User-Agent": "OrthographRetrofit/1.0 (PAS2035 retrofit design tool)"}
+        for gx in range(grid):
+            for gy in range(grid):
+                tx, ty = x0 - 1 + gx, y0 - 1 + gy
+                if tx < 0 or ty < 0 or tx >= n or ty >= n:
+                    continue
+                rr = requests.get(f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png", headers=headers, timeout=12)
+                if rr.status_code == 200:
+                    canvas.paste(Image.open(io.BytesIO(rr.content)).convert("RGB"), (gx * S, gy * S))
+        px = int((xf - (x0 - 1)) * S)
+        py = int((yf - (y0 - 1)) * S)
+        dr = ImageDraw.Draw(canvas)
+        dr.ellipse([px - 9, py - 9, px + 9, py + 9], fill="#DC2626", outline="#ffffff", width=3)
+        cw, ch = 600, 300
+        left = max(0, min(px - cw // 2, S * grid - cw))
+        top = max(0, min(py - ch // 2, S * grid - ch))
+        crop = canvas.crop((left, top, left + cw, top + ch))
+        buf = io.BytesIO()
+        crop.save(buf, "PNG")
+        return f"data:image/png;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    except Exception as e:
+        logger.warning("static map failed: %s", e)
+        return None
 
 
 def _remote_data_uri(url: str):
@@ -3119,11 +3156,34 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         chips = "".join(f'<span class="chip">{_esc((d.get("dataset") or "").replace("-", " ").title())}: {_esc(d.get("name") or d.get("reference") or "—")}</span>' for d in ds[:8]) \
             or '<span class="chip">No statutory heritage designations found</span>'
         loc = _esc(h.get("postcode") or "—") + ((" &middot; " + _esc(h.get("admin_district"))) if h.get("admin_district") else "")
+        hby = {}
+        for d in ds:
+            hby.setdefault(d.get("dataset"), []).append(d)
+
+        def _hrow(label, key):
+            items = hby.get(key) or []
+            if items:
+                val = "; ".join((x.get("name") or x.get("reference") or "present") for x in items[:3])
+                return f'<tr><td style="width:34%; color:#262626;">{label}</td><td style="width:22%; color:#DC2626;">Designation present</td><td class="muted" style="font-size:10.5px;">{_esc(val)}</td></tr>'
+            return f'<tr><td style="width:34%; color:#262626;">{label}</td><td style="width:22%; color:#16A34A;">None identified</td><td class="muted">—</td></tr>'
+        data_table = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:6px;">Designation Register (planning.data.gov.uk)</div>'
+                      '<table><thead><tr><th>Dataset</th><th>Result</th><th>Detail</th></tr></thead><tbody>'
+                      + _hrow("Conservation Area", "conservation-area") + _hrow("Listed Building", "listed-building")
+                      + _hrow("Article 4 Direction", "article-4-direction-area") + _hrow("World Heritage Site", "world-heritage-site")
+                      + '</tbody></table>')
+        map_img = ""
+        if h.get("_map_data"):
+            map_img = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Location Map</div>'
+                       '<div style="width:100%; max-width:600px; border:1px solid #e5e5e5; overflow:hidden;">'
+                       f'<img src="{h["_map_data"]}" style="width:100%; display:block;"></div>'
+                       f'<div class="mono faint" style="font-size:9px; margin-top:6px;">&#9679; Property location &middot; {_esc(h.get("postcode") or "")} &middot; map data &copy; OpenStreetMap contributors</div>')
         heritage_page = (
             '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Heritage &amp; Planning Context</div>'
             '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Heritage Impact Statement</div>'
             f'<div class="muted" style="font-size:11px; margin-top:8px;">Source: planning.data.gov.uk &middot; {loc}</div>'
             f'<div style="margin-top:16px;">{chips}</div>'
+            f'{data_table}'
+            f'{map_img}'
             f'{_heritage_map_svg(h)}'
             '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Assessment of Significance</div>'
             f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("summary"))}</div>'
@@ -3585,6 +3645,12 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     if not hero_uri and _real:
         hero_uri = _real[0].get("data")
     hero_is_property = hero_uri is not None
+    h0 = p.get("heritage") or {}
+    if h0.get("latitude") is not None and h0.get("longitude") is not None and not h0.get("_map_data"):
+        md = await asyncio.to_thread(_static_map_data_uri, h0["latitude"], h0["longitude"])
+        if md:
+            h0["_map_data"] = md
+            p["heritage"] = h0
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
     fp = p.get("floorPlan") or {}
