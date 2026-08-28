@@ -859,7 +859,7 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
 
 ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
                        "coordinator", "designer", "installer", "tenant", "town", "address", "measureSummary",
-                       "epcBefore", "epcAfter", "partner", "itemsBeforeIssue"}
+                       "epcBefore", "epcAfter", "partner", "itemsBeforeIssue", "sectionOverrides"}
 ALLOWED_PATCH_PREFIXES = ("property.", "measures.", "readiness.", "heatLoss.")
 
 
@@ -1005,6 +1005,28 @@ async def heritage_lookup(project_id: str):
         h.update(_heritage_statement(h))
     await db.projects.update_one({"id": project_id}, {"$set": {"heritage": h}})
     return h
+
+
+@api_router.post("/projects/{project_id}/solar/lookup")
+async def solar_lookup(project_id: str):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    h = proj.get("heritage") or {}
+    lat, lon = h.get("latitude"), h.get("longitude")
+    if lat is None or lon is None:
+        pc = (proj.get("property") or {}).get("postcode") or proj.get("postcode")
+        if pc:
+            hh = await asyncio.to_thread(_heritage_lookup_sync, pc)
+            if hh:
+                lat, lon = hh.get("latitude"), hh.get("longitude")
+    if lat is None or lon is None:
+        raise HTTPException(status_code=422, detail="Add a property postcode before running an aerial / solar lookup")
+    s = await asyncio.to_thread(_solar_lookup_sync, lat, lon)
+    if not s:
+        raise HTTPException(status_code=502, detail="Aerial / solar imagery is not available for this location")
+    await db.projects.update_one({"id": project_id}, {"$set": {"solar": s}})
+    return s
 
 
 class SiteConditionsIn(BaseModel):
@@ -2793,25 +2815,56 @@ def _interaction(a, b):
 
 
 def _interaction_matrix_html(measures):
-    ms = measures[:8]
+    ms = measures[:10]
+    IC = {"green": "#16A34A", "amber": "#EAB308", "orange": "#EA580C", "red": "#DC2626"}
+    ICL = {"green": "Do not interact", "amber": "Interact \u2014 construction detail required",
+           "orange": "Interact \u2014 specific application / upgrade", "red": "Not appropriate together"}
+    key = ('<div style="display:flex; gap:20px; flex-wrap:wrap; margin-top:10px;">'
+           + "".join(f'<div style="display:flex; align-items:center; gap:8px;">'
+                     f'<span style="width:15px; height:15px; background:{IC[k]}; display:inline-block; border-radius:3px;"></span>'
+                     f'<span style="font-size:9.5px; color:#525252;">{ICL[k]}</span></div>'
+                     for k in ["green", "amber", "orange", "red"]) + '</div>')
     if len(ms) < 2:
-        return _np("Retrofit Strategy &middot; Interaction Matrix", "Measures Interaction Matrix",
-                   _para("A single measure is proposed; a full measures interaction matrix is not applicable. Interactions with the existing fabric and services are addressed within the measure specification."))
-    IC = {"green": "#16A34A", "amber": "#B45309", "orange": "#C2410C", "red": "#DC2626"}
+        return _np("Retrofit Strategy &middot; Figure D.1", "Measures Interaction Matrix",
+                   _para("A single measure is proposed; a full measures interaction matrix is not applicable. Interactions with the existing fabric and services are addressed within the measure specification.") + key)
+    n = len(ms)
+    names = [m.get("name") or "" for m in ms]
     labels = [(m.get("pas") or m.get("code") or _mfam(m.get("code"), m.get("name"))) for m in ms]
-    header = '<td style="border:0;"></td>' + "".join(f'<td class="mono faint" style="border:0; text-align:center; font-size:8.5px; padding:4px;">{_esc(l)}</td>' for l in labels)
+    cell = 30
+    header = ('<td style="border:0; width:56mm;"></td>'
+              + "".join(f'<td style="border:0; text-align:center; width:{cell}px;">'
+                        f'<span class="mono" style="font-size:9px; color:#0055FF;">{j + 1}</span></td>' for j in range(n)))
     rows = ""
-    for i, m in enumerate(ms):
-        cells = f'<td style="border:0; font-size:9px; color:#262626; padding:4px 10px 4px 0; white-space:nowrap;"><span class="mono">{_esc(labels[i])}</span> <span class="faint">{_esc((m.get("name") or "")[:20])}</span></td>'
-        for j, n in enumerate(ms):
-            bg = "#e5e5e5" if i == j else IC[_interaction(m.get("code"), n.get("code"))]
-            cells += f'<td style="border:1px solid #fff; background:{bg}; width:32px; height:32px;"></td>'
+    for i in range(n):
+        fam_i = _mfam(ms[i].get("code"), ms[i].get("name"))
+        cells = (f'<td style="border:0; font-size:10px; color:#262626; padding:0 12px 0 0; text-align:right; white-space:nowrap;">'
+                 f'<span style="display:inline-block; width:8px; height:8px; background:{MEASURE_COLORS[fam_i]}; margin-right:7px; border-radius:2px;"></span>'
+                 f'<span class="mono" style="color:#0055FF;">{i + 1}</span> <span class="faint">{_esc(names[i][:26])}</span></td>')
+        for j in range(n):
+            if j > i:
+                cells += f'<td style="border:0; width:{cell}px; height:{cell}px;"></td>'
+            elif j == i:
+                cells += f'<td style="border:2px solid #fff; background:#e5e5e5; width:{cell}px; height:{cell}px;"></td>'
+            else:
+                c = IC[_interaction(ms[i].get("code"), ms[j].get("code"))]
+                cells += f'<td style="border:2px solid #fff; background:{c}; width:{cell}px; height:{cell}px;"></td>'
         rows += f'<tr>{cells}</tr>'
-    legend = "".join(f'<span class="chip" style="border-color:{IC[k]}; color:{IC[k]};">{lbl}</span>'
-                     for k, lbl in [("green", "No interaction"), ("amber", "Potential — managed in design"), ("orange", "Other interaction"), ("red", "Incompatible")])
-    grid = f'<table style="margin-top:8px; border-collapse:separate; border-spacing:0; width:auto;"><tbody><tr>{header}</tr>{rows}</tbody></table>'
-    inner = grid + f'<div style="margin-top:20px;">{legend}</div>' + _para("Interactions are managed within the individual measure specifications and the sequence of installation. Where amber cells are shown, the design specifically addresses the interface — for example ventilation provision as the fabric is tightened, and junction/reveal detailing between the wall and window measures.")
-    return _np("Retrofit Strategy &middot; Interaction Matrix", "Measures Interaction Matrix (Figure D.1)", inner)
+    grid = f'<table style="border-collapse:separate; border-spacing:0; margin-top:16px; width:auto;"><tbody><tr>{header}</tr>{rows}</tbody></table>'
+    det = ""
+    for i in range(n):
+        for j in range(i):
+            c = _interaction(ms[i].get("code"), ms[j].get("code"))
+            det += (f'<tr><td style="width:34%; color:#262626;">{_esc(names[i])} <span class="mono faint">&times;</span> {_esc(names[j])}</td>'
+                    f'<td style="width:22%;"><span style="display:inline-block; width:10px; height:10px; background:{IC[c]}; border-radius:2px; margin-right:7px; vertical-align:middle;"></span>'
+                    f'<span style="font-size:10px; color:{IC[c]};">{ICL[c]}</span></td>'
+                    f'<td class="muted" style="font-size:10.5px; line-height:1.5;">{_esc(_interaction_note(ms[i], ms[j], c))}</td></tr>')
+    det_tbl = ('<div class="faint upper" style="font-size:9.5px; margin-top:28px; margin-bottom:6px;">Pairwise Interactions &amp; Management</div>'
+               '<table><thead><tr><th>Measure pair</th><th>Interaction</th><th>How it is managed in this design</th></tr></thead>'
+               f'<tbody>{det}</tbody></table>') if det else ""
+    inner = (_para("Interactions between the proposed measures have been assessed to PAS 2035:2023 Annex D (Figure D.1). "
+                   "The half-matrix reads measure against measure using the key below; the table beneath sets out how each interaction is managed.")
+             + key + grid + det_tbl)
+    return _np("Retrofit Strategy &middot; Figure D.1", "Measures Interaction Matrix", inner)
 
 
 THERMAL_BRIDGES = {
@@ -2975,6 +3028,248 @@ def _design_summary_html(p, measures):
 
 
 
+def _solar_lookup_sync(lat, lon):
+    key = os.environ.get("GOOGLE_SOLAR_API_KEY")
+    if not key or lat is None or lon is None:
+        return None
+    base = "https://solar.googleapis.com/v1"
+    common = {"location.latitude": lat, "location.longitude": lon, "requiredQuality": "BASE", "key": key}
+    out = {"latitude": lat, "longitude": lon}
+    try:
+        ri = requests.get(f"{base}/buildingInsights:findClosest", params=common, timeout=(3.05, 30))
+        if ri.status_code == 200:
+            j = ri.json()
+            sp = j.get("solarPotential") or {}
+            wr = sp.get("wholeRoofStats") or {}
+            out.update({
+                "imageryQuality": j.get("imageryQuality"),
+                "imageryDate": j.get("imageryDate"),
+                "maxSunshineHoursPerYear": sp.get("maxSunshineHoursPerYear"),
+                "maxArrayPanelsCount": sp.get("maxArrayPanelsCount"),
+                "maxArrayAreaMeters2": sp.get("maxArrayAreaMeters2"),
+                "roofAreaMeters2": wr.get("areaMeters2"),
+                "panelCapacityWatts": sp.get("panelCapacityWatts"),
+                "carbonOffsetFactorKgPerMwh": sp.get("carbonOffsetFactorKgPerMwh"),
+            })
+            cfgs = sp.get("solarPanelConfigs") or []
+            if cfgs:
+                best = cfgs[-1]
+                out["maxYearlyEnergyDcKwh"] = best.get("yearlyEnergyDcKwh")
+                out["configPanelsCount"] = best.get("panelsCount")
+    except Exception as e:
+        logger.warning("solar insights failed: %s", e)
+    try:
+        dl = requests.get(f"{base}/dataLayers:get", params={**common, "radiusMeters": 55,
+                          "view": "IMAGERY_AND_ANNUAL_FLUX_LAYERS", "pixelSizeMeters": 0.25}, timeout=(3.05, 30))
+        if dl.status_code == 200:
+            rgb = (dl.json() or {}).get("rgbUrl")
+            if rgb:
+                sep = "&" if "?" in rgb else "?"
+                tif = requests.get(f"{rgb}{sep}key={key}", timeout=(3.05, 60))
+                if tif.status_code == 200:
+                    from PIL import Image
+                    im = Image.open(io.BytesIO(tif.content)).convert("RGB")
+                    w, h = im.size
+                    side = min(w, h)
+                    im = im.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
+                    if im.width > 900:
+                        im = im.resize((900, 900))
+                    buf = io.BytesIO()
+                    im.save(buf, "JPEG", quality=82)
+                    out["aerialImage"] = f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    except Exception as e:
+        logger.warning("solar imagery failed: %s", e)
+    return out if (out.get("aerialImage") or out.get("maxArrayPanelsCount")) else None
+
+
+def _num(v, d=0):
+    try:
+        return f"{float(v):,.{d}f}"
+    except Exception:
+        return "\u2014"
+
+
+def _solar_html(p):
+    s = p.get("solar") or {}
+    if not s.get("aerialImage") and not s.get("maxArrayPanelsCount"):
+        return None
+    img = ""
+    if s.get("aerialImage"):
+        d = s.get("imageryDate") or {}
+        cap = "Aerial roof imagery &copy; Google Solar API"
+        if isinstance(d, dict) and d.get("year"):
+            cap += f' &middot; captured {d.get("year")}'
+        if s.get("imageryQuality"):
+            cap += f' &middot; {_esc(str(s.get("imageryQuality")).title())} resolution'
+        img = ('<div style="width:100%; max-width:118mm; border:1px solid #e5e5e5; overflow:hidden; margin-top:6px;">'
+               f'<img src="{s["aerialImage"]}" style="width:100%; display:block;"></div>'
+               f'<div class="mono faint" style="font-size:8px; margin-top:5px;">{cap}</div>')
+
+    def _stat(label, val, unit=""):
+        return (f'<div style="border:1px solid #e5e5e5; padding:12px 13px; min-height:74px;">'
+                f'<div class="faint upper" style="font-size:8px;">{label}</div>'
+                f'<div style="margin-top:7px;"><span class="disp" style="font-size:24px;">{val}</span>'
+                f'<span class="mono faint" style="font-size:9.5px; margin-left:5px;">{unit}</span></div></div>')
+    panels = s.get("maxArrayPanelsCount")
+    cap_kwp = (panels * s["panelCapacityWatts"] / 1000.0) if (panels and s.get("panelCapacityWatts")) else None
+    cap_str = _num(cap_kwp, 2) if cap_kwp else "\u2014"
+    cards = ('<table style="margin-top:20px;"><tr>'
+             f'<td style="border:0; padding:0 5px 0 0; width:25%; vertical-align:top;">{_stat("Usable Roof Area", _num(s.get("roofAreaMeters2")), "m&sup2;")}</td>'
+             f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Max Solar Panels", _num(panels), "panels")}</td>'
+             f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Array Capacity", cap_str, "kWp")}</td>'
+             f'<td style="border:0; padding:0 0 0 5px; width:25%; vertical-align:top;">{_stat("Est. Annual Yield", _num(s.get("maxYearlyEnergyDcKwh")), "kWh")}</td>'
+             '</tr></table>')
+    extra = ""
+    if s.get("maxSunshineHoursPerYear"):
+        extra = _para(f'Maximum modelled sunshine at this roof is <b>{_num(s.get("maxSunshineHoursPerYear"))} hours per year</b>. '
+                      'Figures are modelled from Google Solar API roof geometry and are indicative for feasibility only; '
+                      'the installed array is confirmed by the MCS PV design together with the structural and shading survey.')
+    inner = img + cards + '<div style="margin-top:16px;">' + extra + '</div>'
+    return _np("Site Context &middot; Aerial &amp; Solar Survey", "Aerial &amp; Solar Potential", inner,
+               "Aerial roof survey and modelled solar potential for the dwelling, informing the PV design and roof-mounted measures.")
+
+
+def _md_to_html(text):
+    text = (text or "").strip()
+    if not text:
+        return ""
+    out = []
+    for b in re.split(r"\n\s*\n", text):
+        lines = [l.strip() for l in b.splitlines() if l.strip()]
+        if not lines:
+            continue
+        if all(l[:2] in ("- ", "* ") or l[:2] == "\u2022 " for l in lines):
+            out.append(_spec_list([l[2:].strip() for l in lines], False))
+        else:
+            out.append(_para(_esc(" ".join(lines))))
+    return "".join(out)
+
+
+SECTION_META = {
+    "foreword": ("Design Statement &middot; Foreword", "Foreword"),
+    "preliminaries": ("Design Statement &middot; Preliminaries", "Preliminaries"),
+    "overheating": ("Design Statement &middot; Overheating", "Overheating Statement (Part O)"),
+    "scope": ("Retrofit Strategy &middot; Scope of Works", "Scope of Works"),
+    "sequence": ("Retrofit Strategy &middot; Sequence of Installation", "Sequence of Installation"),
+    "matrix": ("Retrofit Strategy &middot; Figure D.1", "Measures Interaction Matrix"),
+    "standards": ("Compliance &middot; Standards", "Standards &amp; Compliance"),
+    "exclusions": ("Compliance &middot; Exclusions", "Exclusions"),
+    "commissioning": ("Compliance &middot; Handover", "Commissioning &amp; Handover"),
+}
+
+
+def _ov_page(p, key):
+    ov = ((p.get("sectionOverrides") or {}).get(key) or "").strip()
+    if not ov:
+        return None
+    k, t = SECTION_META.get(key, ("Design Statement", key.title()))
+    return _np(k, t, _md_to_html(ov))
+
+
+def _interaction_note(a, b, c):
+    fams = {_mfam(a.get("code"), a.get("name")), _mfam(b.get("code"), b.get("name"))}
+    if c == "green":
+        return "No adverse interaction; the measures are compatible and installed to their individual specifications."
+    if "VENT" in fams:
+        return "As the fabric is tightened, mechanical extract and background ventilation are provided/upgraded to maintain indoor air quality and manage moisture (BS 5250, Approved Document F)."
+    if fams == {"WALL", "WIN"}:
+        return "Window reveals and wall insulation are detailed together to maintain continuity of insulation and control thermal bridging at the junction (BR 262)."
+    return "The interface is detailed in the individual measure specifications and coordinated in the installation sequence."
+
+
+def _kv_table(rows, w1="34%"):
+    body = "".join(f'<tr><td style="width:{w1}; color:#262626; vertical-align:top;">{k}</td>'
+                   f'<td class="muted" style="font-size:10.5px; line-height:1.55; vertical-align:top;">{v}</td></tr>' for k, v in rows)
+    return f'<table>{body}</table>'
+
+
+def _compliance_html(p, measures):
+    prop = p.get("property") or {}
+    designer = _esc(p.get("designer") or "the Retrofit Designer")
+    coord = _esc(p.get("coordinator") or "the Retrofit Coordinator")
+    ptype = _esc(str(prop.get("type") or "dwelling").lower())
+    age = _esc(str(prop.get("age") or "not stated"))
+
+    # 1. Stage / Activity / Comments
+    stage_rows = [
+        ("Retrofit Designer qualifications", f"{designer} is the Retrofit Designer for this project and holds the relevant PAS 2035 design competency (e.g. MCIOB / Level 5 Retrofit Design)."),
+        ("Conflict of interest", "There is no conflict of interest to declare in the specification of products or systems for this project."),
+        ("Review of guidance", "This design has considered the guidance in PAS 2035:2023 Sections 4 &amp; 5 and adopts a fabric-first approach, including the sequence of installation of the EEMs, taking account of the building fabric, its significance and its energy performance."),
+        ("Review of assessment information", "The information captured by the PAS Retrofit Assessment, pre-install building inspection and technical surveys is sufficient to prepare this design."),
+        ("Retrofit Coordinator activities", f"The Improvement Option Evaluation and Medium-Term Improvement Plan for this project are provided by {coord}."),
+        ("Traditional building considerations", f"The {ptype} (age band {age}) has been reviewed for traditional/pre-1919 or non-standard construction; where present, measures are specified with reference to BS 7913 and moisture-safe, vapour-open build-ups."),
+        ("Identification of access constraints", "Site access, party walls, rights of light and adjoining properties have been considered. Any access constraint identified on site is to be agreed with the Retrofit Coordinator before works."),
+        ("Exposure &amp; environment", "The local exposure zone (wind-driven rain, orientation, proximity to major roads/industrial activity) has been considered in specifying systems and detailing."),
+    ]
+    page1 = _np("PAS 2035:2023 &middot; Design Stage", "PAS 2035 Design &amp; Compliance",
+                '<div class="faint upper" style="font-size:9.5px; margin-bottom:6px;">Design Stage — Activities &amp; Comments</div>'
+                + _kv_table(stage_rows),
+                "The design-stage activities undertaken for this project in accordance with PAS 2035:2023, with the Retrofit Designer's comments against each.")
+
+    # 2. Scope of the design — per measure
+    seq = 1
+    mrows = ""
+    for m in measures:
+        fam = _mfam(m.get("code"), m.get("name"))
+        col = MEASURE_COLORS[fam]
+        prod = m.get("system") or m.get("product") or "As specified in the measure schedule"
+        annex = m.get("pas") or m.get("code") or "\u2014"
+        mrows += (f'<tr><td class="mono faint" style="width:7%;">{str(seq).zfill(2)}</td>'
+                  f'<td style="width:30%;"><span style="display:inline-block; width:8px; height:8px; background:{col}; margin-right:8px;"></span>{_esc(m.get("name"))}</td>'
+                  f'<td style="width:33%;" class="muted">{_esc(prod)}</td>'
+                  f'<td class="mono" style="width:16%; color:#525252;">{_esc(annex)}</td>'
+                  f'<td class="mono faint" style="width:14%; text-align:right;">Step {seq}</td></tr>')
+        seq += 1
+    mrows = mrows or '<tr><td colspan="5" class="muted" style="font-size:12px;">Measures to be confirmed.</td></tr>'
+    scope_tbl = ('<div class="faint upper" style="font-size:9.5px; margin-bottom:6px;">Scope of the Design — Materials, Annex &amp; Sequence</div>'
+                 '<table><thead><tr><th style="width:7%;">#</th><th>Measure</th><th>Product / System</th><th>Annex / Code</th><th style="text-align:right;">Sequence</th></tr></thead>'
+                 f'<tbody>{mrows}</tbody></table>')
+    scope_intro = _para("Each measure is installed in line with the System Designer's best-practice guidance, the product data and PAS 2030:2023 clause 15.1.3, and the relevant Building Regulations (Part L Conservation of Fuel &amp; Power, Part F Ventilation, Part O Overheating, Approved Document B Fire, Approved Document C Moisture).")
+    page2 = _np("PAS 2035:2023 &middot; Scope", "Scope of the Design",
+                scope_tbl + '<div style="margin-top:18px;">' + scope_intro + '</div>')
+
+    # 3. Handover requirements matrix
+    fams_present = {_mfam(m.get("code"), m.get("name")) for m in measures}
+    HREQ = [
+        ("BBA / KIWA certificate", {"LOFT", "WALL", "FLOOR", "WIN"}),
+        ("Thermal performance data", {"LOFT", "WALL", "FLOOR", "WIN"}),
+        ("Vapour permeability data", {"LOFT", "WALL", "FLOOR"}),
+        ("System heat capacity (kW)", {"ASHP"}),
+        ("Coefficient of Performance (CoP)", {"ASHP"}),
+        ("Generation capacity", {"SOLAR"}),
+        ("Commissioning / benchmark certificate", {"ASHP", "SOLAR", "VENT"}),
+        ("Product spec &amp; test standards", {"LOFT", "WALL", "FLOOR", "WIN", "ASHP", "SOLAR", "VENT"}),
+    ]
+    cols = [f for f in ["WALL", "LOFT", "FLOOR", "WIN", "ASHP", "SOLAR", "VENT"] if f in fams_present]
+    FLBL = {"WALL": "Wall", "LOFT": "Loft", "FLOOR": "Floor", "WIN": "Glazing", "ASHP": "ASHP", "SOLAR": "PV", "VENT": "Vent"}
+    if cols:
+        head = '<th style="width:40%;">Handover requirement</th>' + "".join(f'<th style="text-align:center;">{FLBL[f]}</th>' for f in cols)
+        hrows = ""
+        _yes = '<td style="text-align:center; color:#16A34A;">&#10003;</td>'
+        _no = '<td style="text-align:center;"><span class="faint">&middot;</span></td>'
+        for label, applies in HREQ:
+            tds = "".join(_yes if f in applies else _no for f in cols)
+            hrows += f'<tr><td style="color:#262626;">{label}</td>{tds}</tr>'
+        handover_tbl = f'<table><thead><tr>{head}</tr></thead><tbody>{hrows}</tbody></table>'
+    else:
+        handover_tbl = '<div class="muted" style="font-size:12px;">Handover requirements to be confirmed with the measure schedule.</div>'
+    # 4. Building ventilation Q&A
+    v = p.get("ventilation") or {}
+    vent_qa = _kv_table([
+        ("Is the existing ventilation acceptable?", _esc(v.get("existingAcceptable") or "No — an upgrade is required to meet Approved Document F with the proposed measures.")),
+        ("Requirement to upgrade ventilation?", _esc(v.get("upgradeRequired") or "Yes — provision is specified in the Ventilation Strategy.")),
+        ("Strategy to attain 5&nbsp;m&sup3;/m&sup2;h @ 50&nbsp;Pa", _esc(v.get("strategy") or "Wet-room extract plus background (trickle) ventilation and internal door undercuts, as set out in the Ventilation Strategy section.")),
+        ("Improvement plan reviewed with client?", "Yes — scope, intended outcomes, EPC pathway and budget reviewed with the client by the Retrofit Coordinator."),
+    ])
+    page3 = _np("PAS 2035:2023 &middot; Handover &amp; Ventilation", "Handover Requirements &amp; Ventilation Compliance",
+                '<div class="faint upper" style="font-size:9.5px; margin-bottom:6px;">Product Specification &amp; Handover Requirements</div>'
+                + handover_tbl
+                + '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Building Ventilation</div>'
+                + vent_qa)
+    return [page1, page2, page3]
+
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -3003,11 +3298,29 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         f'<div class="upper" style="font-size:11px; letter-spacing:0.3em; opacity:0.85;">Retrofit Design</div>'
         f'<div class="disp" style="font-size:50px; line-height:0.98; margin-top:10px; text-shadow:0 1px 30px rgba(0,0,0,0.45);">{name}</div>'
         f'<div style="font-size:16px; margin-top:9px; opacity:0.92;">{town}</div></div>')
+    _inset_uri = ((p.get("solar") or {}).get("aerialImage")
+                  or (p.get("heritage") or {}).get("_aerial_data")
+                  or (p.get("heritage") or {}).get("_map_data"))
+    _inset_lbl = "AERIAL VIEW" if (p.get("solar") or {}).get("aerialImage") else "SITE LOCATION"
+    _inset = ""
+    if _inset_uri:
+        _inset = ('<div style="position:absolute; right:14mm; bottom:14mm; width:46mm; z-index:3; '
+                  'border:2px solid rgba(255,255,255,0.92); box-shadow:0 6px 22px rgba(0,0,0,0.45);">'
+                  f'<img src="{_inset_uri}" style="width:100%; height:34mm; object-fit:cover; display:block;">'
+                  f'<div class="mono upper" style="background:rgba(15,23,42,0.85); color:#fff; font-size:7px; '
+                  f'letter-spacing:0.12em; padding:3px 7px;">{_inset_lbl}</div></div>')
     if hero_uri and hero_is_property:
         hero_full = ('<div style="position:absolute; top:0; left:0; right:0; height:162mm; overflow:hidden;">'
                      f'<img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover;">'
                      '<div style="position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(180deg, rgba(10,12,16,0.55) 0%, rgba(10,12,16,0.10) 38%, rgba(10,12,16,0.74) 100%);"></div>'
-                     f'{_brand_overlay}{_title_overlay}</div>')
+                     f'{_brand_overlay}{_title_overlay}{_inset}</div>')
+    elif _inset_uri:
+        hero_full = ('<div style="position:absolute; top:0; left:0; right:0; height:162mm; overflow:hidden; background:#0f172a;">'
+                     f'<img src="{_inset_uri}" style="width:100%; height:100%; object-fit:cover;">'
+                     '<div style="position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(180deg, rgba(10,12,16,0.62) 0%, rgba(10,12,16,0.22) 40%, rgba(10,12,16,0.80) 100%);"></div>'
+                     f'{_brand_overlay}{_title_overlay}'
+                     '<div style="position:absolute; left:18mm; top:60mm; right:18mm; border:1px dashed rgba(248,250,252,0.5); background:rgba(15,23,42,0.35); padding:9px 14px; z-index:2;">'
+                     '<div style="font-size:10px; color:#e2e8f0; letter-spacing:0.02em;">Aerial / location view shown &mdash; add a front-elevation survey photo to complete the cover.</div></div></div>')
     else:
         hero_full = ('<div style="position:absolute; top:0; left:0; right:0; height:162mm; overflow:hidden; background:#0f172a;">'
                      '<div style="position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(160deg,#1f2937 0%,#0f172a 70%);"></div>'
@@ -3132,25 +3445,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         ("08", "Property Condition \u2014 Defects &amp; Remedial Actions", ""),
         ("09", "Pre-Issue Register \u2014 Items Before Issue", ""),
     ]
-    if p.get("heritage"):
-        toc.insert(1, ("01.1", "Heritage &amp; Planning Context", "sub"))
-    if _sc_evidence:
-        toc.insert(2 if p.get("heritage") else 1, ("01.2", "Site Conditions &amp; Evidence", "sub"))
-    if _dc:
-        _pos = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0)
-        toc.insert(_pos, ("01.3", "Design Considerations", "sub"))
-    _base = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0) + (1 if _dc else 0)
-    toc.insert(_base, ("01.4", "Ventilation Requirements &amp; Strategy", "sub"))
-    _base += 1
-    if (p.get("floorPlan") or {}).get("imageUrl"):
-        toc.insert(_base, ("01.5", "Floor Plan &amp; Measure Placements", "sub"))
-        _base += 1
-    toc.insert(_base, ("01.6", "Foreword", "sub"))
-    toc.insert(_base + 1, ("01.7", "Preliminaries", "sub"))
-    toc.insert(_base + 2, ("01.8", "Overheating Statement (Part O)", "sub"))
-    _base += 3
-    for i, s in enumerate(p.get("customSections") or []):
-        toc.insert(_base + i, ("+", (s.get("title") or "Section")[:44], "sub"))
 
     def _ins_after(num, subs):
         for _i in range(len(toc)):
@@ -3158,6 +3452,24 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 for _j, _s in enumerate(subs):
                     toc.insert(_i + 1 + _j, _s)
                 return
+    sec01 = [("01.0", "Foreword", "sub")]
+    if p.get("heritage"):
+        sec01.append(("01.1", "Heritage &amp; Planning Context", "sub"))
+    if (p.get("solar") or {}).get("aerialImage"):
+        sec01.append(("01.2", "Aerial &amp; Solar Potential", "sub"))
+    if _sc_evidence:
+        sec01.append(("01.3", "Site Conditions &amp; Evidence", "sub"))
+    if _dc:
+        sec01.append(("01.4", "Design Considerations", "sub"))
+    sec01.append(("01.5", "Ventilation Requirements &amp; Strategy", "sub"))
+    if (p.get("floorPlan") or {}).get("imageUrl"):
+        sec01.append(("01.6", "Floor Plan &amp; Measure Placements", "sub"))
+    sec01.append(("01.7", "Preliminaries", "sub"))
+    sec01.append(("01.8", "PAS 2035 Design &amp; Compliance", "sub"))
+    sec01.append(("01.9", "Overheating Statement (Part O)", "sub"))
+    for s in (p.get("customSections") or []):
+        sec01.append(("+", (s.get("title") or "Section")[:44], "sub"))
+    _ins_after("01", sec01)
     _ins_after("02", [("02.1", "Scope of Works", "sub"), ("02.2", "Sequence of Installation", "sub"), ("02.3", "Measures Interaction Matrix", "sub")])
     _ins_after("04", [("04.1", "Standards &amp; Compliance", "sub"), ("04.2", "Exclusions", "sub"), ("04.3", "Commissioning &amp; Handover", "sub")])
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
@@ -3727,20 +4039,23 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
                           f'{files_html}{prod_html}')
 
-    foreword_page = _foreword_html(p)
-    preliminaries_page = _preliminaries_html(p)
-    overheating_page = _overheating_html(p, measures)
-    scope_pages = _scope_html(p, measures)
-    sequence_page = _sequence_html(p, measures)
-    matrix_page = _interaction_matrix_html(measures)
-    standards_page = _standards_html(p, measures)
-    exclusions_page = _exclusions_html(p, measures)
-    commissioning_page = _commissioning_html(p, measures)
+    foreword_page = _ov_page(p, "foreword") or _foreword_html(p)
+    preliminaries_page = _ov_page(p, "preliminaries") or _preliminaries_html(p)
+    overheating_page = _ov_page(p, "overheating") or _overheating_html(p, measures)
+    scope_pages = ([_ov_page(p, "scope")] if _ov_page(p, "scope") else _scope_html(p, measures))
+    sequence_page = _ov_page(p, "sequence") or _sequence_html(p, measures)
+    matrix_page = _ov_page(p, "matrix") or _interaction_matrix_html(measures)
+    standards_page = _ov_page(p, "standards") or _standards_html(p, measures)
+    exclusions_page = _ov_page(p, "exclusions") or _exclusions_html(p, measures)
+    commissioning_page = _ov_page(p, "commissioning") or _commissioning_html(p, measures)
     summary_page = _design_summary_html(p, measures)
-    pages = [cover, summary_page, contents_page, *directory_pages,
-             *([heritage_page] if heritage_page else []), *site_pages, *([considerations_page] if considerations_page else []),
+    solar_page = _solar_html(p)
+    compliance_pages = _compliance_html(p, measures)
+    pages = [cover, summary_page, contents_page, foreword_page, *directory_pages,
+             *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
+             *site_pages, *([considerations_page] if considerations_page else []),
              ventilation_page, *([floorplan_page] if floorplan_page else []),
-             foreword_page, preliminaries_page, overheating_page, *custom_pages,
+             preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, sequence_page, matrix_page,
              measures_schedule_page, performance,
@@ -3796,6 +4111,18 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             if ad:
                 h0["_aerial_data"] = ad
         p["heritage"] = h0
+    sol = p.get("solar") or {}
+    if not sol.get("aerialImage"):
+        _la = (p.get("heritage") or {}).get("latitude")
+        _lo = (p.get("heritage") or {}).get("longitude")
+        if _la is not None and _lo is not None:
+            _s = await asyncio.to_thread(_solar_lookup_sync, _la, _lo)
+            if _s and _s.get("aerialImage"):
+                p["solar"] = _s
+                try:
+                    await db.projects.update_one({"id": project_id}, {"$set": {"solar": _s}})
+                except Exception:
+                    pass
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
     fp = p.get("floorPlan") or {}

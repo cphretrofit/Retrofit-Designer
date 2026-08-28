@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map, Satellite, FileEdit,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
@@ -17,6 +17,8 @@ import { SiteConditionsPanel } from "@/components/SiteConditionsPanel";
 import { CustomSectionsPanel } from "@/components/CustomSectionsPanel";
 import { VentilationPanel } from "@/components/VentilationPanel";
 import { FloorPlanPanel } from "@/components/FloorPlanPanel";
+import { SolarPanel } from "@/components/SolarPanel";
+import { NarrativePanel } from "@/components/NarrativePanel";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -727,6 +729,10 @@ export default function DesignWorkspace() {
         return <VentilationPanel projectId={id} initial={p.ventilation} onChange={(v) => setP((prev) => ({ ...prev, ventilation: v }))} />;
       case "floorplan":
         return <FloorPlanPanel projectId={id} initial={p.floorPlan} onChange={(fp) => setP((prev) => ({ ...prev, floorPlan: fp }))} />;
+      case "solar":
+        return <SolarPanel projectId={id} initial={p.solar} onChange={(v) => setP((prev) => ({ ...prev, solar: v }))} />;
+      case "narrative":
+        return <NarrativePanel projectId={id} initial={p.sectionOverrides} onChange={(v) => setP((prev) => ({ ...prev, sectionOverrides: v }))} />;
       case "drawings":
         return (
           <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -792,7 +798,7 @@ export default function DesignWorkspace() {
   const sectionTitle = activeMeasure ? activeMeasure.name : {
     overview: "Overview", "existing-construction": "Existing Construction", survey: "Survey", photos: "Survey Photos",
     specifications: "Specifications", junctions: "Junctions", calculations: "Calculations", risks: "Risks",
-    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections", details: "Project Details", ventilation: "Ventilation", floorplan: "Floor Plan",
+    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections", details: "Project Details", ventilation: "Ventilation", floorplan: "Floor Plan", solar: "Aerial & Solar", narrative: "Narrative Sections",
   }[section] || "Overview";
 
   return (
@@ -823,6 +829,8 @@ export default function DesignWorkspace() {
               <NavItem icon={FileText} label="Sections" section="sections" active={section} onClick={() => setSection("sections")} badge={(p.customSections?.length) || null} />
               <NavItem icon={Wind} label="Ventilation" section="ventilation" active={section} onClick={() => setSection("ventilation")} />
               <NavItem icon={Map} label="Floor Plan" section="floorplan" active={section} onClick={() => setSection("floorplan")} badge={(p.floorPlan?.markers?.length) || null} />
+              <NavItem icon={Satellite} label="Aerial & Solar" section="solar" active={section} onClick={() => setSection("solar")} />
+              <NavItem icon={FileEdit} label="Narrative" section="narrative" active={section} onClick={() => setSection("narrative")} badge={Object.keys(p.sectionOverrides || {}).length || null} />
             </NavGroup>
             <NavGroup title="Measures">
               {p.measures.map((m) => (

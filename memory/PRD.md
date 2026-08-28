@@ -63,6 +63,15 @@ One-page "Design Summary" (`_design_summary_html`) inserted right after the cove
 ### Phase 34 — Aerial heritage map (2026-06) [VERIFIED]
 Heritage page now shows a **street map (OSM)** and a **satellite aerial view (Esri World Imagery, zoom 18)** side by side, each with a red property marker and correct attribution. `_static_map_data_uri(lat, lon, zoom, provider)` generalised (`provider="osm"|"aerial"`; Esri tile order z/y/x). Render step caches `heritage._map_data` + `heritage._aerial_data`. Verified on 12 Marsh End (heritage page 7/48, both maps centred on Marsh End, Thame).
 
+### Phase 35 — Google Solar, cover map, PAS 2035 tables, Foreword-first, editable sections, matrix redesign (2026-06) [VERIFIED]
+Responding to a second pass on the gold-standard reference (9 Marion Roberts Court). All verified by PDF render on 12 Marsh End + workspace screenshots.
+- **Google Solar API** (`_solar_lookup_sync`, `GOOGLE_SOLAR_API_KEY` in backend/.env): Building Insights + Data Layers RGB (Pillow reads the GeoTIFF directly — no GDAL). New pack section **"Aerial & Solar Potential"** (aerial image + KPI cards: usable roof m², max panels, array kWp, annual kWh, max sunshine). Auto-fetched & cached to `project.solar` at render when heritage lat/lon exist; manual `POST /projects/{id}/solar/lookup`. New workspace **Aerial & Solar** panel.
+- **Cover aerial inset**: hero now shows a clean bottom-right inset (solar aerial → OSM aerial → OSM street map); when no property photo exists the aerial fills the hero instead of the dark "missing" panel.
+- **PAS 2035 Design & Compliance** (`_compliance_html`, 3 pages): Design-Stage Activities & Comments (designer/conflict/review/RC/traditional-building, data-driven), Scope of the Design (per-measure product/annex/sequence), Handover requirements matrix (EEM×requirement ticks), Building Ventilation Q&A. TOC 01.8.
+- **Foreword moved to the top** (first content page, right after cover/summary/contents; TOC 01.0). Rewrote the TOC assembly with `_ins_after` anchoring (also fixed a Phase-33 off-by-one that pushed heritage above "01").
+- **All narrative sections editable** (`sectionOverrides` on project + `_ov_page` + `_md_to_html`; `sectionOverrides` added to ALLOWED_PATCH_EXACT). New workspace **Narrative** panel edits Foreword/Preliminaries/Scope/Sequence/Matrix intro/Standards/Exclusions/Commissioning/Overheating — blank = smart default, "CUSTOM" badge when overridden, Default button reverts.
+- **Interaction matrix redesigned** to a clean triangular half-matrix (colour key, coloured family dots, numbered measures) + a Pairwise Interactions & Management table (`_interaction_note`).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.
