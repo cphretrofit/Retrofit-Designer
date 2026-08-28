@@ -1226,9 +1226,10 @@ Rules:
 - calculatedU is the AS-DESIGNED U-value. Set it to null unless the documents state an actual calculated/assessed as-built value that differs from the target. NEVER copy targetU into calculatedU.
 - epcBefore and epcAfter MUST be an EPC band with optional SAP score like "D (68)" or "C (72)", or "—" if unknown. Never write a sentence in these fields; put any explanation in itemsBeforeIssue instead.
 - Keep measures[].name concise (max ~22 characters).
-- defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a short description, severity (high|medium|low) and the remedial action required before install. Use [] if the documents mention none.
+- defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a clear description, the likely cause, the evidence observed (and photo/figure reference if any), severity (high|medium|low), the remedial action required before install, and the relevant clause/standard (PAS 2035, Building Regulations Part, BS). Use [] if the documents mention none.
 - people: extract the REAL names of the Retrofit Assessor, Retrofit Coordinator, Retrofit Designer, Installer (company or person) and Tenant/Resident from the job card, air-tightness strategy or assessment. Use "" for any not stated — NEVER invent a name.
 - ventilation: extract the ventilation requirements and strategy from the ADF1 ventilation checklist / job card. Populate rooms with each wet room (kitchen, bathroom, WC, utility) and its extract system + rate, plus the whole-dwelling and background (trickle/equivalent-area) provision. Use [] rooms if none stated.
+- siteConditionsFromDocs: from the JOB CARD / assessment TEXT (NOT photos), record any of these conditions the documents explicitly state: electric shower, recessed spotlights/downlights, stored items/boarding in loft, bathroom on an upper floor, ground floor type. Give present true/false (or value for floor_type), a short detail quoting where it is stated, and the source document name. Use [] where a condition is not stated in the documents. This complements the photo-based vision detection.
 
 Return this exact JSON shape:
 {
@@ -1257,9 +1258,10 @@ Return this exact JSON shape:
   "heatLoss": {"totalW": 0, "designFlowTemp": "", "rooms": [{"room":"","watts":0}]},
   "occupancy": "",
   "itemsBeforeIssue": [{"text":"...","measure":"CODE or QA","severity":"info_required|warning|critical"}],
-  "defects": [{"element":"e.g. 'External wall (north)'","description":"","severity":"high|medium|low","action":""}],
+  "defects": [{"element":"e.g. 'External wall (north)'","description":"","cause":"likely cause","evidence":"what was observed / figure ref","severity":"high|medium|low","action":"","clause":"relevant PAS 2035 / Building Regulation / BS clause"}],
   "people": {"assessor":"","coordinator":"","designer":"","installer":"","tenant":""},
-  "ventilation": {"strategy":"one-line overall ventilation strategy","wholeDwelling":"whole-dwelling approach","background":"background/trickle ventilation provision","rooms":[{"room":"e.g. 'Kitchen'","system":"e.g. 'Intermittent extract' or 'dMEV'","rate":"e.g. '30 l/s' or '13 l/s continuous'","note":""}],"notes":["strategy note"]}
+  "ventilation": {"strategy":"one-line overall ventilation strategy","wholeDwelling":"whole-dwelling approach","background":"background/trickle ventilation provision","rooms":[{"room":"e.g. 'Kitchen'","system":"e.g. 'Intermittent extract' or 'dMEV'","rate":"e.g. '30 l/s' or '13 l/s continuous'","note":""}],"notes":["strategy note"]},
+  "siteConditionsFromDocs": [{"key":"electric_shower","label":"Electric shower","present":true,"detail":"where/how stated","source":"Job Card"},{"key":"downlights","label":"Recessed spotlights / downlights","present":true,"detail":"","source":""},{"key":"loft_storage","label":"Stored items / boarding in loft","present":true,"detail":"","source":""},{"key":"bathroom_upstairs","label":"Bathroom on upper floor","present":true,"detail":"","source":""},{"key":"floor_type","label":"Ground floor type","value":"solid concrete | suspended timber | unknown","detail":"","source":""}]
 }
 
 Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
@@ -1438,6 +1440,44 @@ async def detect_site_conditions(vision_photos: list, extra_images=None, ptype: 
                          "fig": fig, "url": url, "source": source, "caption": fig_cap.get(fig)})
     sc["evidence"] = evidence
     sc["detectedAt"] = datetime.now(timezone.utc).isoformat()
+    return sc
+
+
+def _merge_doc_site_facts(sc, docfacts):
+    """Merge site conditions stated in the Job Card / assessment TEXT into the
+    (possibly photo-derived) site conditions, so nothing is dropped when there is
+    no interior photograph. Document facts fill any condition the photos could not
+    determine and are clearly labelled with their source."""
+    if not docfacts:
+        return sc
+    sc = sc or {"property_type": "", "evidence": []}
+    ev = sc.get("evidence") or []
+    by_key = {e.get("key"): e for e in ev}
+    for f in docfacts:
+        k = f.get("key")
+        if not k:
+            continue
+        existing = by_key.get(k)
+        conclusive = existing and (existing.get("present") in (True, False) or (existing.get("value") and existing.get("value") != "unknown"))
+        if k == "floor_type":
+            cur = sc.get("floor_type")
+            if f.get("value") and (not cur or cur == "unknown"):
+                sc["floor_type"] = f.get("value")
+        elif f.get("present") is not None and not (existing and existing.get("present") is not None):
+            sc[k] = f.get("present")
+        if conclusive:
+            continue
+        src = f.get("source") or "Job Card / assessment"
+        entry = {"key": k, "label": f.get("label") or (existing or {}).get("label") or k,
+                 "present": f.get("present"), "value": f.get("value"),
+                 "detail": f.get("detail") or "", "reasoning": f.get("detail") or "",
+                 "confidence": "", "fig": "", "url": None, "source": src}
+        if existing:
+            existing.update(entry)
+        else:
+            ev.append(entry)
+            by_key[k] = entry
+    sc["evidence"] = ev
     return sc
 
 
@@ -1680,6 +1720,7 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
         "windowSchedule": ai.get("windowSchedule") or [],
         "heatLoss": ai.get("heatLoss") or None,
         "ventilation": ai.get("ventilation") or None,
+        "siteConditionsFromDocs": ai.get("siteConditionsFromDocs") or [],
         "property": {
             "type": prop_in.get("type") or "—", "age": prop_in.get("age") or "—",
             "floorArea": prop_in.get("floorArea") or "—", "storeys": prop_in.get("storeys") or 1,
@@ -1908,6 +1949,7 @@ async def run_import_job(job_id: str):
         try:
             ptype = (project.get("property") or {}).get("type") or ""
             sc = await detect_site_conditions(vision_photos, page_images_b64, ptype)
+            sc = _merge_doc_site_facts(sc, project.get("siteConditionsFromDocs"))
             if sc:
                 project.setdefault("property", {})["siteConditions"] = sc
         except Exception as e:
@@ -2439,14 +2481,14 @@ PACK_CSS = """
 @page { size: A4; margin: 0; }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
-.page { position: relative; width: 210mm; height: 297mm; padding: 18mm 18mm 16mm; page-break-after: always; overflow: hidden; }
+.page { position: relative; width: 210mm; height: 297mm; padding: 18mm 18mm 22mm; page-break-after: always; overflow: hidden; }
 .page:last-child { page-break-after: auto; }
 .mono { font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
 .muted { color: #737373; } .faint { color: #a3a3a3; }
 .disp { font-weight: 300; letter-spacing: -0.02em; }
 .rule { border-top: 1px solid #171717; } .hr { border-top: 1px solid #e5e5e5; }
 .upper { text-transform: uppercase; letter-spacing: 0.16em; }
-.foot { position: absolute; left: 18mm; right: 18mm; bottom: 10mm; display: flex; justify-content: space-between; border-top: 1px solid #e5e5e5; padding-top: 6px; font-size: 8px; color: #a3a3a3; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
+.foot { position: absolute; left: 18mm; right: 18mm; bottom: 11mm; display: flex; justify-content: space-between; border-top: 1px solid #e5e5e5; padding-top: 6px; font-size: 8px; color: #a3a3a3; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
 .brandmark { width: 26px; height: 26px; border: 1px solid #171717; display: inline-block; position: relative; vertical-align: middle; }
 .brandmark i { position: absolute; width: 10px; height: 10px; border: 1.5px solid #171717; transform: rotate(45deg); top: 6px; left: 6px; }
 .chip { display: inline-block; border: 1px solid #d4d4d4; color: #525252; font-size: 9px; padding: 4px 8px; margin: 0 6px 6px 0; text-transform: uppercase; letter-spacing: 0.06em; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
@@ -2480,12 +2522,28 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     chips = "".join(f'<span class="chip">{_esc(m.get("name"))}</span>' for m in measures)
     tpl_line = (f'<div class="mono faint upper" style="font-size:9px; margin-top:12px;">Prepared to template · {_esc(p.get("templateName"))}</div>'
                 if p.get("templateName") else "")
+    _brand_overlay = (
+        '<div style="position:absolute; top:14mm; left:18mm; right:18mm; display:flex; justify-content:space-between; align-items:center; z-index:2;">'
+        '<div><span style="display:inline-block; width:26px; height:26px; border:1.5px solid #fff; position:relative; vertical-align:middle;"><i style="position:absolute; width:10px; height:10px; border:1.5px solid #fff; transform:rotate(45deg); top:6px; left:6px;"></i></span>'
+        '<span style="display:inline-block; vertical-align:middle; margin-left:10px; line-height:1.1; color:#fff;"><span style="font-weight:800; font-size:13px; letter-spacing:-0.01em;">ORTHOGRAPH</span><br><span style="font-size:8px; letter-spacing:0.24em; opacity:0.82;">RETROFIT DESIGN</span></span></div>'
+        '<span class="mono" style="font-size:10px; color:#fff; opacity:0.85;">PAS 2035:2023</span></div>')
+    _title_overlay = (
+        f'<div style="position:absolute; left:18mm; right:18mm; bottom:15mm; z-index:2; color:#fff;">'
+        f'<div class="upper" style="font-size:11px; letter-spacing:0.3em; opacity:0.85;">Retrofit Design</div>'
+        f'<div class="disp" style="font-size:50px; line-height:0.98; margin-top:10px; text-shadow:0 1px 30px rgba(0,0,0,0.45);">{name}</div>'
+        f'<div style="font-size:16px; margin-top:9px; opacity:0.92;">{town}</div></div>')
     if hero_uri and hero_is_property:
-        hero_html = f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; margin-top:22px;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.05);"></div>'
+        hero_full = ('<div style="position:absolute; top:0; left:0; right:0; height:162mm; overflow:hidden;">'
+                     f'<img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover;">'
+                     '<div style="position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(180deg, rgba(10,12,16,0.55) 0%, rgba(10,12,16,0.10) 38%, rgba(10,12,16,0.74) 100%);"></div>'
+                     f'{_brand_overlay}{_title_overlay}</div>')
     else:
-        hero_html = ('<div style="height:150px; border:1px dashed #DC2626; margin-top:22px; display:flex; align-items:center; justify-content:center; text-align:center; background:#fef2f2;">'
-                     '<div><div style="font-size:11px; color:#DC2626; font-weight:600; letter-spacing:0.02em;">&#9888; PROPERTY PHOTOGRAPH MISSING</div>'
-                     '<div style="font-size:9px; color:#b91c1c; margin-top:4px;">Upload the assessment survey photos to complete the front cover.</div></div></div>')
+        hero_full = ('<div style="position:absolute; top:0; left:0; right:0; height:162mm; overflow:hidden; background:#0f172a;">'
+                     '<div style="position:absolute; top:0; left:0; right:0; bottom:0; background:linear-gradient(160deg,#1f2937 0%,#0f172a 70%);"></div>'
+                     f'{_brand_overlay}{_title_overlay}'
+                     '<div style="position:absolute; left:18mm; top:64mm; right:18mm; border:1px dashed #f87171; background:rgba(220,38,38,0.16); padding:11px 15px; z-index:2;">'
+                     '<div style="font-size:11px; color:#fecaca; font-weight:600; letter-spacing:0.02em;">&#9888; PROPERTY PHOTOGRAPH MISSING</div>'
+                     '<div style="font-size:9px; color:#fecaca; opacity:0.85; margin-top:3px;">Upload the assessment survey photos to complete the front cover.</div></div></div>')
     signoff = [("Designer", p.get("designer")), ("Coordinator", p.get("coordinator")), ("Date Issued", issued_date)]
     signoff_cells = "".join(
         f'<div style="display:inline-block; vertical-align:top; margin-right:34px;"><div class="faint upper" style="font-size:9px;">{_esc(k)}</div>'
@@ -2493,23 +2551,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     qr_block = (f'<div style="position:absolute; right:0; top:-6px; text-align:center;"><img src="{qr_uri}" style="width:68px; height:68px;">'
                 f'<div class="faint mono" style="font-size:7.5px; margin-top:3px; letter-spacing:0.05em;">SCAN · LIVE PROJECT</div></div>' if qr_uri else "")
     cover = f'''
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <div><span class="brandmark"><i></i></span>
-          <span style="display:inline-block; vertical-align:middle; margin-left:10px; line-height:1.1;">
-            <span style="font-weight:800; font-size:13px; letter-spacing:-0.01em;">ORTHOGRAPH</span><br>
-            <span class="faint" style="font-size:8px; letter-spacing:0.24em;">RETROFIT DESIGN</span></span></div>
-        <span class="mono faint" style="font-size:10px;">PAS 2035:2023</span>
-      </div>
-      <div style="margin-top:46px;">
-        <div class="faint upper" style="font-size:11px; letter-spacing:0.3em;">Retrofit Design</div>
-        <div class="disp" style="font-size:52px; line-height:0.98; margin-top:10px;">{name}</div>
-        <div class="muted" style="font-size:17px; margin-top:8px;">{town}</div>
-      </div>
-      {hero_html}
-      <div style="position:absolute; left:18mm; right:18mm; bottom:22mm;">
+      {hero_full}
+      <div style="position:absolute; left:18mm; right:18mm; top:174mm;">
         <div class="rule" style="padding-top:14px;">{meta_cells}</div>
-        <div style="margin-top:18px; position:relative; min-height:66px;">{signoff_cells}{qr_block}</div>
-        <div style="margin-top:6px;">{chips}</div>
+        <div style="margin-top:20px; position:relative; min-height:66px;">{signoff_cells}{qr_block}</div>
+        <div style="margin-top:16px;">{chips}</div>
         {tpl_line}
       </div>'''
 
@@ -2962,12 +3008,19 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             col = DSEV.get(sv, "#B45309")
             img_html = (f'<div style="margin-bottom:6px;"><img src="{d["_photo_data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;"></div>'
                         if d.get("_photo_data") else "")
-            drows += (f'<tr><td class="mono faint" style="width:6%;">{str(i + 1).zfill(2)}</td>'
-                      f'<td style="width:20%; color:#262626;">{_esc(d.get("element") or "—")}</td>'
-                      f'<td>{img_html}{_esc(d.get("description") or "—")}</td>'
-                      f'<td style="width:14%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:6px; vertical-align:middle;"></span>'
+            extra = ""
+            if d.get("cause"):
+                extra += f'<div style="font-size:10px; color:#666; margin-top:4px; line-height:1.4;"><span class="faint upper" style="font-size:7.5px; letter-spacing:0.1em; margin-right:6px;">Cause</span>{_esc(d.get("cause"))}</div>'
+            if d.get("evidence"):
+                extra += f'<div style="font-size:10px; color:#666; margin-top:2px; line-height:1.4;"><span class="faint upper" style="font-size:7.5px; letter-spacing:0.1em; margin-right:6px;">Evidence</span>{_esc(d.get("evidence"))}</div>'
+            if d.get("clause"):
+                extra += f'<div class="mono faint" style="font-size:9px; margin-top:4px;">{_esc(d.get("clause"))}</div>'
+            drows += (f'<tr><td class="mono faint" style="width:6%; vertical-align:top; padding-top:10px;">{str(i + 1).zfill(2)}</td>'
+                      f'<td style="width:19%; color:#262626; vertical-align:top; padding-top:10px;">{_esc(d.get("element") or "—")}</td>'
+                      f'<td style="vertical-align:top;">{img_html}<div style="color:#262626;">{_esc(d.get("description") or "—")}</div>{extra}</td>'
+                      f'<td style="width:12%; vertical-align:top; padding-top:10px;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:6px; vertical-align:middle;"></span>'
                       f'<span style="font-size:10px; color:{col};">{DLBL.get(sv, sv)}</span></td>'
-                      f'<td class="muted" style="width:26%; font-size:10.5px;">{_esc(d.get("action") or "To be confirmed")}</td></tr>')
+                      f'<td class="muted" style="width:26%; font-size:10.5px; vertical-align:top; padding-top:10px; line-height:1.45;">{_esc(d.get("action") or "To be confirmed")}</td></tr>')
         defects_body = ('<div class="muted" style="font-size:11px; margin-top:8px;">'
                         f'{len(defects)} defect(s) / condition observation(s) recorded during the retrofit assessment — to be resolved prior to installation.</div>'
                         '<table style="margin-top:18px;"><thead><tr><th style="width:6%;">#</th><th style="width:20%;">Element</th><th>Defect / Observation</th><th style="width:14%;">Severity</th><th style="width:26%;">Remedial Action</th></tr></thead>'
@@ -2988,8 +3041,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             verdict = _esc(val) if val else ("Present" if present is True else ("Not present" if present is False else "Not visible — confirm on site"))
             flag = present is True and e.get("key") in ("electric_shower", "downlights", "loft_storage")
             vcol = "#DC2626" if flag else ("#16A34A" if present is False else "#262626")
-            img = (f'<div style="width:130px; height:92px; border:1px solid #e5e5e5; overflow:hidden; flex-shrink:0;"><img src="{e["_data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
-                   if e.get("_data") else '<div style="width:130px; height:92px; border:1px dashed #e5e5e5; flex-shrink:0;"></div>')
+            if e.get("_data"):
+                img = f'<div style="width:130px; height:92px; border:1px solid #e5e5e5; overflow:hidden; flex-shrink:0;"><img src="{e["_data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
+            elif e.get("source"):
+                img = ('<div style="width:130px; height:92px; border:1px solid #e5e5e5; background:#f7f8fa; flex-shrink:0; display:flex; align-items:center; justify-content:center; text-align:center;">'
+                       '<span class="faint upper" style="font-size:8px; letter-spacing:0.1em; line-height:1.5;">Recorded in<br>assessment</span></div>')
+            else:
+                img = '<div style="width:130px; height:92px; border:1px dashed #e5e5e5; flex-shrink:0;"></div>'
             conf = e.get("confidence") or ""
             fig = e.get("fig")
             meta = ""
@@ -2997,6 +3055,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 meta += f'<span class="mono faint" style="font-size:8.5px;">FIG {_esc(fig)}</span>'
             if conf:
                 meta += f'<span class="mono" style="font-size:8px; color:#999; margin-left:6px;">{_esc(conf)} confidence</span>'
+            if e.get("source") and not fig:
+                meta += f'<span class="mono" style="font-size:8px; color:#0055FF; margin-left:6px;">Source &middot; {_esc(e.get("source"))}</span>'
             cards += (f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img}'
                       f'<div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
                       f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(e.get("label"))}</span>'
@@ -3126,6 +3186,10 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     p = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
+    _scdocs = p.get("siteConditionsFromDocs")
+    if _scdocs:
+        _sc0 = (p.get("property") or {}).get("siteConditions")
+        p.setdefault("property", {})["siteConditions"] = _merge_doc_site_facts(_sc0, _scdocs)
     photos = [ph for ph in ((p.get("designPack") or {}).get("photos") or []) if ph.get("included", True)]
     photos.sort(key=lambda ph: ph.get("order", 1e9))
     photo_uris = []
@@ -3133,14 +3197,22 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         u = ph.get("url") or ""
         data = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
         photo_uris.append({**ph, "data": data})
+    def _is_doc_img(ph):
+        cap = (ph.get("caption") or "").lower()
+        url = (ph.get("url") or "").lower()
+        t = cap + " " + url
+        return any(k in t for k in ("epc", "certificate", "energy performance", "energy rating",
+                                    "floor plan", "floorplan", "site plan", "location plan",
+                                    "datasheet", "scope of works", "job card", "bar chart"))
+    _real = [ph for ph in photo_uris if not _is_doc_img(ph)]
     hero_uri = None
-    for ph in photo_uris:
+    for ph in _real:
         t = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
-        if any(k in t for k in ("front", "elevation", "frontage", "street", "property", "dwelling", "facade")):
+        if any(k in t for k in ("front", "elevation", "frontage", "street", "property", "dwelling", "facade", "exterior")):
             hero_uri = ph.get("data")
             break
-    if not hero_uri and photo_uris:
-        hero_uri = photo_uris[0].get("data")
+    if not hero_uri and _real:
+        hero_uri = _real[0].get("data")
     hero_is_property = hero_uri is not None
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
