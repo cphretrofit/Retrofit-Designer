@@ -3028,6 +3028,67 @@ def _design_summary_html(p, measures):
 
 
 
+def _sq_jpeg(im, px=900, q=82):
+    w, h = im.size
+    side = min(w, h)
+    im = im.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
+    if im.width > px:
+        im = im.resize((px, px))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=q)
+    return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+
+
+def _flux_overlay(rgb_im, flux_b, mask_b):
+    if not flux_b:
+        return None
+    try:
+        import numpy as np
+        from PIL import Image
+        W, H = rgb_im.size
+        flux = np.array(Image.open(io.BytesIO(flux_b))).astype("float32").byteswap()
+        flux[~np.isfinite(flux)] = 0.0
+        f = np.array(Image.fromarray(flux).resize((W, H)))
+        if mask_b:
+            m = np.array(Image.open(io.BytesIO(mask_b)).convert("L").resize((W, H)))
+            roof = m > 0
+        else:
+            roof = f > 0
+        vv = f[roof & (f > 0)]
+        if vv.size < 20:
+            return None
+        lo, hi = float(np.percentile(vv, 5)), float(np.percentile(vv, 95))
+        t = np.clip((f - lo) / max(hi - lo, 1e-6), 0, 1)
+        xs = np.array([0.0, 0.35, 0.6, 1.0])
+        rc = np.array([33, 30, 245, 200]); gc = np.array([60, 160, 210, 40]); bc = np.array([150, 120, 50, 30])
+        r = np.interp(t, xs, rc); g = np.interp(t, xs, gc); b = np.interp(t, xs, bc)
+        base = np.array(rgb_im).astype("float32")
+        alpha = np.where(roof, 0.62, 0.0)[..., None]
+        color = np.stack([r, g, b], axis=-1)
+        out = base * (1 - alpha) + color * alpha
+        return Image.fromarray(out.astype("uint8"), "RGB")
+    except Exception as e:
+        logger.warning("flux overlay failed: %s", e)
+        return None
+
+
+def _crop_hero_banner(data_uri, top=0.19, bottom=0.10):
+    """Crop the burnt-in surveyor banners (elevation label / GPS / timestamp) off a cover photo."""
+    if not data_uri or not str(data_uri).startswith("data:"):
+        return data_uri
+    try:
+        from PIL import Image
+        _, b64 = data_uri.split(",", 1)
+        im = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
+        w, h = im.size
+        im = im.crop((0, int(h * top), w, int(h * (1 - bottom))))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=84)
+        return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    except Exception:
+        return data_uri
+
+
 def _solar_lookup_sync(lat, lon):
     key = os.environ.get("GOOGLE_SOLAR_API_KEY")
     if not key or lat is None or lon is None:
@@ -3062,21 +3123,22 @@ def _solar_lookup_sync(lat, lon):
         dl = requests.get(f"{base}/dataLayers:get", params={**common, "radiusMeters": 55,
                           "view": "IMAGERY_AND_ANNUAL_FLUX_LAYERS", "pixelSizeMeters": 0.25}, timeout=(3.05, 30))
         if dl.status_code == 200:
-            rgb = (dl.json() or {}).get("rgbUrl")
-            if rgb:
-                sep = "&" if "?" in rgb else "?"
-                tif = requests.get(f"{rgb}{sep}key={key}", timeout=(3.05, 60))
-                if tif.status_code == 200:
-                    from PIL import Image
-                    im = Image.open(io.BytesIO(tif.content)).convert("RGB")
-                    w, h = im.size
-                    side = min(w, h)
-                    im = im.crop(((w - side) // 2, (h - side) // 2, (w + side) // 2, (h + side) // 2))
-                    if im.width > 900:
-                        im = im.resize((900, 900))
-                    buf = io.BytesIO()
-                    im.save(buf, "JPEG", quality=82)
-                    out["aerialImage"] = f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+            layers = dl.json() or {}
+            from PIL import Image
+
+            def _dl(u):
+                if not u:
+                    return None
+                sep = "&" if "?" in u else "?"
+                r = requests.get(f"{u}{sep}key={key}", timeout=(3.05, 60))
+                return r.content if r.status_code == 200 else None
+            rgb_b = _dl(layers.get("rgbUrl"))
+            if rgb_b:
+                im = Image.open(io.BytesIO(rgb_b)).convert("RGB")
+                out["aerialImage"] = _sq_jpeg(im)
+                fim = _flux_overlay(im, _dl(layers.get("annualFluxUrl")), _dl(layers.get("maskUrl")))
+                if fim is not None:
+                    out["fluxImage"] = _sq_jpeg(fim)
     except Exception as e:
         logger.warning("solar imagery failed: %s", e)
     return out if (out.get("aerialImage") or out.get("maxArrayPanelsCount")) else None
@@ -3096,14 +3158,29 @@ def _solar_html(p):
     img = ""
     if s.get("aerialImage"):
         d = s.get("imageryDate") or {}
-        cap = "Aerial roof imagery &copy; Google Solar API"
+        cap = "&copy; Google Solar API"
         if isinstance(d, dict) and d.get("year"):
-            cap += f' &middot; captured {d.get("year")}'
+            cap += f' &middot; {d.get("year")}'
         if s.get("imageryQuality"):
-            cap += f' &middot; {_esc(str(s.get("imageryQuality")).title())} resolution'
-        img = ('<div style="width:100%; max-width:118mm; border:1px solid #e5e5e5; overflow:hidden; margin-top:6px;">'
-               f'<img src="{s["aerialImage"]}" style="width:100%; display:block;"></div>'
-               f'<div class="mono faint" style="font-size:8px; margin-top:5px;">{cap}</div>')
+            cap += f' &middot; {_esc(str(s.get("imageryQuality")).title())} res'
+        if s.get("fluxImage"):
+            img = ('<table style="width:100%; margin-top:6px;"><tr>'
+                   '<td style="border:0; padding:0 5px 0 0; width:50%; vertical-align:top;">'
+                   '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">AERIAL VIEW</div>'
+                   f'<div style="border:1px solid #e5e5e5; overflow:hidden;"><img src="{s["aerialImage"]}" style="width:100%; display:block;"></div></td>'
+                   '<td style="border:0; padding:0 0 0 5px; width:50%; vertical-align:top;">'
+                   '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">ANNUAL SOLAR FLUX</div>'
+                   f'<div style="border:1px solid #e5e5e5; overflow:hidden;"><img src="{s["fluxImage"]}" style="width:100%; display:block;"></div></td>'
+                   '</tr></table>'
+                   '<table style="width:118mm; margin-top:7px;"><tr>'
+                   '<td style="border:0; padding:0; width:34px;"><span class="faint mono" style="font-size:8px;">LOW</span></td>'
+                   '<td style="border:0; padding:0;"><div style="height:7px; background:linear-gradient(90deg,#213C96,#1EA078,#F5D232,#C8281E);"></div></td>'
+                   '<td style="border:0; padding:0 0 0 8px; width:70px; text-align:right;"><span class="faint mono" style="font-size:8px;">HIGH kWh/yr</span></td></tr></table>'
+                   f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Aerial &amp; modelled annual solar flux {cap} &middot; flux shown on detected roof only</div>')
+        else:
+            img = ('<div style="width:100%; max-width:118mm; border:1px solid #e5e5e5; overflow:hidden; margin-top:6px;">'
+                   f'<img src="{s["aerialImage"]}" style="width:100%; display:block;"></div>'
+                   f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Aerial roof imagery {cap}</div>')
 
     def _stat(label, val, unit=""):
         return (f'<div style="border:1px solid #e5e5e5; padding:12px 13px; min-height:74px;">'
@@ -3181,6 +3258,50 @@ def _kv_table(rows, w1="34%"):
     body = "".join(f'<tr><td style="width:{w1}; color:#262626; vertical-align:top;">{k}</td>'
                    f'<td class="muted" style="font-size:10.5px; line-height:1.55; vertical-align:top;">{v}</td></tr>' for k, v in rows)
     return f'<table>{body}</table>'
+
+
+def _eem_requirements_html(measures):
+    fams = {_mfam(m.get("code"), m.get("name")) for m in measures}
+    cols = [f for f in ["WALL", "LOFT", "FLOOR", "WIN", "ASHP", "SOLAR", "VENT"] if f in fams]
+    FLBL = {"WALL": "Wall", "LOFT": "Loft", "FLOOR": "Floor", "WIN": "Glazing", "ASHP": "ASHP", "SOLAR": "PV", "VENT": "Vent"}
+    REQS = [
+        ("Detailed floor plan showing where insulation EEMs are installed", {"WALL", "LOFT", "FLOOR"}),
+        ("Thermal-bridge mitigation details &amp; locations (annotated photos/drawings)", {"WALL", "LOFT", "FLOOR", "WIN"}),
+        ("Airtightness &amp; air-leakage testing strategy", {"WALL", "LOFT", "FLOOR", "WIN", "VENT"}),
+        ("Crossflow ventilation calculations (loft / underfloor void)", {"LOFT", "FLOOR"}),
+        ("Loft hatch insulation &amp; draught-proofing", {"LOFT"}),
+        ("Sloping insulation &amp; ventilation detail", {"LOFT"}),
+        ("Floor plan of main plant (heat pump, cylinder, controls)", {"ASHP"}),
+        ("Location of heat emitters / top-up heating", {"ASHP"}),
+        ("Heat-loss / heat-generation &amp; efficiency calculations", {"ASHP"}),
+        ("Noise assessment calculations (MCS 020)", {"ASHP"}),
+        ("Roof plan, orientation, performance &amp; structural calculations", {"SOLAR"}),
+        ("Ventilation strategy &amp; wet-room extract schedule", {"VENT"}),
+    ]
+    if not cols:
+        inner = _para("Measure-specific design requirements will be confirmed once the measure schedule is finalised.")
+        return _np("PAS 2035:2023 &middot; EEM Requirements", "EEM-Specific Design Requirements", inner)
+    head = '<th style="width:52%;">EEM-specific design requirement</th>' + "".join(f'<th style="text-align:center;">{FLBL[f]}</th>' for f in cols)
+    rows = ""
+    for label, applies in REQS:
+        if not (applies & fams):
+            continue
+        tds = ""
+        for f in cols:
+            if f in applies:
+                tds += '<td style="text-align:center; background:#DC2626; border:2px solid #fff;">&nbsp;</td>'
+            else:
+                tds += '<td style="text-align:center; background:#f5f5f5; border:2px solid #fff;">&nbsp;</td>'
+        rows += f'<tr><td style="color:#262626; font-size:10.5px;">{label}</td>{tds}</tr>'
+    grid = f'<table style="border-collapse:separate; border-spacing:0;"><thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>'
+    legend = ('<div style="display:flex; gap:18px; margin-top:14px;">'
+              '<div style="display:flex; align-items:center; gap:7px;"><span style="width:14px; height:14px; background:#DC2626; display:inline-block; border-radius:2px;"></span>'
+              '<span style="font-size:9.5px; color:#525252;">Required for this measure</span></div>'
+              '<div style="display:flex; align-items:center; gap:7px;"><span style="width:14px; height:14px; background:#f5f5f5; border:1px solid #e5e5e5; display:inline-block; border-radius:2px;"></span>'
+              '<span style="font-size:9.5px; color:#525252;">Not applicable</span></div></div>')
+    return _np("PAS 2035:2023 &middot; EEM Requirements", "EEM-Specific Design Requirements",
+               grid + legend,
+               "The design requirements that apply to each proposed measure (PAS 2035:2023). A filled cell indicates the requirement is addressed for that measure within this design.")
 
 
 def _compliance_html(p, measures):
@@ -3266,7 +3387,7 @@ def _compliance_html(p, measures):
                 + handover_tbl
                 + '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Building Ventilation</div>'
                 + vent_qa)
-    return [page1, page2, page3]
+    return [page1, page2, page3, _eem_requirements_html(measures)]
 
 
 
@@ -4100,6 +4221,8 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     if not hero_uri and _real:
         hero_uri = _real[0].get("data")
     hero_is_property = hero_uri is not None
+    if hero_is_property:
+        hero_uri = _crop_hero_banner(hero_uri)
     h0 = p.get("heritage") or {}
     if h0.get("latitude") is not None and h0.get("longitude") is not None:
         if not h0.get("_map_data"):
@@ -4167,11 +4290,97 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     return p, html
 
 
+async def _collect_source_docs(project_id: str):
+    out, seen = [], set()
+    try:
+        recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
+                "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Solar", "Scope of Works",
+                                     "Assessment", "Heat Pump Report", "Report", "Certificate"]}}, {"_id": 0}).to_list(20)
+        proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1})
+        cname = (proj or {}).get("client")
+        if cname:
+            cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(cname)}$", "$options": "i"}})
+            if cl:
+                recs += await db.documents.find({"client_id": cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(20)
+        for d in recs:
+            sp = d.get("storage_path")
+            if not sp or sp in seen:
+                continue
+            seen.add(sp)
+            fn = (d.get("original_filename") or "").lower()
+            ct = d.get("content_type") or ""
+            if not (fn.endswith(".pdf") or fn.endswith((".png", ".jpg", ".jpeg", ".webp")) or "pdf" in ct or "image" in ct):
+                continue
+            try:
+                data, ct2 = await asyncio.to_thread(get_object, sp)
+            except Exception:
+                continue
+            out.append({"name": d.get("original_filename") or "Document", "type": d.get("doc_type") or "", "data": data, "ct": ct2 or ct})
+    except Exception as e:
+        logger.warning("collect source docs failed: %s", e)
+    return out[:12]
+
+
+def _merge_appendix(pdf_bytes, docs):
+    try:
+        import pymupdf
+    except Exception:
+        try:
+            import fitz as pymupdf
+        except Exception:
+            return pdf_bytes
+    try:
+        main = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return pdf_bytes
+
+    def divider(title, sub):
+        pg = main.new_page(width=595, height=842)
+        pg.insert_text((54, 110), sub.upper(), fontsize=8, color=(0.64, 0.64, 0.64))
+        pg.insert_text((54, 140), (title or "Document")[:60], fontsize=20, color=(0.09, 0.09, 0.09))
+        pg.draw_line((54, 152), (541, 152), color=(0.9, 0.9, 0.9))
+
+    added = 0
+    try:
+        divider("Bound Source Documents", "Appendix B")
+        for d in docs:
+            if added > 150:
+                break
+            name, data, ct = d["name"], d["data"], (d.get("ct") or "")
+            if name.lower().endswith(".pdf") or "pdf" in ct:
+                try:
+                    src = pymupdf.open(stream=data, filetype="pdf")
+                    divider(name, f"Source Document \u00b7 {d.get('type', '')}")
+                    n = min(src.page_count, 80)
+                    main.insert_pdf(src, from_page=0, to_page=n - 1)
+                    added += n
+                    src.close()
+                except Exception:
+                    continue
+            else:
+                try:
+                    divider(name, f"Source Document \u00b7 {d.get('type', '')}")
+                    pg = main.new_page(width=595, height=842)
+                    pg.insert_image(pymupdf.Rect(40, 40, 555, 802), stream=data, keep_proportion=True)
+                    added += 1
+                except Exception:
+                    continue
+        return main.tobytes()
+    except Exception as e:
+        logger.warning("merge appendix failed: %s", e)
+        return pdf_bytes
+    finally:
+        main.close()
+
+
 @api_router.get("/projects/{project_id}/pack.pdf")
 async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
     p, html = await _render_pack_html(project_id, origin)
     from weasyprint import HTML
     pdf = await asyncio.to_thread(lambda: HTML(string=html).write_pdf())
+    docs = await _collect_source_docs(project_id)
+    if docs:
+        pdf = await asyncio.to_thread(_merge_appendix, pdf, docs)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})

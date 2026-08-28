@@ -72,6 +72,13 @@ Responding to a second pass on the gold-standard reference (9 Marion Roberts Cou
 - **All narrative sections editable** (`sectionOverrides` on project + `_ov_page` + `_md_to_html`; `sectionOverrides` added to ALLOWED_PATCH_EXACT). New workspace **Narrative** panel edits Foreword/Preliminaries/Scope/Sequence/Matrix intro/Standards/Exclusions/Commissioning/Overheating — blank = smart default, "CUSTOM" badge when overridden, Default button reverts.
 - **Interaction matrix redesigned** to a clean triangular half-matrix (colour key, coloured family dots, numbered measures) + a Pairwise Interactions & Management table (`_interaction_note`).
 
+### Phase 36 — Cover banner crop, EEM grid, bound source docs, solar flux heatmap (2026-06) [VERIFIED]
+All verified by PDF render on 12 Marsh End.
+- **Cover overlay fix**: `_crop_hero_banner` trims the surveyor's burnt-in banners (elevation label top, GPS/compass/timestamp) off the cover photo (top 19% / bottom 10%) before it becomes the hero — brand overlay and title no longer collide.
+- **EEM-Specific Design Requirements grid** (`_eem_requirements_html`): reference-style measure×requirement grid with red-filled cells where a requirement applies; appended to the PAS 2035 Design & Compliance set.
+- **Bound source documents (Appendix B)**: `export_pack_pdf` now merges the project's real source PDFs/images (heat-pump report, solar calcs, BBA/datasheets, surveys) after the WeasyPrint pack using pymupdf (`_collect_source_docs` + `_merge_appendix`), each behind a divider page. 12 Marsh End pack = 53 design pages + ~74 bound appendix pages = 127pp. NOTE: bound appendix pages keep their own numbering; the @page "/53" footer counts only the design pack (WeasyPrint doc), not the pymupdf-appended docs — by design, matches gold-standard bound docs.
+- **Solar flux heatmap**: `_solar_lookup_sync` now also fetches annualFlux + mask GeoTIFFs; `_flux_overlay` byteswaps the float32 flux (fixes denormal read), colourmaps blue→red and composites onto detected roof pixels. Aerial & Solar page shows aerial + flux side-by-side with a gradient legend. `solar.fluxImage` cached.
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.
