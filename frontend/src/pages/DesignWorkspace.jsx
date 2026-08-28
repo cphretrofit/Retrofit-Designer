@@ -19,6 +19,7 @@ import { VentilationPanel } from "@/components/VentilationPanel";
 import { FloorPlanPanel } from "@/components/FloorPlanPanel";
 import { SolarPanel } from "@/components/SolarPanel";
 import { NarrativePanel } from "@/components/NarrativePanel";
+import { MeasureEvidence } from "@/components/MeasureEvidence";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -106,7 +107,7 @@ function EditableCell({ value, onSave, numeric = false, align = "left", testid, 
   );
 }
 
-function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
+function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField }) {
   const fp = (suffix) => `measures.${mi}.${suffix}`;
   const buildup = m.buildup || [];
   const products = m.products || [];
@@ -332,6 +333,8 @@ function MeasureDetail({ m, mi, onJunctionSave, onSaveField }) {
           </div>
         </section>
       )}
+
+      <MeasureEvidence projectId={projectId} mi={mi} m={m} onSaveField={onSaveField} />
     </div>
   );
 }
@@ -518,7 +521,7 @@ export default function DesignWorkspace() {
     toast.success(`${name} detail resolved`, { description: "Design check updated." });
   };
 
-  const saveField = async (path, value) => {
+  const saveField = async (path, value, silent = false) => {
     await updateField(id, { path, value });
     setP((prev) => {
       const n = structuredClone(prev);
@@ -528,7 +531,7 @@ export default function DesignWorkspace() {
       o[parts[parts.length - 1]] = value;
       return n;
     });
-    toast.success("Saved", { description: "Design value updated." });
+    if (!silent) toast.success("Saved", { description: "Design value updated." });
   };
   const savePhotos = async (next) => {
     setP((prev) => { const n = structuredClone(prev); n.designPack.photos = next; return n; });
@@ -537,7 +540,7 @@ export default function DesignWorkspace() {
 
   const ewi = p.measures.find((m) => m.code === "EWI");
   const renderCenter = () => {
-    if (activeMeasure) return <MeasureDetail m={activeMeasure} mi={p.measures.indexOf(activeMeasure)} onJunctionSave={onJunctionSave} onSaveField={saveField} />;
+    if (activeMeasure) return <MeasureDetail m={activeMeasure} mi={p.measures.indexOf(activeMeasure)} projectId={id} onJunctionSave={onJunctionSave} onSaveField={saveField} />;
     switch (section) {
       case "overview":
         return <MeasureCards measures={p.measures} onOpen={setSection} />;
@@ -653,7 +656,7 @@ export default function DesignWorkspace() {
           </div>
         );
       case "junctions":
-        return ewi ? <MeasureDetail m={ewi} mi={p.measures.indexOf(ewi)} onJunctionSave={onJunctionSave} onSaveField={saveField} /> : null;
+        return ewi ? <MeasureDetail m={ewi} mi={p.measures.indexOf(ewi)} projectId={id} onJunctionSave={onJunctionSave} onSaveField={saveField} /> : null;
       case "calculations":
         return (
           <div className="anim-in space-y-5">

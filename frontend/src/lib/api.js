@@ -35,6 +35,14 @@ export const uploadDefectPhoto = (id, did, file) => {
 
 export const heritageLookup = (id) => api.post(`/projects/${id}/heritage/lookup`).then((r) => r.data);
 export const solarLookup = (id) => api.post(`/projects/${id}/solar/lookup`).then((r) => r.data);
+export const uploadMeasureEvidence = (id, mi, file, caption = "") => {
+  const fd = new FormData();
+  fd.append("file", file);
+  if (caption) fd.append("caption", caption);
+  return api.post(`/projects/${id}/measures/${mi}/evidence-photo`, fd).then((r) => r.data);
+};
+export const deleteMeasureEvidence = (id, mi, idx) =>
+  api.delete(`/projects/${id}/measures/${mi}/evidence-photo/${idx}`).then((r) => r.data);
 
 export const detectSiteConditions = (id) => api.post(`/projects/${id}/site-conditions/detect`).then((r) => r.data);
 export const saveSiteConditions = (id, siteConditions) =>

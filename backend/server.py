@@ -1025,8 +1025,70 @@ async def solar_lookup(project_id: str):
     s = await asyncio.to_thread(_solar_lookup_sync, lat, lon)
     if not s:
         raise HTTPException(status_code=502, detail="Aerial / solar imagery is not available for this location")
+    pv = _pv_from_solar(s)
+    if pv:
+        s["recommendedPv"] = pv
     await db.projects.update_one({"id": project_id}, {"$set": {"solar": s}})
+    await _apply_pv_autofill(project_id, proj, s)
     return s
+
+
+async def _apply_pv_autofill(project_id, proj, solar):
+    pv = _pv_from_solar(solar)
+    if not pv:
+        return None
+    measures = proj.get("measures") or []
+    changed = False
+    for m in measures:
+        if _mfam(m.get("code"), m.get("name")) != "SOLAR" or m.get("pvSource") == "manual":
+            continue
+        m["pvPanels"], m["pvKwp"], m["pvAnnualKwh"], m["pvSource"] = pv["panels"], pv["kwp"], pv["annualKwh"], "google_solar"
+        detail = f"{pv['panels']} \u00d7 {pv['watt']}W panels" if pv.get("watt") else f"{pv['panels']} panels"
+        s = (f"{pv['kwp']} kWp " if pv.get("kwp") else "") + f"roof-mounted solar PV \u2014 {detail}"
+        if pv.get("annualKwh"):
+            s += f" \u00b7 ~{pv['annualKwh']:,} kWh/yr (modelled)"
+        m["system"] = s
+        changed = True
+    if changed:
+        await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return pv
+
+
+@api_router.post("/projects/{project_id}/measures/{mi}/evidence-photo")
+async def upload_measure_evidence(project_id: str, mi: int, file: UploadFile = File(...), caption: Optional[str] = Form(None)):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    measures = proj.get("measures") or []
+    if mi < 0 or mi >= len(measures):
+        raise HTTPException(status_code=404, detail="Measure not found")
+    if file.content_type and not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Please upload an image file")
+    raw = await file.read()
+    data_uri = await asyncio.to_thread(_img_to_data_uri, raw)
+    if not data_uri:
+        raise HTTPException(status_code=400, detail="Could not read that image")
+    photos = (measures[mi].get("evidencePhotos") or [])
+    photos.append({"data": data_uri, "caption": (caption or "").strip()})
+    measures[mi]["evidencePhotos"] = photos[:8]
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return {"evidencePhotos": measures[mi]["evidencePhotos"]}
+
+
+@api_router.delete("/projects/{project_id}/measures/{mi}/evidence-photo/{idx}")
+async def delete_measure_evidence(project_id: str, mi: int, idx: int):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    measures = proj.get("measures") or []
+    if mi < 0 or mi >= len(measures):
+        raise HTTPException(status_code=404, detail="Measure not found")
+    photos = measures[mi].get("evidencePhotos") or []
+    if 0 <= idx < len(photos):
+        photos.pop(idx)
+    measures[mi]["evidencePhotos"] = photos
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return {"evidencePhotos": photos}
 
 
 class SiteConditionsIn(BaseModel):
@@ -3028,6 +3090,34 @@ def _design_summary_html(p, measures):
 
 
 
+def _img_to_data_uri(raw, px=1400, q=80):
+    try:
+        from PIL import Image
+        im = Image.open(io.BytesIO(raw)).convert("RGB")
+        if max(im.size) > px:
+            r = px / max(im.size)
+            im = im.resize((int(im.width * r), int(im.height * r)))
+        buf = io.BytesIO()
+        im.save(buf, "JPEG", quality=q)
+        return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode()}"
+    except Exception:
+        return None
+
+
+def _pv_from_solar(solar):
+    if not solar:
+        return None
+    panels = solar.get("configPanelsCount") or solar.get("maxArrayPanelsCount")
+    if not panels:
+        return None
+    watt = solar.get("panelCapacityWatts")
+    annual = solar.get("maxYearlyEnergyDcKwh")
+    return {"panels": int(panels),
+            "kwp": round(panels * watt / 1000.0, 2) if watt else None,
+            "annualKwh": int(round(annual)) if annual else None,
+            "watt": int(watt) if watt else None}
+
+
 def _sq_jpeg(im, px=900, q=82):
     w, h = im.size
     side = min(w, h)
@@ -3201,7 +3291,20 @@ def _solar_html(p):
         extra = _para(f'Maximum modelled sunshine at this roof is <b>{_num(s.get("maxSunshineHoursPerYear"))} hours per year</b>. '
                       'Figures are modelled from Google Solar API roof geometry and are indicative for feasibility only; '
                       'the installed array is confirmed by the MCS PV design together with the structural and shading survey.')
-    inner = img + cards + '<div style="margin-top:16px;">' + extra + '</div>'
+    rec = ""
+    r = s.get("recommendedPv")
+    if r:
+        parts = []
+        if r.get("kwp"):
+            parts.append(f"{r['kwp']} kWp")
+        if r.get("panels"):
+            parts.append(f"{r['panels']} panels")
+        if r.get("annualKwh"):
+            parts.append(f"~{r['annualKwh']:,} kWh/yr")
+        if parts:
+            rec = _para("<b>Recommended array (auto-designed from roof geometry):</b> " + " &middot; ".join(parts)
+                        + ". This has been applied to the Solar PV measure and can be overridden in the workspace.")
+    inner = img + cards + '<div style="margin-top:16px;">' + extra + rec + '</div>'
     return _np("Site Context &middot; Aerial &amp; Solar Survey", "Aerial &amp; Solar Potential", inner,
                "Aerial roof survey and modelled solar potential for the dwelling, informing the PV design and roof-mounted measures.")
 
@@ -3258,6 +3361,27 @@ def _kv_table(rows, w1="34%"):
     body = "".join(f'<tr><td style="width:{w1}; color:#262626; vertical-align:top;">{k}</td>'
                    f'<td class="muted" style="font-size:10.5px; line-height:1.55; vertical-align:top;">{v}</td></tr>' for k, v in rows)
     return f'<table>{body}</table>'
+
+
+def _measure_evidence_html(m):
+    photos = m.get("evidencePhotos") or []
+    req = (m.get("evidenceRequirements") or "").strip()
+    act = (m.get("evidenceActions") or "").strip()
+    if not photos and not req and not act:
+        return ""
+    html = ""
+    if photos:
+        cells = "".join(
+            f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 12px 0;">'
+            f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{ph.get("data")}" style="width:100%; height:100%; object-fit:cover;"></div>'
+            f'<div style="margin-top:5px; font-size:10px; color:#262626;">{_esc(ph.get("caption") or "Site evidence")}</div></div>'
+            for ph in photos[:8])
+        html += f'<div class="faint upper" style="font-size:9.5px; margin-top:6px; margin-bottom:8px;">Site Evidence</div><div>{cells}</div>'
+    if req:
+        html += '<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:6px;">Design Requirements &amp; Compliance</div>' + _md_to_html(req)
+    if act:
+        html += '<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:6px;">Site Actions</div>' + _md_to_html(act)
+    return html
 
 
 def _eem_requirements_html(measures):
@@ -3845,6 +3969,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 body += '<div class="muted" style="font-size:12px; margin-top:16px;">Detailed specification for this measure to be developed from the approved template.</div>'
             spec_pages.append(body)
 
+        ev_html = _measure_evidence_html(m)
+        if ev_html:
+            spec_pages.append(_head("Evidence & Compliance") + f'<div style="margin-top:14px;">{ev_html}</div>')
+
         for ci, chunk in enumerate(_chunk(works, CHUNK_WORKS)):
             sub = "Scope of Works" if ci == 0 else "Scope of Works (cont.)"
             spec_pages.append(_head(sub) + f'<div style="margin-top:16px;">{_spec_list(chunk, True, ci * CHUNK_WORKS + 1)}</div>')
@@ -4241,9 +4369,13 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         if _la is not None and _lo is not None:
             _s = await asyncio.to_thread(_solar_lookup_sync, _la, _lo)
             if _s and _s.get("aerialImage"):
+                _pv = _pv_from_solar(_s)
+                if _pv:
+                    _s["recommendedPv"] = _pv
                 p["solar"] = _s
                 try:
                     await db.projects.update_one({"id": project_id}, {"$set": {"solar": _s}})
+                    await _apply_pv_autofill(project_id, p, _s)
                 except Exception:
                     pass
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
