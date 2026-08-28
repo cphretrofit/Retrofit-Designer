@@ -42,7 +42,15 @@ Added the reference-grade narrative sections and lifted the visual design. All v
 - **Aesthetic (D)**: every measure page now has a coloured section accent, a family line-icon (`_measure_icon`), a coloured PAS chip and a coloured bottom rule (`MEASURE_COLORS`, `_mfam`). Retained the "02" ghost divider.
 - NOTE: WeasyPrint FLOWS overflow of long tables (Items Before Issue, etc.) onto continuation pages rather than clipping — so no content is lost, but the footer page-count (NN/total) lags the physical page count by a few. Cosmetic; fix by making table-heavy pages non-fixed-height. Beeson doc-facts remain illustrative demo data.
 
+### Phase 30 — Thermal bridging, overheating, pagination (2026-08-28)
+- **Thermal Bridging (HLP)**: per-measure "Thermal Bridging" page with an HLP → Risk → Mitigation → Photo/Plan-Ref table (`THERMAL_BRIDGES` per family), calculated-to-BRE-IP1/06 note. Verified on Beeson.
+- **Overheating Statement (Part O)**: dedicated page driven by property orientation + glazing (`_overheating_html`), TOC 01.8.
+- **Page numbering**: paginated Items Before Issue (10/page) and Defects (6/page) so long tables no longer silently overflow. Footer count lag reduced 3→2; the two remaining are the dense directory + site-conditions pages (still flow onto a 2nd physical page). Full fix needs @page margin-box counters or paginating those two pages — logged.
+- Methodology + thermal + overheating all confirmed present in pack HTML and rendered.
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
+- **P1 Finish page-numbering**: paginate/relayout the directory & site-conditions pages (or switch to @page counter footer) to remove the last 2-page lag.
+- **P0 Real Import Test (deferred)**: import 12 Marsh End from Job Card xlsx + a photo-bearing assessment via the async AI flow so site conditions/methodology populate from live data. Needs its own run (long Claude extraction); a photo-bearing 12 Marsh End assessment is NOT in the uploaded artifacts — request it.
 - **P0 Phase B — Data depth (the big one)**: Foreword, Preliminaries (designer quals, traditional-building & access/exposure), Scope of Works, Sequence of Installation, **Measures Interaction Matrix (Figure D.1 colour grid)**, per-measure **step-by-step installation methodology**, Standards & Compliance, Exclusions, Commissioning & Handover. NOTE: the pack uses a fixed-height one-div-per-page model with `overflow:hidden` — long new sections must be paginated manually or content will clip.
 - **P1 Phase D — Aesthetic pass**: section dividers, measure hero banners, iconography, colour accents.
 - **P0 Auto-map Job Card fields**: measures, SAP, orientation, wet-room list auto-populate ~90% on spreadsheet upload.

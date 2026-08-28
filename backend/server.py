@@ -2770,6 +2770,45 @@ def _interaction_matrix_html(measures):
     return _np("Retrofit Strategy &middot; Interaction Matrix", "Measures Interaction Matrix (Figure D.1)", inner)
 
 
+THERMAL_BRIDGES = {
+    "LOFT": [("Eaves / wall-plate", "Insulation stops short at the eaves; cold bridge to the wall head", "Carry insulation over the wall plate while maintaining the ventilation path", "FIG 01 · loft/eaves"),
+             ("Loft hatch", "Uninsulated hatch; air leakage and cold bridge", "Insulate and draught-strip the hatch; consider a fire-rated hatch", "Loft plan"),
+             ("Joist ends / party wall", "Repeating bridge at joists and party-wall junction", "Maintain continuous insulation depth; avoid compression", "FIG · loft")],
+    "WALL": [("Window / door reveals", "Cold bridging at jambs, heads and sills", "Insulate reveals with continuity to the frame", "Detail D-01"),
+             ("Eaves / verge", "Discontinuity at the roofline", "Continue insulation to the soffit; detail the junction", "Detail D-02"),
+             ("Base / plinth (DPC)", "Cold bridge and moisture risk at the base", "Below-DPC insulation to a certified detail", "Detail D-03"),
+             ("Party-wall junction", "Flanking bridge", "Return insulation at the junction", "Detail D-04")],
+    "WIN": [("Reveal / jamb", "Cold bridge around the frame", "Insulated cavity closers; continuous perimeter seal", "Detail W-01"),
+            ("Sill / cill", "Bridge and water path at the sill", "Insulated sill detail with a drip", "Detail W-02"),
+            ("Head / lintel", "Thermal bridge at the lintel", "Insulate over the lintel; maintain continuity", "Detail W-03")],
+    "FLOOR": [("Perimeter / skirting", "Cold bridge at the floor-wall junction", "Perimeter insulation with continuity to the wall", "Floor plan"),
+              ("Joist ends", "Bridge at the bearing", "Insulate between and around joist ends", "Floor plan")],
+    "ASHP": [("Pipe penetrations", "Cold bridge / condensation at wall penetrations", "Insulate and sleeve penetrations; seal airtight", "Services plan")],
+    "SOLAR": [("Roof penetrations", "Bridge / leakage at fixings", "Weather and airtight seal at the anchors", "Roof plan")],
+    "VENT": [("Duct penetrations", "Condensation at cold-zone ducts", "Insulate ducts in cold zones; seal penetrations", "Services plan")],
+    "GEN": [("Key junctions", "Repeating and geometric bridges", "Detail to BRE IP1/06 with fRsi > 0.75", "Detail ref")],
+}
+
+
+def _thermal_bridges(fam):
+    return THERMAL_BRIDGES.get(fam, THERMAL_BRIDGES["GEN"])
+
+
+def _overheating_html(p, measures):
+    prop = p.get("property") or {}
+    orient = prop.get("orientation") or "not stated"
+    inner = (_sub("Assessment (Approved Document O)")
+             + _para(f"The dwelling's principal glazing orientation is recorded as {_esc(str(orient))}. Overheating risk has been considered under Approved Document O, taking account of glazing area and orientation, cross and purge ventilation, and the fabric-first measures proposed.")
+             + _sub("Mitigation") + _spec_list([
+                 "Provide effective cross and purge ventilation to habitable rooms (openable area to Approved Document O / F).",
+                 "Limit uncontrolled solar gains to south- and west-facing glazing; advise the occupant on blinds/curtains and night purging.",
+                 "Specify new glazing with an appropriate g-value to balance daylight and solar gain.",
+                 "Ensure ventilation is not compromised as airtightness improves; maintain trickle and rapid ventilation.",
+             ], False)
+             + _sub("Conclusion") + _para("With the ventilation strategy set out in this design and correct occupant use (purge / night ventilation), the residual overheating risk is assessed as low. Confirm in the SAP / Part O assessment prior to issue."))
+    return _np("Design Statement &middot; Overheating", "Overheating Statement (Part O)", inner)
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -2941,7 +2980,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         _base += 1
     toc.insert(_base, ("01.6", "Foreword", "sub"))
     toc.insert(_base + 1, ("01.7", "Preliminaries", "sub"))
-    _base += 2
+    toc.insert(_base + 2, ("01.8", "Overheating Statement (Part O)", "sub"))
+    _base += 3
     for i, s in enumerate(p.get("customSections") or []):
         toc.insert(_base + i, ("+", (s.get("title") or "Section")[:44], "sub"))
 
@@ -2980,7 +3020,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     items = p.get("itemsBeforeIssue") or []
     SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
     SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
-    it_rows = ""
+    it_row_list = []
     confirmed_n = 0
     for i, it in enumerate(items):
         sev = it.get("severity") or "info_required"
@@ -2999,18 +3039,21 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         else:
             conf_cell = '<span class="faint">Pending</span>'
             date_cell = '<span class="faint">—</span>'
-        it_rows += (f'<tr><td class="mono faint" style="width:7%;">{str(i + 1).zfill(2)}</td>'
-                    f'<td style="width:17%;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:7px; vertical-align:middle;"></span>'
+        it_row_list.append(f'<tr><td class="mono faint" style="width:7%; vertical-align:top; padding-top:10px;">{str(i + 1).zfill(2)}</td>'
+                    f'<td style="width:17%; vertical-align:top; padding-top:10px;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:7px; vertical-align:middle;"></span>'
                     f'<span style="font-size:10px; color:{col};">{SEV_LBL.get(sev, sev)}</span></td>'
-                    f'<td>{_esc(it.get("text"))}</td>'
-                    f'<td style="width:22%; font-size:10.5px;">{conf_cell}</td>'
-                    f'<td class="mono muted" style="width:14%; text-align:right; font-size:10px;">{date_cell}</td></tr>')
+                    f'<td style="vertical-align:top; padding-top:10px;">{_esc(it.get("text"))}</td>'
+                    f'<td style="width:22%; font-size:10.5px; vertical-align:top; padding-top:10px;">{conf_cell}</td>'
+                    f'<td class="mono muted" style="width:14%; text-align:right; font-size:10px; vertical-align:top; padding-top:10px;">{date_cell}</td></tr>')
     it_empty = '<tr><td colspan="5" class="muted" style="font-size:12px;">No outstanding items — ready to issue.</td></tr>'
-    items_page = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 09 · Pre-Issue Register</div>'
-                  f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Items Before Issue</div>'
-                  f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(items)} item(s) · {confirmed_n} confirmed by the Retrofit Coordinator · {len(items) - confirmed_n} outstanding prior to issue.</div>'
-                  f'<table style="margin-top:20px;"><thead><tr><th style="width:7%;">#</th><th style="width:17%;">Severity</th><th>Item</th><th style="width:22%;">Confirmed By</th><th style="text-align:right;">Date</th></tr></thead>'
-                  f'<tbody>{it_rows or it_empty}</tbody></table>')
+    _it_head = '<thead><tr><th style="width:7%;">#</th><th style="width:17%;">Severity</th><th>Item</th><th style="width:22%;">Confirmed By</th><th style="text-align:right;">Date</th></tr></thead>'
+    items_pages = []
+    for ci, chunk in enumerate(_chunk(it_row_list, 10) or [[]]):
+        title = "Items Before Issue" if ci == 0 else "Items Before Issue (cont.)"
+        intro = (f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(items)} item(s) · {confirmed_n} confirmed by the Retrofit Coordinator · {len(items) - confirmed_n} outstanding prior to issue.</div>' if ci == 0 else "")
+        items_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 09 · Pre-Issue Register</div>'
+                           f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>{intro}'
+                           f'<table style="margin-top:20px;">{_it_head}<tbody>{"".join(chunk) or it_empty}</tbody></table>')
 
     # ---- Project directory & dwelling ----
     prop = p.get("property") or {}
@@ -3173,6 +3216,16 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                               + '<div class="muted" style="font-size:11px; margin-top:14px; line-height:1.5;">Indicative installation methodology to PAS 2030:2023 and the manufacturer&rsquo;s instructions. Confirm the final method and sequence on site.</div>'
                               + f'<div style="margin-top:10px;">{_spec_list(chunk, True, ci * 11 + 1)}</div>')
 
+        tb = _thermal_bridges(fam)
+        if tb:
+            trows = "".join(f'<tr><td style="width:22%; color:#262626; vertical-align:top;">{_esc(a)}</td>'
+                            f'<td style="width:28%; vertical-align:top;" class="muted">{_esc(b)}</td>'
+                            f'<td style="vertical-align:top;">{_esc(c)}</td>'
+                            f'<td class="mono faint" style="width:16%; vertical-align:top;">{_esc(dd)}</td></tr>' for a, b, c, dd in tb)
+            spec_pages.append(_head("Thermal Bridging")
+                              + '<div class="muted" style="font-size:11px; margin-top:14px; line-height:1.5;">Thermal bridges (HLP — heat-loss points) for this measure, with mitigation and the supporting photo / floor-plan reference. Bespoke details are calculated to BRE IP1/06 (temperature factor fRsi &gt; 0.75).</div>'
+                              + f'<table style="margin-top:14px;"><thead><tr><th>Junction (HLP)</th><th>Risk</th><th>Mitigation</th><th>Photo / Plan Ref</th></tr></thead><tbody>{trows}</tbody></table>')
+
         if standards or considerations:
             body = _head("Standards & Considerations")
             if standards:
@@ -3291,9 +3344,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                                 "action": r.get("action") or r.get("note") or "To be confirmed on site"})
     DSEV = {"high": "#DC2626", "medium": "#B45309", "low": "#16A34A"}
     DLBL = {"high": "High", "medium": "Medium", "low": "Low"}
+    DHEAD = '<thead><tr><th style="width:6%;">#</th><th style="width:20%;">Element</th><th>Defect / Observation</th><th style="width:14%;">Severity</th><th style="width:26%;">Remedial Action</th></tr></thead>'
+    defects_pages = []
     if defects:
-        drows = ""
-        for i, d in enumerate(defects[:14]):
+        drow_list = []
+        for i, d in enumerate(defects[:24]):
             sv = (d.get("severity") or "medium").lower()
             col = DSEV.get(sv, "#B45309")
             img_html = (f'<div style="margin-bottom:6px;"><img src="{d["_photo_data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;"></div>'
@@ -3305,21 +3360,22 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 extra += f'<div style="font-size:10px; color:#666; margin-top:2px; line-height:1.4;"><span class="faint upper" style="font-size:7.5px; letter-spacing:0.1em; margin-right:6px;">Evidence</span>{_esc(d.get("evidence"))}</div>'
             if d.get("clause"):
                 extra += f'<div class="mono faint" style="font-size:9px; margin-top:4px;">{_esc(d.get("clause"))}</div>'
-            drows += (f'<tr><td class="mono faint" style="width:6%; vertical-align:top; padding-top:10px;">{str(i + 1).zfill(2)}</td>'
+            drow_list.append(f'<tr><td class="mono faint" style="width:6%; vertical-align:top; padding-top:10px;">{str(i + 1).zfill(2)}</td>'
                       f'<td style="width:19%; color:#262626; vertical-align:top; padding-top:10px;">{_esc(d.get("element") or "—")}</td>'
                       f'<td style="vertical-align:top;">{img_html}<div style="color:#262626;">{_esc(d.get("description") or "—")}</div>{extra}</td>'
                       f'<td style="width:12%; vertical-align:top; padding-top:10px;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{col}; margin-right:6px; vertical-align:middle;"></span>'
                       f'<span style="font-size:10px; color:{col};">{DLBL.get(sv, sv)}</span></td>'
                       f'<td class="muted" style="width:26%; font-size:10.5px; vertical-align:top; padding-top:10px; line-height:1.45;">{_esc(d.get("action") or "To be confirmed")}</td></tr>')
-        defects_body = ('<div class="muted" style="font-size:11px; margin-top:8px;">'
-                        f'{len(defects)} defect(s) / condition observation(s) recorded during the retrofit assessment — to be resolved prior to installation.</div>'
-                        '<table style="margin-top:18px;"><thead><tr><th style="width:6%;">#</th><th style="width:20%;">Element</th><th>Defect / Observation</th><th style="width:14%;">Severity</th><th style="width:26%;">Remedial Action</th></tr></thead>'
-                        f'<tbody>{drows}</tbody></table>')
+        for ci, chunk in enumerate(_chunk(drow_list, 6)):
+            title = "Defects &amp; Remedial Actions" if ci == 0 else "Defects &amp; Remedial Actions (cont.)"
+            intro = (f'<div class="muted" style="font-size:11px; margin-top:8px;">{len(defects)} defect(s) / condition observation(s) recorded during the retrofit assessment — to be resolved prior to installation.</div>' if ci == 0 else "")
+            defects_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 08 · Property Condition</div>'
+                                 f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>{intro}'
+                                 f'<table style="margin-top:18px;">{DHEAD}<tbody>{"".join(chunk)}</tbody></table>')
     else:
-        defects_body = '<div class="muted" style="font-size:12px; margin-top:22px;">No property defects were recorded during the retrofit assessment. Any defects identified on site must be logged and resolved prior to installation.</div>'
-    defects_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 08 · Property Condition</div>'
-                    '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Defects &amp; Remedial Actions</div>'
-                    f'{defects_body}')
+        defects_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 08 · Property Condition</div>'
+                             '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Defects &amp; Remedial Actions</div>'
+                             '<div class="muted" style="font-size:12px; margin-top:22px;">No property defects were recorded during the retrofit assessment. Any defects identified on site must be logged and resolved prior to installation.</div>')
 
     # Site conditions & evidence page
     site_page = None
@@ -3463,6 +3519,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     foreword_page = _foreword_html(p)
     preliminaries_page = _preliminaries_html(p)
+    overheating_page = _overheating_html(p, measures)
     scope_pages = _scope_html(p, measures)
     sequence_page = _sequence_html(p, measures)
     matrix_page = _interaction_matrix_html(measures)
@@ -3472,12 +3529,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     pages = [cover, contents_page, directory_page,
              *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []),
              ventilation_page, *([floorplan_page] if floorplan_page else []),
-             foreword_page, preliminaries_page, *custom_pages,
+             foreword_page, preliminaries_page, overheating_page, *custom_pages,
              divider,
              *scope_pages, sequence_page, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
-             *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), defects_page, items_page]
+             *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), *defects_pages, *items_pages]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"
