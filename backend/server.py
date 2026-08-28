@@ -1265,6 +1265,8 @@ Return this exact JSON shape:
 }
 
 Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
+
+JOB CARD PRIORITY: when a Job Card spreadsheet is provided, treat it as the primary source of truth and auto-populate: (1) measures — read every recommended/installed measure (e.g. loft insulation, ASHP, solar PV, windows, ventilation) and map each to its PAS 2030:2023 code (B/C code) and full name; (2) epcBefore / epcAfter and any SAP score stated; (3) property.orientation (front/rear/roof orientation) and floorArea, type, age, storeys, occupancy; (4) ventilation.rooms — build the wet-room extract list (kitchen, bathroom, WC, utility) with system + rate from the Job Card / ADF1 checklist. Never leave these blank if the Job Card states them.
 """
 
 
@@ -2478,17 +2480,17 @@ def _junction_svg(name):
 
 
 PACK_CSS = """
-@page { size: A4; margin: 0; }
+@page { size: A4; margin: 0 0 12mm 0; @bottom-left { content: element(docfoot); padding-left: 18mm; border-top: 1px solid #e5e5e5; } @bottom-right { content: counter(page) " / " counter(pages); padding-right: 18mm; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
-.page { position: relative; width: 210mm; height: 297mm; padding: 18mm 18mm 22mm; page-break-after: always; overflow: hidden; }
+.page { position: relative; width: 210mm; min-height: 285mm; padding: 18mm 18mm 12mm; page-break-after: always; }
+.docref { position: running(docfoot); font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; }
 .page:last-child { page-break-after: auto; }
 .mono { font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
 .muted { color: #737373; } .faint { color: #a3a3a3; }
 .disp { font-weight: 300; letter-spacing: -0.02em; }
 .rule { border-top: 1px solid #171717; } .hr { border-top: 1px solid #e5e5e5; }
 .upper { text-transform: uppercase; letter-spacing: 0.16em; }
-.foot { position: absolute; left: 18mm; right: 18mm; bottom: 11mm; display: flex; justify-content: space-between; border-top: 1px solid #e5e5e5; padding-top: 6px; font-size: 8px; color: #a3a3a3; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
 .brandmark { width: 26px; height: 26px; border: 1px solid #171717; display: inline-block; position: relative; vertical-align: middle; }
 .brandmark i { position: absolute; width: 10px; height: 10px; border: 1.5px solid #171717; transform: rotate(45deg); top: 6px; left: 6px; }
 .chip { display: inline-block; border: 1px solid #d4d4d4; color: #525252; font-size: 9px; padding: 4px 8px; margin: 0 6px 6px 0; text-transform: uppercase; letter-spacing: 0.06em; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
@@ -2500,6 +2502,7 @@ td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
 @media screen {
   body { background: #52525b; padding: 28px 0; }
   .page { background: #fff; margin: 0 auto 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.28); }
+  .docref { display: none; }
 }
 """
 
@@ -3090,7 +3093,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                       f'<div style="display:flex; justify-content:space-between;"><span class="muted" style="font-size:10.5px;">{_esc(r.get("label"))}</span>'
                       f'<span class="mono" style="font-size:10.5px; color:#262626;">{val}%</span></div>'
                       f'<div style="height:3px; background:#eee; margin-top:4px;"><div style="height:3px; width:{val}%; background:{bc};"></div></div></div>')
-    directory_page = (
+    _dir1 = (
         '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 · Project Information</div>'
         '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Project Directory &amp; Dwelling</div>'
         f'<div style="margin-top:18px;">{people_html}</div>'
@@ -3099,9 +3102,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         f'<td style="border:0; padding:0; width:62%; vertical-align:top;">{dwell_html}</td>'
         f'<td style="border:0; padding:0 0 0 18px; width:38%; vertical-align:top;">{epc_html}</td></tr></table>'
         '<div class="faint upper" style="font-size:10px; margin-top:8px; margin-bottom:6px;">Existing Construction</div>'
-        f'<table>{ec_rows}</table>'
-        '<div class="faint upper" style="font-size:10px; margin-top:22px; margin-bottom:10px;">Design Readiness</div>'
-        f'<div>{read_html}</div>')
+        f'<table>{ec_rows}</table>')
+    directory_pages = [_dir1]
+    if read_html:
+        directory_pages.append(
+            '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 · Project Information (cont.)</div>'
+            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Readiness</div>'
+            '<div class="muted" style="font-size:11px; margin-top:8px;">PAS 2035 design-readiness assessment across the key work areas.</div>'
+            f'<div style="margin-top:18px;">{read_html}</div>')
 
     # ---- Heritage & planning context ----
     h = p.get("heritage") or {}
@@ -3378,9 +3386,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                              '<div class="muted" style="font-size:12px; margin-top:22px;">No property defects were recorded during the retrofit assessment. Any defects identified on site must be logged and resolved prior to installation.</div>')
 
     # Site conditions & evidence page
-    site_page = None
+    site_pages = []
     if _sc_evidence:
-        cards = ""
+        card_list = []
         for e in _sc_evidence:
             present = e.get("present")
             val = e.get("value")
@@ -3403,18 +3411,21 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 meta += f'<span class="mono" style="font-size:8px; color:#999; margin-left:6px;">{_esc(conf)} confidence</span>'
             if e.get("source") and not fig:
                 meta += f'<span class="mono" style="font-size:8px; color:#0055FF; margin-left:6px;">Source &middot; {_esc(e.get("source"))}</span>'
-            cards += (f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img}'
-                      f'<div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
-                      f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(e.get("label"))}</span>'
-                      f'<span class="mono" style="font-size:11px; color:{vcol};">{verdict}</span></div>'
-                      + (f'<div class="muted" style="font-size:11px; margin-top:4px; line-height:1.45;">{_esc(e.get("detail"))}</div>' if e.get("detail") else "")
-                      + (f'<div style="font-size:10.5px; color:#666; margin-top:5px; line-height:1.4;"><span class="faint upper" style="font-size:8px; margin-right:6px;">Evidence</span>{_esc(e.get("reasoning"))}</div>' if e.get("reasoning") else "")
-                      + (f'<div style="margin-top:5px;">{meta}</div>' if meta else "")
-                      + '</div></div>')
-        site_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Site Conditions</div>'
-                     '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Site Conditions &amp; Photographic Evidence</div>'
-                     '<div class="muted" style="font-size:11px; margin-top:8px;">Determined from the survey photographs and floor plan. Each condition is supported by the referenced evidence photo and informs the PAS 2035 design compliance checklist. Confirm on site prior to installation.</div>'
-                     f'<div style="margin-top:14px;">{cards}</div>')
+            card_list.append(f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img}'
+                             f'<div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
+                             f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(e.get("label"))}</span>'
+                             f'<span class="mono" style="font-size:11px; color:{vcol};">{verdict}</span></div>'
+                             + (f'<div class="muted" style="font-size:11px; margin-top:4px; line-height:1.45;">{_esc(e.get("detail"))}</div>' if e.get("detail") else "")
+                             + (f'<div style="font-size:10.5px; color:#666; margin-top:5px; line-height:1.4;"><span class="faint upper" style="font-size:8px; margin-right:6px;">Evidence</span>{_esc(e.get("reasoning"))}</div>' if e.get("reasoning") else "")
+                             + (f'<div style="margin-top:5px;">{meta}</div>' if meta else "")
+                             + '</div></div>')
+        _si = 'Determined from the survey photographs, floor plan and the assessment documents. Each condition is supported by the referenced evidence and informs the PAS 2035 design compliance checklist. Confirm on site prior to installation.'
+        for ci, chunk in enumerate(_chunk(card_list, 4)):
+            title = "Site Conditions &amp; Photographic Evidence" if ci == 0 else "Site Conditions &amp; Photographic Evidence (cont.)"
+            intro = f'<div class="muted" style="font-size:11px; margin-top:8px;">{_si}</div>' if ci == 0 else ""
+            site_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Site Conditions</div>'
+                              f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>{intro}'
+                              f'<div style="margin-top:14px;">{"".join(chunk)}</div>')
 
     # Design considerations (site-specific narrative)
     considerations_page = None
@@ -3526,8 +3537,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     standards_page = _standards_html(p, measures)
     exclusions_page = _exclusions_html(p, measures)
     commissioning_page = _commissioning_html(p, measures)
-    pages = [cover, contents_page, directory_page,
-             *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []),
+    pages = [cover, contents_page, *directory_pages,
+             *([heritage_page] if heritage_page else []), *site_pages, *([considerations_page] if considerations_page else []),
              ventilation_page, *([floorplan_page] if floorplan_page else []),
              foreword_page, preliminaries_page, overheating_page, *custom_pages,
              divider,
@@ -3538,9 +3549,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{ref}  ·  {name}  ·  Rev {rev}"
-    body = "".join(
-        f'<div class="page">{inner}<div class="foot"><span>{_esc(foot)}</span><span>{i:02d} / {total:02d}</span></div></div>'
-        for i, inner in enumerate(pages, 1))
+    body = f'<div class="docref">{_esc(foot)}</div>' + "".join(f'<div class="page">{inner}</div>' for inner in pages)
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{PACK_CSS}</style></head><body>{body}</body></html>'
 
 
