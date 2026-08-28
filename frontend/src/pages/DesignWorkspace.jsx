@@ -8,13 +8,15 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
 import { DefectsPanel } from "@/components/DefectsPanel";
 import { SiteConditionsPanel } from "@/components/SiteConditionsPanel";
 import { CustomSectionsPanel } from "@/components/CustomSectionsPanel";
+import { VentilationPanel } from "@/components/VentilationPanel";
+import { FloorPlanPanel } from "@/components/FloorPlanPanel";
 
 const MARK_ICON = { pass: CheckCircle2, done: CheckCircle2, warn: AlertTriangle, pending: Circle, not_started: Circle, "n/a": Circle };
 const MARK_COLOR = { pass: "var(--c-pass)", done: "var(--c-pass)", warn: "var(--c-warning)", pending: "var(--c-draft)", not_started: "var(--c-draft)", "n/a": "var(--c-draft)" };
@@ -709,6 +711,22 @@ export default function DesignWorkspace() {
         return <SiteConditionsPanel projectId={id} project={p} onChange={(sc) => setP((prev) => ({ ...prev, property: { ...prev.property, siteConditions: sc } }))} />;
       case "sections":
         return <CustomSectionsPanel projectId={id} initial={p.customSections || []} onChange={(list) => setP((prev) => ({ ...prev, customSections: list }))} />;
+      case "details":
+        return (
+          <SimpleSection title="Project Details">
+            <Field label="Client" value={p.client} mono={false} path="client" onSave={saveField} />
+            <Field label="Retrofit Assessor" value={p.assessor} mono={false} path="assessor" onSave={saveField} />
+            <Field label="Retrofit Coordinator" value={p.coordinator} mono={false} path="coordinator" onSave={saveField} />
+            <Field label="Retrofit Designer" value={p.designer} mono={false} path="designer" onSave={saveField} />
+            <Field label="Installer" value={p.installer} mono={false} path="installer" onSave={saveField} />
+            <Field label="Tenant / Resident" value={p.tenant} mono={false} path="tenant" onSave={saveField} />
+            <Field label="Design Stage" value={p.designStage} mono={false} path="designStage" onSave={saveField} />
+          </SimpleSection>
+        );
+      case "ventilation":
+        return <VentilationPanel projectId={id} initial={p.ventilation} onChange={(v) => setP((prev) => ({ ...prev, ventilation: v }))} />;
+      case "floorplan":
+        return <FloorPlanPanel projectId={id} initial={p.floorPlan} onChange={(fp) => setP((prev) => ({ ...prev, floorPlan: fp }))} />;
       case "drawings":
         return (
           <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -774,7 +792,7 @@ export default function DesignWorkspace() {
   const sectionTitle = activeMeasure ? activeMeasure.name : {
     overview: "Overview", "existing-construction": "Existing Construction", survey: "Survey", photos: "Survey Photos",
     specifications: "Specifications", junctions: "Junctions", calculations: "Calculations", risks: "Risks",
-    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections",
+    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections", details: "Project Details", ventilation: "Ventilation", floorplan: "Floor Plan",
   }[section] || "Overview";
 
   return (
@@ -794,6 +812,7 @@ export default function DesignWorkspace() {
           <nav className="w-[236px] shrink-0 border-r border-border bg-surface-2 overflow-y-auto thin-scroll p-3 anim-panel">
             <NavGroup title="Project">
               <NavItem icon={LayoutGrid} label="Overview" section="overview" active={section} onClick={() => setSection("overview")} />
+              <NavItem icon={Users} label="Details" section="details" active={section} onClick={() => setSection("details")} />
             </NavGroup>
             <NavGroup title="Property">
               <NavItem icon={Home} label="Existing Construction" section="existing-construction" active={section} onClick={() => setSection("existing-construction")} />
@@ -802,6 +821,8 @@ export default function DesignWorkspace() {
               <NavItem icon={AlertOctagon} label="Defects" section="defects" active={section} onClick={() => setSection("defects")} badge={(p.defects?.length) || null} tone="critical" />
               <NavItem icon={Eye} label="Site Conditions" section="conditions" active={section} onClick={() => setSection("conditions")} />
               <NavItem icon={FileText} label="Sections" section="sections" active={section} onClick={() => setSection("sections")} badge={(p.customSections?.length) || null} />
+              <NavItem icon={Wind} label="Ventilation" section="ventilation" active={section} onClick={() => setSection("ventilation")} />
+              <NavItem icon={Map} label="Floor Plan" section="floorplan" active={section} onClick={() => setSection("floorplan")} badge={(p.floorPlan?.markers?.length) || null} />
             </NavGroup>
             <NavGroup title="Measures">
               {p.measures.map((m) => (

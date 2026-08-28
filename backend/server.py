@@ -801,8 +801,64 @@ async def delete_section(project_id: str, sid: str):
     return {"customSections": secs}
 
 
+class VentilationIn(BaseModel):
+    ventilation: dict = {}
+
+
+@api_router.put("/projects/{project_id}/ventilation")
+async def update_ventilation(project_id: str, payload: VentilationIn):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"ventilation": payload.ventilation}})
+    return {"ventilation": payload.ventilation}
+
+
+@api_router.post("/projects/{project_id}/floorplan")
+async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if not (file.content_type or "").startswith("image/"):
+        raise HTTPException(status_code=422, detail="Floor plan must be an image")
+    data = await file.read()
+    ext = (file.filename or "plan.png").rsplit(".", 1)[-1].lower()
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{pid}.{ext}"
+    stored = (await asyncio.to_thread(put_object, path, data, file.content_type))["path"]
+    await db.documents.insert_one({
+        "id": pid, "project_id": project_id, "storage_path": stored,
+        "original_filename": file.filename or f"floorplan.{ext}", "content_type": file.content_type,
+        "doc_type": "Floor Plan", "size": len(data), "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    fp = p.get("floorPlan") or {}
+    fp["imageUrl"] = f"/api/documents/{pid}/download"
+    fp.setdefault("markers", [])
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp}})
+    return {"floorPlan": fp}
+
+
+class FloorPlanIn(BaseModel):
+    imageUrl: Optional[str] = None
+    markers: list = []
+
+
+@api_router.put("/projects/{project_id}/floorplan")
+async def update_floorplan(project_id: str, payload: FloorPlanIn):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fp = p.get("floorPlan") or {}
+    if payload.imageUrl is not None:
+        fp["imageUrl"] = payload.imageUrl
+    fp["markers"] = payload.markers
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp}})
+    return {"floorPlan": fp}
+
+
 ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
-                       "coordinator", "designer", "town", "address", "measureSummary",
+                       "coordinator", "designer", "installer", "tenant", "town", "address", "measureSummary",
                        "epcBefore", "epcAfter", "partner", "itemsBeforeIssue"}
 ALLOWED_PATCH_PREFIXES = ("property.", "measures.", "readiness.", "heatLoss.")
 
@@ -1171,6 +1227,8 @@ Rules:
 - epcBefore and epcAfter MUST be an EPC band with optional SAP score like "D (68)" or "C (72)", or "—" if unknown. Never write a sentence in these fields; put any explanation in itemsBeforeIssue instead.
 - Keep measures[].name concise (max ~22 characters).
 - defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a short description, severity (high|medium|low) and the remedial action required before install. Use [] if the documents mention none.
+- people: extract the REAL names of the Retrofit Assessor, Retrofit Coordinator, Retrofit Designer, Installer (company or person) and Tenant/Resident from the job card, air-tightness strategy or assessment. Use "" for any not stated — NEVER invent a name.
+- ventilation: extract the ventilation requirements and strategy from the ADF1 ventilation checklist / job card. Populate rooms with each wet room (kitchen, bathroom, WC, utility) and its extract system + rate, plus the whole-dwelling and background (trickle/equivalent-area) provision. Use [] rooms if none stated.
 
 Return this exact JSON shape:
 {
@@ -1199,7 +1257,9 @@ Return this exact JSON shape:
   "heatLoss": {"totalW": 0, "designFlowTemp": "", "rooms": [{"room":"","watts":0}]},
   "occupancy": "",
   "itemsBeforeIssue": [{"text":"...","measure":"CODE or QA","severity":"info_required|warning|critical"}],
-  "defects": [{"element":"e.g. 'External wall (north)'","description":"","severity":"high|medium|low","action":""}]
+  "defects": [{"element":"e.g. 'External wall (north)'","description":"","severity":"high|medium|low","action":""}],
+  "people": {"assessor":"","coordinator":"","designer":"","installer":"","tenant":""},
+  "ventilation": {"strategy":"one-line overall ventilation strategy","wholeDwelling":"whole-dwelling approach","background":"background/trickle ventilation provision","rooms":[{"room":"e.g. 'Kitchen'","system":"e.g. 'Intermittent extract' or 'dMEV'","rate":"e.g. '30 l/s' or '13 l/s continuous'","note":""}],"notes":["strategy note"]}
 }
 
 Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
@@ -1602,19 +1662,24 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
 
     prop_in = ai.get("property") or {}
     ec = prop_in.get("existingConstruction") or {}
+    ppl = ai.get("people") or {}
     return {
         "id": str(uuid.uuid4()), "ref": ref,
         "name": ai.get("name") or "New Project", "address": ai.get("address") or "",
         "town": ai.get("town") or "", "client": ai.get("client") or "",
         "designStage": ai.get("designStage") or "Concept Design", "revision": ai.get("revision") or "P01",
         "status": "in_progress", "completion": overall, "actionsRequired": len(items),
-        "designTime": 18, "assessor": "AI Draft", "coordinator": "—", "designer": "AI Draft",
+        "designTime": 18,
+        "assessor": ppl.get("assessor") or "—", "coordinator": ppl.get("coordinator") or "—",
+        "designer": ppl.get("designer") or "—", "installer": ppl.get("installer") or "—",
+        "tenant": ppl.get("tenant") or "",
         "measureSummary": " + ".join(m["name"].split()[0] for m in measures) or "Retrofit",
         "epcBefore": ai.get("epcBefore") or "—", "epcAfter": ai.get("epcAfter") or "—",
         "updatedAt": datetime.now(timezone.utc).isoformat(), "heroImage": IMG["colourful_terrace"],
         "source": "ai_import",
         "windowSchedule": ai.get("windowSchedule") or [],
         "heatLoss": ai.get("heatLoss") or None,
+        "ventilation": ai.get("ventilation") or None,
         "property": {
             "type": prop_in.get("type") or "—", "age": prop_in.get("age") or "—",
             "floorArea": prop_in.get("floorArea") or "—", "storeys": prop_in.get("storeys") or 1,
@@ -2397,7 +2462,7 @@ td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
 """
 
 
-def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
+def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
     ref = _esc(p.get("ref") or "")
@@ -2415,8 +2480,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
     chips = "".join(f'<span class="chip">{_esc(m.get("name"))}</span>' for m in measures)
     tpl_line = (f'<div class="mono faint upper" style="font-size:9px; margin-top:12px;">Prepared to template · {_esc(p.get("templateName"))}</div>'
                 if p.get("templateName") else "")
-    hero_html = (f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; margin-top:22px;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.05);"></div>'
-                 if hero_uri else '<div style="height:150px; border:1px solid #e5e5e5; margin-top:22px;"></div>')
+    if hero_uri and hero_is_property:
+        hero_html = f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden; margin-top:22px;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover; filter:grayscale(1) contrast(1.05);"></div>'
+    else:
+        hero_html = ('<div style="height:150px; border:1px dashed #DC2626; margin-top:22px; display:flex; align-items:center; justify-content:center; text-align:center; background:#fef2f2;">'
+                     '<div><div style="font-size:11px; color:#DC2626; font-weight:600; letter-spacing:0.02em;">&#9888; PROPERTY PHOTOGRAPH MISSING</div>'
+                     '<div style="font-size:9px; color:#b91c1c; margin-top:4px;">Upload the assessment survey photos to complete the front cover.</div></div></div>')
     signoff = [("Designer", p.get("designer")), ("Coordinator", p.get("coordinator")), ("Date Issued", issued_date)]
     signoff_cells = "".join(
         f'<div style="display:inline-block; vertical-align:top; margin-right:34px;"><div class="faint upper" style="font-size:9px;">{_esc(k)}</div>'
@@ -2553,6 +2622,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
         _pos = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0)
         toc.insert(_pos, ("01.3", "Design Considerations", "sub"))
     _base = 1 + (1 if p.get("heritage") else 0) + (1 if _sc_evidence else 0) + (1 if _dc else 0)
+    toc.insert(_base, ("01.4", "Ventilation Requirements &amp; Strategy", "sub"))
+    _base += 1
+    if (p.get("floorPlan") or {}).get("imageUrl"):
+        toc.insert(_base, ("01.5", "Floor Plan &amp; Measure Placements", "sub"))
+        _base += 1
     for i, s in enumerate(p.get("customSections") or []):
         toc.insert(_base + i, ("+", (s.get("title") or "Section")[:44], "sub"))
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
@@ -2625,8 +2699,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                 f'<div style="font-size:12.5px; margin-top:4px; color:#262626;">{_esc(v if v not in (None, "") else "—")}</div></div>')
 
     people_html = "".join(_cell(k, v, "25%") for k, v in
-                          [("Retrofit Assessor", p.get("assessor")), ("Retrofit Coordinator", p.get("coordinator")),
-                           ("Retrofit Designer", p.get("designer")), ("Design Stage", p.get("designStage"))])
+                          [("Client", p.get("client")), ("Retrofit Assessor", p.get("assessor")),
+                           ("Retrofit Coordinator", p.get("coordinator")), ("Retrofit Designer", p.get("designer")),
+                           ("Installer", p.get("installer")), ("Tenant", p.get("tenant")),
+                           ("Design Stage", p.get("designStage")), ("Reference", p.get("jobRef") or p.get("ref"))])
     dwell_html = "".join(_cell(k, v) for k, v in
                          [("Dwelling type", prop.get("type")), ("Age band", prop.get("age")),
                           ("Floor area", prop.get("floorArea")), ("Storeys", prop.get("storeys")),
@@ -2952,6 +3028,61 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                                '<div class="muted" style="font-size:11px; margin-top:8px;">Site-specific design considerations for this dwelling, determined from the survey photographs and assessment. Each is to be verified on site prior to installation.</div>'
                                f'<div style="margin-top:14px;">{rows}</div>')
 
+    # Ventilation Requirements & Strategy (ADF1) — mandatory in every design
+    vent = p.get("ventilation") or {}
+    v_rooms = vent.get("rooms") or []
+    vr_html = ""
+    if v_rooms:
+        rows = ""
+        for r in v_rooms:
+            rows += (f'<tr><td style="color:#262626;">{_esc(r.get("room") or "—")}</td>'
+                     f'<td>{_esc(r.get("system") or "—")}</td>'
+                     f'<td class="mono" style="text-align:right;">{_esc(r.get("rate") or "—")}</td>'
+                     f'<td class="muted" style="font-size:10.5px;">{_esc(r.get("note") or "")}</td></tr>')
+        vr_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Wet-Room Extract Schedule (ADF1 Annex C)</div>'
+                   '<table><thead><tr><th>Room</th><th>System</th><th style="text-align:right;">Extract rate</th><th>Notes</th></tr></thead>'
+                   f'<tbody>{rows}</tbody></table>')
+    v_extra = ""
+    if vent.get("wholeDwelling"):
+        v_extra += f'<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:4px;">Whole-Dwelling Ventilation</div><div style="font-size:11.5px; line-height:1.55; color:#333;">{_esc(vent.get("wholeDwelling"))}</div>'
+    if vent.get("background"):
+        v_extra += f'<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Background Ventilation</div><div style="font-size:11.5px; line-height:1.55; color:#333;">{_esc(vent.get("background"))}</div>'
+    v_notes = vent.get("notes") or []
+    if v_notes:
+        v_extra += '<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Strategy Notes</div>' + _spec_list(v_notes, False)
+    v_strategy = (f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(vent.get("strategy"))}</div>' if vent.get("strategy")
+                  else '<div class="muted" style="font-size:11px; margin-top:8px;">Ventilation strategy to Approved Document F / ADF1 Annex C. Complete the per-room extract schedule prior to issue.</div>')
+    ventilation_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Ventilation</div>'
+                        '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Ventilation Requirements &amp; Strategy</div>'
+                        f'{v_strategy}{vr_html}{v_extra}'
+                        + ('' if v_rooms else '<div class="muted" style="font-size:11px; margin-top:14px;">No wet-room extract schedule recorded yet — add rooms in the workspace Ventilation panel or upload the ADF1 checklist.</div>'))
+
+    # Floor plan & measure placements
+    fp = p.get("floorPlan") or {}
+    fp_uri = fp.get("_data")
+    floorplan_page = None
+    if fp_uri:
+        MK = {"DMEV": "#0891B2", "LOFT": "#B45309", "TRICKLE": "#16A34A", "ASHP": "#0055FF"}
+        MKL = {"DMEV": "dMEV / extract", "LOFT": "Loft insulation", "TRICKLE": "Trickle vent", "ASHP": "ASHP unit"}
+        dots = ""
+        used_types = {(mk.get("type") or "").upper() for mk in (fp.get("markers") or [])}
+        for mk in (fp.get("markers") or []):
+            typ = (mk.get("type") or "").upper()
+            col = MK.get(typ, "#525252")
+            x = mk.get("x", 50)
+            y = mk.get("y", 50)
+            lbl = _esc(mk.get("label") or MKL.get(typ, mk.get("type") or ""))
+            dots += (f'<div style="position:absolute; left:{x}%; top:{y}%; transform:translate(-50%,-50%); white-space:nowrap;">'
+                     f'<span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:{col}; border:2px solid #fff; box-shadow:0 0 0 1px {col}; vertical-align:middle;"></span>'
+                     f'<span style="font-size:8px; color:#fff; background:{col}; padding:1px 5px; border-radius:3px; margin-left:4px; vertical-align:middle;">{lbl}</span></div>')
+        legend = "".join(f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{MKL[k]}</span>' for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"] if k in used_types) \
+            or "".join(f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{MKL[k]}</span>' for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"])
+        floorplan_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Floor Plan</div>'
+                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Floor Plan &amp; Measure Placements</div>'
+                          '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative positions of key measures and services. Confirm exact locations on site.</div>'
+                          f'<div style="margin-top:14px;">{legend}</div>'
+                          f'<div style="position:relative; margin-top:14px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{fp_uri}" style="width:100%; display:block;">{dots}</div>')
+
     # Custom sections (user-added "crucial information")
     custom_pages = []
     for s in (p.get("customSections") or []):
@@ -2980,7 +3111,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date=""):
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
                           f'{files_html}{prod_html}')
 
-    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []), *custom_pages, divider, measures_schedule_page, performance,
+    pages = [cover, contents_page, directory_page, *([heritage_page] if heritage_page else []), *([site_page] if site_page else []), *([considerations_page] if considerations_page else []), ventilation_page, *([floorplan_page] if floorplan_page else []), *custom_pages, divider, measures_schedule_page, performance,
              *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), defects_page, items_page]
     pages = [x for x in pages if x]
     total = len(pages)
@@ -3010,10 +3141,17 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             break
     if not hero_uri and photo_uris:
         hero_uri = photo_uris[0].get("data")
-    if not hero_uri and p.get("heroImage"):
-        hero_uri = await asyncio.to_thread(_remote_data_uri, p.get("heroImage"))
+    hero_is_property = hero_uri is not None
     link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
+    fp = p.get("floorPlan") or {}
+    if fp.get("imageUrl"):
+        u = fp["imageUrl"]
+        try:
+            fp["_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
+        except Exception:
+            fp["_data"] = None
+        p["floorPlan"] = fp
     for d in (p.get("defects") or []):
         u = d.get("photo") or ""
         if u:
@@ -3044,7 +3182,7 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     except Exception:
         pass
     issued = datetime.now(timezone.utc).strftime("%d %b %Y")
-    html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued)
+    html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued, hero_is_property)
     return p, html
 
 

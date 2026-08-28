@@ -1,0 +1,64 @@
+{
+  "summary": "Frontend-only E2E verification of the 4 new pack-depth features on the 12 Marsh End demo project (a559329c-7ee0-4d55-9d04-7a3aa8a7fecc) via the public preview URL. Logged in with it@cphretrofit.co.uk. Verified: (1) Project Details panel (nav-details) renders all 7 editable Field rows (client/assessor/coordinator/designer/installer/tenant/designStage) with pencil inline-edit; edited Installer -> 'Saved' toast shown and value persisted across a full reload. (2) Ventilation panel (nav-ventilation -> ventilation-panel): filled ventilation-strategy/-whole/-background, added a wet room via ventilation-add-room, filled vent-room-0/-system-0/-rate-0, Save produced 'Ventilation strategy saved' toast and all values + room row persisted after reload. (3) Floor Plan panel (nav-floorplan -> floorplan-panel): Upload plan (floorplan-upload -> floorplan-file) uploaded a PNG, POST /floorplan returned 200, canvas rendered the real image (naturalWidth 800), all 4 tools (floorplan-tool-DMEV/-LOFT/-TRICKLE/-ASHP) present, arming a tool + clicking canvas dropped a marker, marker drag repositioned it, Save produced 'Placements saved' toast; verified persistence at API level immediately after save, after +6s and after a full reload (2 markers, correct imageUrl, badge count on nav updated to 2). (4) Design Pack preview reached both via nav-design-pack -> 'Open Design Pack Preview' and via /project/{id}/pack; 24-page pack rendered with no console errors and no 4xx/5xx. Pack iframe contains 'Ventilation Requirements & Strategy' and 'Floor Plan & Measure Placements' pages (page 06 renders the uploaded plan image + both markers at the right coordinates), Project Directory shows the edited Installer and the Tenant value, and the cover correctly shows the 'PROPERTY PHOTOGRAPH MISSING' red flag (this project genuinely has 0 designPack.photos, confirmed in MongoDB). No backend testing performed (as instructed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Floor Plan upload + marker save persistence",
+        "issue": "OBSERVED ONCE / NOT REPRODUCIBLE: on the first upload+place+save+reload cycle the reload showed only 1 of 2 markers and the DB still held the pre-test imageUrl, i.e. that cycle's upload+save appeared to be lost. Two subsequent full cycles (with API-level assertions immediately after save, after +6s, and after reload) persisted correctly every time, so this is reported as a possible intermittent race (1 of 3 attempts) rather than a confirmed defect. Suspected cause: FloorPlanPanel holds local state seeded from the project fetch and the workspace does not re-fetch after upload, so an upload followed quickly by Save can PUT a stale imageUrl/markers snapshot. Worth a defensive re-fetch after uploadFloorPlan.",
+        "affected_selectors": ["floorplan-upload", "floorplan-file", "floorplan-save"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Ventilation panel / Design Pack ventilation page",
+        "issues": [
+          "Blank wet-room rows are persisted: clicking 'Add room' and saving without filling the row writes {room:'',system:'',rate:'',note:''} to the DB (verified in MongoDB) and it renders as an empty row in the panel and in the pack. notes[] are filtered on save but rooms[] are not - add the same empty-row filter in VentilationPanel.save()."
+        ]
+      },
+      {
+        "screen": "Design Pack contents page vs Floor Plan page",
+        "issues": [
+          "Contents (page 02) lists item 01.5 as 'Floor Plan & Placements' while the actual page heading is 'Floor Plan & Measure Placements' - inconsistent titles."
+        ]
+      },
+      {
+        "screen": "Floor Plan panel",
+        "issues": [
+          "Placed/dragged markers live only in local state until Save; navigating to another workspace section silently discards them with no unsaved-changes warning (the helper text 'Remember to Save' is the only cue).",
+          "The pack Floor Plan page always renders all 4 legend chips (dMEV/Loft/Trickle/ASHP) even when only some marker types are placed - consider showing only used types."
+        ]
+      },
+      {
+        "screen": "Project Details panel",
+        "issues": [
+          "The pencil edit trigger (edit-{path}) is opacity-0 until row hover, so the fields do not look editable at first glance; low discoverability (functionally fine and clickable)."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "VentilationPanel.save(): filter out empty wet-room rows before PUT (same treatment as notes).",
+    "FloorPlanPanel: after uploadFloorPlan succeeds, re-sync from the server (or block Save until state is confirmed) to remove the stale-snapshot race; consider an unsaved-marker warning when leaving the section.",
+    "Align pack contents label '01.5 Floor Plan & Placements' with the page heading 'Floor Plan & Measure Placements'.",
+    "Verify the 'real property photo on the PDF cover' branch on a project that HAS survey photos (e.g. e7e48949-743a-4ae8-af67-07ce16ea0a91, 8 photos) - 12 Marsh End has 0 photos so only the 'missing' flag branch could be exercised."
+  ],
+  "critical_code_review_comments": [
+    "FloorPlanPanel/VentilationPanel initialise useState from the `initial` prop only; if the parent project state changes (e.g. after another save or a background refresh) the panel will not re-sync and can PUT a stale full object, overwriting newer data. Consider keying the component on the project revision or using an effect to sync.",
+    "PUT /api/projects/{id}/floorplan replaces markers wholesale with the client payload (last-write-wins). Acceptable for single-user editing but concurrent editors will clobber each other's markers.",
+    "DesignWorkspace.jsx is ~870 lines and holds EditableCell, MeasureDetail, SimpleSection, IntelligencePanel and the photo-curation UI inline; exceeds the 700-line guideline and should be split."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested", "frontend": "100% of the 5 requested flows passed (with 1 non-reproducible persistence flake noted)"},
+  "seed_data_creation": "Uploaded /tmp/test_floorplan.png as a floor plan (2 documents created: fcd7a252-..., db61e2d8-...). All project field mutations were reverted after testing: installer restored to 'Coldrush Ltd', ventilation.rooms restored to Kitchen/Bathroom (blank third row removed), floorPlan restored to the original single ASHP marker + imageUrl 9b80e86b. NOTE: the original ventilation strategy/wholeDwelling/background free-text was overwritten during testing and could not be recovered - it was re-populated with equivalent PAS-appropriate text; replace if the original wording matters.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Design Workspace lives at /project/{id}/design (NOT /project/{id}, which is ProjectOverview) - nav testids are nav-details, nav-ventilation, nav-floorplan, nav-design-pack. Details fields use the Field component from components/StatusChip.jsx: click [data-testid=edit-{path}] then fill [data-testid=edit-input-{path}] then click [data-testid=edit-save-{path}]; valid paths: client, assessor, coordinator, designer, installer, tenant, designStage. Pack preview at /project/{id}/pack renders inside an iframe (24 pages) - read frame text via page.frames. For floor-plan tests, arm a tool first (floorplan-tool-XXX) then page.mouse.click inside floorplan-canvas bounding box; verify persistence with an in-page fetch of /api/projects/{id} rather than relying on DOM counts. All 4 new features passed; only the minor items in design_issues remain.",
+  "rca_of_the_issue": "No blocking issue. The one lost upload+save cycle is most likely a stale-local-state race in FloorPlanPanel (state seeded once from the `initial` prop, PUT sends the whole snapshot), reproducible only when Upload and Save are fired back-to-back; it did not reproduce in two later runs that asserted at the API level."
+}
