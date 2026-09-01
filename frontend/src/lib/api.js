@@ -39,6 +39,7 @@ export const attachDefectSurveyPhoto = (id, did, url, fig, caption) =>
 
 export const heritageLookup = (id) => api.post(`/projects/${id}/heritage/lookup`).then((r) => r.data);
 export const solarLookup = (id) => api.post(`/projects/${id}/solar/lookup`).then((r) => r.data);
+export const applyPvTarget = (id, targetKwp) => api.post(`/projects/${id}/pv/apply`, { targetKwp }).then((r) => r.data);
 export const uploadMeasureEvidence = (id, mi, file, caption = "") => {
   const fd = new FormData();
   fd.append("file", file);

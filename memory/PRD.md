@@ -106,6 +106,12 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - **Manual photo captions**: `upload_defect_photo` accepts a `caption`; added `defects.` to ALLOWED_PATCH_PREFIXES; DefectsPanel shows a caption input under any defect photo (saved via field patch). PDF defect card renders `photoCaption` under the image.
 - Verified on 4 Beeson: auto-match fast path 0.29s, Bedroom 1/2 + Windows + Doors all matched with captions; manual caption patch persists.
 
+### Phase 42 — Severity-from-photo, vision-on-import, appendix index, realistic PV target (2026-06) [VERIFIED]
+- **Vision on import**: `run_import_job` now runs `_vision_tag_photos` + re-matches defects right after insert, so projects arrive with richly-labelled photos and pre-matched defects (guarded by try/except).
+- **Defect severity from photo**: vision tagging also returns a `severity` (none/low/med/high) stored as `photo.severityHint`; on match `_match_defect_photos` sets `defect.severitySuggested` (suggestion only, never overwrites). DefectsPanel shows an "AI photo: HIGH — apply" chip that writes severity via field patch.
+- **Appendix index**: `_merge_appendix` opens Appendix B with a contents page listing every bound document (number, filename, type) before the binds. Verified on 4 Beeson (page 61).
+- **Realistic PV target**: `_pv_from_solar(solar, target_kwp)` snaps panels/kWp/annual to a target; new `POST /projects/{id}/pv/apply` (+ SolarPanel "Target array size" input) with `pvSource="target"` protected from render auto-overwrite. Verified: 4 kWp → 10×400W panels, ~3,080 kWh.
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

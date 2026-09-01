@@ -64,6 +64,16 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
     } catch { toast.error("Could not save caption"); }
   };
 
+  const applySeverity = async (d) => {
+    const idx = defects.findIndex((x) => x.id === d.id);
+    if (idx < 0) return;
+    try {
+      await updateField(projectId, { path: `defects.${idx}.severity`, value: d.severitySuggested });
+      sync(defects.map((x) => (x.id === d.id ? { ...x, severity: d.severitySuggested, severitySuggested: null } : x)));
+      toast.success("Severity updated from photo");
+    } catch { toast.error("Could not update severity"); }
+  };
+
   const autoMatch = async () => {
     setMatching(true);
     try {
@@ -150,6 +160,12 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
                     <input defaultValue={d.photoCaption || ""} placeholder="Photo caption…" data-testid={`defect-caption-${d.id}`}
                       onBlur={(e) => saveCaption(d, e.target.value)}
                       className="w-28 px-1.5 py-1 text-[10px] bg-background border border-border rounded-sm outline-none focus:border-foreground/40" />
+                  )}
+                  {d.severitySuggested && d.severitySuggested !== String(d.severity || "").toLowerCase() && (
+                    <button onClick={() => applySeverity(d)} data-testid={`defect-sevsug-${d.id}`}
+                      className="w-28 text-[9.5px] px-1.5 py-1 rounded-sm border border-[var(--c-critical)] text-[var(--c-critical)] hover:bg-[var(--c-critical)]/10 leading-tight">
+                      AI photo: {d.severitySuggested.toUpperCase()} — apply
+                    </button>
                   )}
                   <input ref={(el) => (fileRefs.current[d.id] = el)} type="file" accept="image/*" className="hidden" onChange={(e) => onPhoto(d.id, e)} data-testid={`defect-photo-input-${d.id}`} />
                 </div>

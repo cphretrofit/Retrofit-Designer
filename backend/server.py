@@ -1052,6 +1052,8 @@ def _match_defect_photos(defects, photos):
             d["photoAuto"] = True
             d["photoFig"] = chosen.get("fig")
             d["photoCaption"] = chosen.get("caption")
+            if chosen.get("severityHint"):
+                d["severitySuggested"] = chosen["severityHint"]
             matched += 1
     return matched
 
@@ -1092,15 +1094,19 @@ async def _vision_tag_photos(project_id, photos, limit=14):
         try:
             out = await call_claude_vision_json(
                 "You label UK domestic retrofit survey photographs.",
-                "Return JSON {\"caption\": \"...\"} — a concise 3-8 word label of what this single photo shows, "
-                "favouring building elements or defects a retrofit designer cares about (e.g. 'uPVC window, misted double glazing', "
-                "'black mould to bedroom wall', 'external front elevation', 'internal door and frame', 'loft insulation between joists'). "
-                "No sentences, no trailing punctuation.",
+                "Return JSON {\"caption\": \"...\", \"severity\": \"none|low|medium|high\"} for this single photo. "
+                "caption = a concise 3-8 word label favouring building elements or defects (e.g. 'uPVC window, misted double glazing', "
+                "'black mould to bedroom wall', 'external front elevation', 'internal door and frame'). "
+                "severity = if the photo shows a building defect, how serious it looks (extensive mould/damp/structural cracking = high; "
+                "minor or localised = low; a general element/context photo with no defect = none). No sentences, no trailing punctuation.",
                 [_img_b64(data, 900, 70)])
             cap = (out.get("caption") or "").strip()
             if cap:
                 ph["caption"] = cap[:80]
                 ph["visionTag"] = True
+                sev = (out.get("severity") or "").strip().lower()
+                if sev in ("low", "medium", "high"):
+                    ph["severityHint"] = sev
         except Exception as e:
             logger.warning("vision tag failed: %s", e)
     await asyncio.gather(*[tag(ph) for ph in targets])
@@ -1253,16 +1259,19 @@ async def solar_lookup(project_id: str):
     return s
 
 
-async def _apply_pv_autofill(project_id, proj, solar):
-    pv = _pv_from_solar(solar)
+async def _apply_pv_autofill(project_id, proj, solar, target_kwp=None, force=False):
+    pv = _pv_from_solar(solar, target_kwp)
     if not pv:
         return None
+    src = "target" if target_kwp else "google_solar"
     measures = proj.get("measures") or []
     changed = False
     for m in measures:
-        if _mfam(m.get("code"), m.get("name")) != "SOLAR" or m.get("pvSource") == "manual":
+        if _mfam(m.get("code"), m.get("name")) != "SOLAR":
             continue
-        m["pvPanels"], m["pvKwp"], m["pvAnnualKwh"], m["pvSource"] = pv["panels"], pv["kwp"], pv["annualKwh"], "google_solar"
+        if not force and m.get("pvSource") in ("manual", "target"):
+            continue
+        m["pvPanels"], m["pvKwp"], m["pvAnnualKwh"], m["pvSource"] = pv["panels"], pv["kwp"], pv["annualKwh"], src
         detail = f"{pv['panels']} \u00d7 {pv['watt']}W panels" if pv.get("watt") else f"{pv['panels']} panels"
         s = (f"{pv['kwp']} kWp " if pv.get("kwp") else "") + f"roof-mounted solar PV \u2014 {detail}"
         if pv.get("annualKwh"):
@@ -1272,6 +1281,23 @@ async def _apply_pv_autofill(project_id, proj, solar):
     if changed:
         await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
     return pv
+
+
+class PvTargetIn(BaseModel):
+    targetKwp: Optional[float] = None
+
+
+@api_router.post("/projects/{project_id}/pv/apply")
+async def apply_pv_target(project_id: str, payload: PvTargetIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    solar = proj.get("solar") or {}
+    if not (solar.get("panelCapacityWatts") or solar.get("maxArrayPanelsCount")):
+        raise HTTPException(status_code=422, detail="Run the aerial / solar lookup first")
+    await db.projects.update_one({"id": project_id}, {"$set": {"solar.targetKwp": payload.targetKwp}})
+    pv = await _apply_pv_autofill(project_id, proj, solar, target_kwp=payload.targetKwp, force=True)
+    return {"pv": pv, "targetKwp": payload.targetKwp}
 
 
 @api_router.post("/projects/{project_id}/measures/{mi}/evidence-photo")
@@ -2287,6 +2313,14 @@ async def run_import_job(job_id: str):
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)
+        try:
+            _photos = (doc.get("designPack") or {}).get("photos") or []
+            await _vision_tag_photos(doc["id"], _photos)
+            _defs = doc.get("defects") or []
+            if _match_defect_photos(_defs, _photos):
+                await db.projects.update_one({"id": doc["id"]}, {"$set": {"defects": _defs}})
+        except Exception as e:
+            logger.warning("import vision tagging failed: %s", e)
         await db.documents.update_many({"id": {"$in": doc_ids}}, {"$set": {"project_id": project["id"]}})
         await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "project_id": project["id"]}})
     except Exception as e:
@@ -3336,18 +3370,28 @@ def _img_to_data_uri(raw, px=1400, q=80):
         return None
 
 
-def _pv_from_solar(solar):
+def _pv_from_solar(solar, target_kwp=None):
     if not solar:
         return None
-    panels = solar.get("configPanelsCount") or solar.get("maxArrayPanelsCount")
+    max_panels = solar.get("maxArrayPanelsCount")
+    base = solar.get("configPanelsCount") or max_panels
+    panels = base
     if not panels:
         return None
     watt = solar.get("panelCapacityWatts")
     annual = solar.get("maxYearlyEnergyDcKwh")
+    if target_kwp and watt:
+        tp = max(1, round(target_kwp * 1000.0 / watt))
+        if max_panels:
+            tp = min(tp, int(max_panels))
+        if annual and base:
+            annual = annual * tp / base
+        panels = tp
     return {"panels": int(panels),
             "kwp": round(panels * watt / 1000.0, 2) if watt else None,
             "annualKwh": int(round(annual)) if annual else None,
-            "watt": int(watt) if watt else None}
+            "watt": int(watt) if watt else None,
+            "targetKwp": target_kwp}
 
 
 def _sq_jpeg(im, px=900, q=82):
@@ -4710,7 +4754,18 @@ def _merge_appendix(pdf_bytes, docs):
 
     added = 0
     try:
-        divider("Bound Source Documents", "Appendix B")
+        idx = main.new_page(width=595, height=842)
+        idx.insert_text((54, 92), "APPENDIX B", fontsize=8, color=(0.64, 0.64, 0.64))
+        idx.insert_text((54, 120), "Bound Source Documents", fontsize=18, color=(0.09, 0.09, 0.09))
+        idx.draw_line((54, 132), (541, 132), color=(0.9, 0.9, 0.9))
+        y = 168
+        for i, d in enumerate(docs, 1):
+            idx.insert_text((54, y), f"{i:02d}", fontsize=9, color=(0.0, 0.33, 1.0))
+            idx.insert_text((86, y), (d.get("name") or "Document")[:68], fontsize=10, color=(0.13, 0.13, 0.13))
+            idx.insert_text((86, y + 13), (d.get("type") or "").upper()[:62], fontsize=7, color=(0.6, 0.6, 0.6))
+            y += 32
+            if y > 790:
+                break
         for d in docs:
             if added > 150:
                 break
