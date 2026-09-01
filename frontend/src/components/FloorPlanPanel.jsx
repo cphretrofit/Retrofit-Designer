@@ -51,10 +51,12 @@ export function FloorPlanPanel({ projectId, initial, onChange }) {
   };
 
   return (
-    <div className="anim-in space-y-4 max-w-3xl" data-testid="floorplan-panel">
+    <div className="anim-in space-y-4 max-w-3xl" data-testid="floorplan-panel"
+      onDragOver={(e) => { e.preventDefault(); }}
+      onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer?.files?.[0]; if (f) upload(f); }}>
       <div className="flex items-center justify-between gap-4">
         <div className="text-[12px] text-muted-foreground">
-          Upload the floor plan, then drop markers for dMEV, Loft, Trickle vents and the ASHP. Drag markers to reposition.
+          Upload or drag &amp; drop the floor plan, then drop markers for dMEV, Loft, Trickle vents and the ASHP. Drag markers to reposition.
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <input ref={fileRef} type="file" accept="image/*" className="hidden" data-testid="floorplan-file"
@@ -74,7 +76,7 @@ export function FloorPlanPanel({ projectId, initial, onChange }) {
 
       {!fp.imageUrl ? (
         <div className="border border-dashed border-border rounded-sm p-10 text-center text-[13px] text-muted-foreground" data-testid="floorplan-empty">
-          No floor plan uploaded yet. Upload a plan image to start placing measure markers.
+          No floor plan uploaded yet. Drag &amp; drop a plan image here, or click “Upload plan” to start placing measure markers.
         </div>
       ) : (
         <>

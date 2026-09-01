@@ -31,12 +31,8 @@ export default function Login() {
     <div className="min-h-screen flex bg-background text-foreground">
       <div className="hidden lg:flex flex-col justify-between w-[42%] bg-foreground text-background p-14">
         <div className="flex items-center gap-2.5">
-          <div className="h-7 w-7 border border-background/80 flex items-center justify-center rounded-[3px]">
-            <div className="h-3 w-3 border-[1.5px] border-background rotate-45" />
-          </div>
-          <div className="leading-none">
-            <div className="font-display font-800 text-[13px] tracking-tight">ORTHOGRAPH</div>
-            <div className="text-[9px] text-background/60 tracking-[0.24em] uppercase mt-0.5">Retrofit Design</div>
+          <div className="bg-white rounded-md px-3 py-2 inline-flex">
+            <img src="/brand/cph-design-logo.png" alt="CPH Design" className="h-9 w-auto object-contain" data-testid="login-brand-logo" />
           </div>
         </div>
         <div>

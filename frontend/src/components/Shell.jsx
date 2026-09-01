@@ -59,13 +59,7 @@ export function TopBar({ crumbs = [], right = null }) {
         className="flex items-center gap-2.5 group"
         data-testid="brand-home-button"
       >
-        <div className="h-7 w-7 border border-foreground/80 flex items-center justify-center rounded-[3px]">
-          <div className="h-3 w-3 border-[1.5px] border-foreground rotate-45 group-hover:rotate-[135deg] transition-transform duration-300" />
-        </div>
-        <div className="leading-none">
-          <div className="font-display font-800 text-[13px] tracking-tight">ORTHOGRAPH</div>
-          <div className="text-[9px] text-muted-foreground tracking-[0.24em] uppercase mt-0.5">Retrofit Design</div>
-        </div>
+        <img src="/brand/cph-design-logo.png" alt="CPH Design" className="h-8 w-auto object-contain" data-testid="brand-logo" />
       </button>
 
       <div className="h-5 w-px bg-border mx-1" />

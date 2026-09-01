@@ -12,6 +12,9 @@ export const getProject = (id) => api.get(`/projects/${id}`).then((r) => r.data)
 export const updateField = (id, payload) =>
   api.patch(`/projects/${id}/field`, payload).then((r) => r.data);
 
+export const setReference = (id, ref) =>
+  api.patch(`/projects/${id}/reference`, { ref }).then((r) => r.data);
+
 export const confirmItem = (id, index, payload) =>
   api.patch(`/projects/${id}/items/${index}/confirm`, payload).then((r) => r.data);
 

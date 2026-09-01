@@ -129,6 +129,20 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - **Clickable PDF Links**: `_merge_appendix` adds internal GoTo links on the Appendix B index page (re-fetches `main[idx_no]` after `insert_pdf` to avoid stale page refs). Verified: 12/12 entries link to their bound-document divider pages.
 - Tested: backend 72/72 (12 new + 60 regression), frontend workspace + Client Library render/edit/nav all pass (iteration_14).
 
+### Phase 45 — Audit fixes (54 Greenmere), reference, AONB, logo (2026-06) [VERIFIED]
+Client audit of 54 Greenmere (RTF-2026-0172, id 34850d44…). Fixes:
+- **Solar 95-panel bug** → `_realistic_max_panels()` constrains Google Solar's whole-building count to a single-dwelling estimate (floor-area/storeys based). GM now shows 12 panels / 4.8 kWp with an honest "single-dwelling estimate; building footprint may include adjoining dwellings" caveat. Roof-capacity/yield cards + recommended array all clamped.
+- **Site-conditions professionalism** — build_pack_html now suppresses N/A conditions (e.g. bathroom-upstairs on a single-storey/bungalow) and uninformative "not mentioned" negatives.
+- **Reference Number** — new `PATCH /projects/{id}/reference` + editable "Reference (PasHub)" paste box at top of Survey Details (was previously locked).
+- **Prompt guardrails** (effective on import + re-extract): ignore Job-Card free-text "Notes" section; never assign dMEV/extract to a bedroom (wet rooms only); raise Gas/Combustion considerations ONLY when a combustion appliance is present (all-electric dwellings omit them).
+- **In-place re-extract** — `POST /projects/{id}/reextract` + `reextract_project_fields()` re-run AI on a project's existing docs and refresh only ventilation / siteConditions / designConsiderations, preserving all manual edits, measures, photos & curation. Ran on 54 Greenmere: ventilation = Kitchen+Bathroom only, bathroom_upstairs=False, no combustion topic. Note: long-running, call in background (ingress 502s on sync >~100s).
+- **Photo pull (#10)** — survey photo cap raised 20→40 across loft/solar/assessment docs.
+- **AONB (#13)** — heritage lookup now queries `area-of-outstanding-natural-beauty` + `national-park`; statement covers AONB/National Landscape & National Park.
+- **Floor plan (#15)** — drag & drop a plan image onto the Floor Plan panel to upload.
+- **Branding** — replaced ORTHOGRAPH wordmark with the CPH Design logo (`/brand/cph-design-logo.png`) in the app header and login.
+
+Remaining from client audit: **#12 auto-generate CAD-quality drawings** + **#11 auto loft junctions** (Phase 3, agreed as a separate multi-step build); **#16 speed up draft generation**; **#14 frontend UI** to add extra surveys/site-notes to an existing project + trigger re-extract (backend endpoints already exist); **#17 solar datasheets** = user re-uploads correct PV datasheet (data, not code).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

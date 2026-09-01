@@ -334,7 +334,7 @@ Rules:
 - Keep measures[].name concise (max ~22 characters).
 - defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a clear description, the likely cause, the evidence observed (and photo/figure reference if any), severity (high|medium|low), the remedial action required before install, and the relevant clause/standard (PAS 2035, Building Regulations Part, BS). Use [] if the documents mention none.
 - people: extract the REAL names of the Retrofit Assessor, Retrofit Coordinator, Retrofit Designer, Installer (company or person) and Tenant/Resident from the job card, air-tightness strategy or assessment. The Installer is usually the installing company / contractor named on the Job Card (often the client organisation). Use "" for any not stated — NEVER invent a name.
-- ventilation: extract the ventilation requirements and strategy from the ADF1 ventilation checklist / job card. Populate rooms with each wet room (kitchen, bathroom, WC, utility) and its extract system + rate, plus the whole-dwelling and background (trickle/equivalent-area) provision. Use [] rooms if none stated.
+- ventilation: extract the ventilation requirements and strategy from the ADF1 ventilation checklist / job card. Populate rooms with each wet room (kitchen, bathroom, WC, utility) and its extract system + rate, plus the whole-dwelling and background (trickle/equivalent-area) provision. Use [] rooms if none stated. NEVER assign an extract fan or dMEV to a bedroom or other habitable room — extract ventilation is for wet rooms only (kitchen, bathroom, WC, utility, en-suite).
 - siteConditionsFromDocs: from the JOB CARD / assessment TEXT (NOT photos), record any of these conditions the documents explicitly state: electric shower, recessed spotlights/downlights, stored items/boarding in loft, bathroom on an upper floor, ground floor type. Give present true/false (or value for floor_type), a short detail quoting where it is stated, and the source document name. Use [] where a condition is not stated in the documents. This complements the photo-based vision detection.
 
 Return this exact JSON shape:
@@ -372,7 +372,7 @@ Return this exact JSON shape:
 
 Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
 
-JOB CARD PRIORITY: when a Job Card spreadsheet is provided, treat it as the primary source of truth and auto-populate: (1) measures — read every recommended/installed measure (e.g. loft insulation, ASHP, solar PV, windows, ventilation) and map each to its PAS 2030:2023 code (B/C code) and full name; (2) epcBefore / epcAfter and any SAP score stated; (3) property.orientation (front/rear/roof orientation) and floorArea, type, age, storeys, occupancy; (4) ventilation.rooms — build the wet-room extract list (kitchen, bathroom, WC, utility) with system + rate from the Job Card / ADF1 checklist. Never leave these blank if the Job Card states them.
+JOB CARD PRIORITY: when a Job Card spreadsheet is provided, treat it as the primary source of truth and auto-populate: (1) measures — read every recommended/installed measure (e.g. loft insulation, ASHP, solar PV, windows, ventilation) and map each to its PAS 2030:2023 code (B/C code) and full name; (2) epcBefore / epcAfter and any SAP score stated; (3) property.orientation (front/rear/roof orientation) and floorArea, type, age, storeys, occupancy; (4) ventilation.rooms — build the wet-room extract list (kitchen, bathroom, WC, utility) with system + rate from the Job Card / ADF1 checklist. Never leave these blank if the Job Card states them. IGNORE any free-text "Notes" / "Surveyor's Notes" / "Additional comments" section on the Job Card — do NOT use it as a source for measures, people, EPC bands or site conditions; use only the structured fields and the formal assessment / scope documents.
 """
 
 
@@ -592,7 +592,7 @@ def _merge_doc_site_facts(sc, docfacts):
 DESIGN_CONSIDERATIONS_SYSTEM = """You are a PAS 2035:2023 Retrofit Designer writing the "Design Considerations" section of a retrofit design for ONE dwelling, in the professional house style of a UK retrofit design pack.
 You are given the property's detected site conditions and the proposed retrofit measures. For EACH relevant consideration decide Present = "Yes" / "No" / "N/A" for THIS property, then write a concise, site-specific professional paragraph (2-4 sentences, third person) referencing the relevant standard where appropriate (BS 5250, BS 7671, Approved Document B, Approved Document F, PAS 2035, BRE BR 262, MCS). Base everything strictly on the evidence given; never invent site details you were not given — where something is unknown, state that it must be confirmed on site.
 
-Cover these topics where relevant to the measures: Crossflow Ventilation (loft), Pipework Lagging, Recessed Spotlights / Downlights, Gas Meter / Supply Decommissioning (only if an ASHP is replacing gas), Overheating (note south-facing glazing where applicable), Fire Safety, Thermal Bridging, Loft Hatch, Cold Water Tank.
+Cover these topics where relevant to the measures: Crossflow Ventilation (loft), Pipework Lagging, Recessed Spotlights / Downlights, Gas Meter / Supply Decommissioning (only if an ASHP is replacing gas), Overheating (note south-facing glazing where applicable), Fire Safety, Thermal Bridging, Loft Hatch, Cold Water Tank. Only raise Gas Meter / Combustion / flue / combustion-ventilation topics if the documents show a combustion appliance (gas boiler, gas hob, solid-fuel or open-flue appliance) is present or being removed; for an all-electric dwelling omit these topics entirely rather than marking them N/A.
 
 Return ONLY JSON:
 {"considerations":[{"topic":"Crossflow Ventilation","present":"No","narrative":"..."}]}"""
@@ -1021,9 +1021,9 @@ async def run_import_job(job_id: str):
             if dtype in ("Assessment", "Technical Survey") and ext == "pdf" and data and not page_images_b64:
                 page_images_b64 = [_img_b64(b) for b in (await asyncio.to_thread(_rasterize_pdf, data, 3))]
 
-            if ext == "pdf" and data and dtype in PHOTO_DOC_TYPES and len(photos) < 20:
-                for pm in (await asyncio.to_thread(extract_tagged_photos, data, 20)):
-                    if len(photos) >= 20:
+            if ext == "pdf" and data and dtype in PHOTO_DOC_TYPES and len(photos) < 40:
+                for pm in (await asyncio.to_thread(extract_tagged_photos, data, 40)):
+                    if len(photos) >= 40:
                         break
                     iext = pm["ext"] if pm["ext"] in ("jpg", "jpeg", "png", "webp") else "jpg"
                     mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
@@ -1112,6 +1112,57 @@ async def run_import_job(job_id: str):
         await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)}})
 
 
+async def reextract_project_fields(project_id):
+    """Re-run AI extraction on a project's existing documents and refresh only the
+    guardrail-governed fields (ventilation, site conditions, design considerations),
+    preserving all manual edits, measures, photos and curation."""
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        return None
+    docs = await db.documents.find({"project_id": project_id}).to_list(300)
+    parts = []
+    for d in docs:
+        if d.get("is_deleted") or not d.get("storage_path"):
+            continue
+        dtype = d.get("doc_type") or ""
+        if dtype == "Survey Photo":
+            continue
+        fn = d.get("original_filename") or "file"
+        ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+        try:
+            data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+        except Exception:
+            continue
+        text = (await asyncio.to_thread(extract_text_any, data, ext)) if data else ""
+        if text.strip():
+            parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:TEXT_LIMIT.get(dtype, 11000)]}")
+    if not parts:
+        return {"error": "No readable source documents on this project"}
+    ai = await call_claude("Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts))
+    updates = {}
+    if isinstance(ai, dict):
+        if ai.get("ventilation"):
+            updates["ventilation"] = ai["ventilation"]
+        if ai.get("siteConditionsFromDocs") is not None:
+            updates["siteConditionsFromDocs"] = ai["siteConditionsFromDocs"]
+    try:
+        vphotos = await _project_vision_photos(proj)
+        ptype = (proj.get("property") or {}).get("type") or ""
+        sc = await detect_site_conditions(vphotos, None, ptype)
+        sc = _merge_doc_site_facts(sc, updates.get("siteConditionsFromDocs") or proj.get("siteConditionsFromDocs"))
+        if sc:
+            updates["property"] = {**(proj.get("property") or {}), "siteConditions": sc}
+    except Exception as e:
+        logger.warning("reextract site conditions failed: %s", e)
+    try:
+        dc = await generate_design_considerations({**proj, **updates}, "\n".join(parts))
+        if dc:
+            updates["designConsiderations"] = dc
+    except Exception as e:
+        logger.warning("reextract design considerations failed: %s", e)
+    if updates:
+        await db.projects.update_one({"id": project_id}, {"$set": updates})
+    return {"refreshed": sorted(updates.keys())}
 
 
 TEMPLATE_SYSTEM = """You are analysing a PAS 2035:2023 retrofit DESIGN document template. Extract the REUSABLE, DETAILED specification content as JSON so it can populate a site-specific design pack. Capture the ACTUAL substance — works items, specification clauses, standards, considerations — NOT just section titles.

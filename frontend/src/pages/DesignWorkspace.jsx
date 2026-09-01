@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, updateField, updatePhotos, mediaUrl, applyClientLibrary } from "@/lib/api";
+import { getProject, updateField, updatePhotos, mediaUrl, applyClientLibrary, setReference } from "@/lib/api";
 import { ChevronUp, ChevronDown } from "lucide-react";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
@@ -84,6 +84,13 @@ export default function DesignWorkspace() {
     setP((prev) => { const n = structuredClone(prev); n.designPack.photos = next; return n; });
     try { await updatePhotos(id, next); } catch { toast.error("Could not save photos"); }
   };
+  const saveRef = async (v) => {
+    const val = (v || "").trim();
+    if (!val || val === p.ref) return;
+    await setReference(id, val);
+    setP((prev) => ({ ...prev, ref: val }));
+    toast.success("Reference updated", { description: "PasHub reference saved." });
+  };
 
   const ewi = p.measures.find((m) => m.code === "EWI");
   const renderCenter = () => {
@@ -101,6 +108,18 @@ export default function DesignWorkspace() {
         return (
           <div className="anim-in space-y-4">
             <SimpleSection title="Survey Details">
+              <div className="flex items-center gap-3 py-2 border-b border-border/60">
+                <span className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground w-40 shrink-0">Reference (PasHub)</span>
+                <input
+                  key={p.ref}
+                  defaultValue={p.ref}
+                  onBlur={(e) => saveRef(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                  placeholder="Paste PasHub reference…"
+                  data-testid="reference-input"
+                  className="flex-1 bg-background border rounded-sm px-2 py-1 text-[13px] font-mono-tech outline-none focus:border-[var(--c-action)]"
+                />
+              </div>
               <Field label="Property Type" value={p.property.type} mono={false} path="property.type" onSave={saveField} />
               <Field label="Age Band" value={p.property.age} mono={false} path="property.age" onSave={saveField} />
               <Field label="Floor Area" value={p.property.floorArea} path="property.floorArea" onSave={saveField} />

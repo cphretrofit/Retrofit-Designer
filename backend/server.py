@@ -913,6 +913,21 @@ async def update_project_field(project_id: str, payload: FieldUpdate):
     return updated
 
 
+class RefUpdate(BaseModel):
+    ref: str
+
+
+@api_router.patch("/projects/{project_id}/reference")
+async def set_reference(project_id: str, payload: RefUpdate):
+    ref = (payload.ref or "").strip()
+    if not ref:
+        raise HTTPException(status_code=422, detail="Reference required")
+    if not await db.projects.find_one({"id": project_id}, {"_id": 1}):
+        raise HTTPException(status_code=404, detail="Project not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"ref": ref}})
+    return {"ref": ref}
+
+
 class ItemConfirm(BaseModel):
     confirmed: bool = True
     confirmedBy: Optional[str] = None
@@ -1309,6 +1324,17 @@ async def add_documents(project_id: str, files: List[UploadFile] = File(...), ty
         rec.pop("_id", None)
         out.append(rec)
     return {"added": out}
+
+
+@api_router.post("/projects/{project_id}/reextract")
+async def reextract_project(project_id: str):
+    from ai_extractor import reextract_project_fields
+    res = await reextract_project_fields(project_id)
+    if res is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if res.get("error"):
+        raise HTTPException(status_code=422, detail=res["error"])
+    return res
 
 
 @api_router.post("/projects/{project_id}/extract-photos")

@@ -284,7 +284,7 @@ def _heritage_lookup_sync(postcode):
             return {"postcode": pc, "error": "No coordinates for postcode", "designations": []}
         params = [("latitude", lat), ("longitude", lon), ("limit", 100),
                   ("field", "entity"), ("field", "dataset"), ("field", "name"), ("field", "reference")]
-        for ds in ("conservation-area", "listed-building", "article-4-direction-area", "world-heritage-site"):
+        for ds in ("conservation-area", "listed-building", "article-4-direction-area", "world-heritage-site", "area-of-outstanding-natural-beauty", "national-park"):
             params.append(("dataset", ds))
         r = requests.get("https://www.planning.data.gov.uk/entity.json", params=params, timeout=(3.05, 20))
         ents = (r.json().get("entities") or []) if r.status_code == 200 else []
@@ -315,6 +315,7 @@ def _heritage_statement(h):
     for d in (h.get("designations") or []):
         by.setdefault(d.get("dataset"), []).append(d)
     ca, lb, a4, wh = by.get("conservation-area") or [], by.get("listed-building") or [], by.get("article-4-direction-area") or [], by.get("world-heritage-site") or []
+    aonb, npark = by.get("area-of-outstanding-natural-beauty") or [], by.get("national-park") or []
     lines = []
     if ca:
         lines.append(f"The property lies within the {ca[0].get('name') or 'designated'} Conservation Area (ref {ca[0].get('reference') or 'n/a'}). Heightened significance applies; external energy-efficiency measures must preserve or enhance the character and appearance of the area.")
@@ -324,11 +325,15 @@ def _heritage_statement(h):
         lines.append(f"An Article 4 Direction is in force ({a4[0].get('name') or 'Article 4 area'}). Permitted development rights are restricted; express planning permission is likely required for external alterations.")
     if wh:
         lines.append(f"The property is within or adjacent to the {wh[0].get('name') or 'a'} World Heritage Site — the highest level of heritage significance applies.")
+    if aonb:
+        lines.append(f"The property lies within the {aonb[0].get('name') or 'designated'} Area of Outstanding Natural Beauty (National Landscape, ref {aonb[0].get('reference') or 'n/a'}). Statutory duty applies to conserve and enhance natural beauty; external measures must respect the landscape character, with sensitive material, colour and detailing choices agreed with the Local Planning Authority.")
+    if npark:
+        lines.append(f"The property lies within the {npark[0].get('name') or 'designated'} National Park (ref {npark[0].get('reference') or 'n/a'}). Enhanced landscape protection applies; external alterations should be agreed with the National Park Authority.")
     if lines:
         return {"designated": True, "summary": " ".join(lines),
                 "mitigation": "Where external fabric measures affect a designated asset, install to rear/less-sensitive elevations where practicable, retain and match architectural detailing, use breathable and compatible materials in line with BS 5250, and obtain the relevant planning / Listed Building consents prior to commencing. All works to be agreed with the Local Planning Authority conservation officer."}
     return {"designated": False,
-            "summary": "No statutory heritage designations (Conservation Area, Listed Building, Article 4 Direction or World Heritage Site) were identified at this location on the national planning dataset (planning.data.gov.uk). A standard retrofit approach applies, subject to confirmation on site.",
+            "summary": "No statutory heritage or landscape designations (Conservation Area, Listed Building, Article 4 Direction, World Heritage Site, Area of Outstanding Natural Beauty / National Landscape or National Park) were identified at this location on the national planning dataset (planning.data.gov.uk). A standard retrofit approach applies, subject to confirmation on site.",
             "mitigation": "No heritage-specific constraints identified. Standard workmanship, moisture management (BS 5250) and manufacturer specifications apply. Note: planning.data.gov.uk coverage is England-only and may be incomplete — confirm designations with the Local Planning Authority."}
 
 
@@ -1139,6 +1144,34 @@ def _num(v, d=0):
         return "\u2014"
 
 
+def _realistic_max_panels(solar, prop):
+    """Google Solar returns the whole building footprint (a terrace can be one
+    'building'), giving absurd panel counts. Constrain to a single dwelling's own
+    roof using its floor area / storeys, so we never present a full-street array."""
+    gmax = solar.get("maxArrayPanelsCount")
+    prop = prop or {}
+    fa = 0.0
+    mm = re.search(r"[\d.]+", str(prop.get("floorArea") or ""))
+    if mm:
+        try:
+            fa = float(mm.group())
+        except Exception:
+            fa = 0.0
+    try:
+        storeys = max(1, int(prop.get("storeys") or 1))
+    except Exception:
+        storeys = 1
+    ceiling = 24
+    if fa:
+        footprint = fa / storeys
+        usable = footprint * 0.45          # portion of the roof suitable for PV
+        est = int(usable / 2.0)            # ~2 m2 per panel
+        ceiling = max(4, min(est, 24))
+    if gmax:
+        return max(1, min(int(gmax), ceiling))
+    return ceiling
+
+
 def _solar_html(p):
     s = p.get("solar") or {}
     if not s.get("aerialImage") and not s.get("maxArrayPanelsCount"):
@@ -1175,33 +1208,31 @@ def _solar_html(p):
                 f'<div class="faint upper" style="font-size:8px;">{label}</div>'
                 f'<div style="margin-top:7px;"><span class="disp" style="font-size:24px;">{val}</span>'
                 f'<span class="mono faint" style="font-size:9.5px; margin-left:5px;">{unit}</span></div></div>')
-    panels = s.get("maxArrayPanelsCount")
-    cap_kwp = (panels * s["panelCapacityWatts"] / 1000.0) if (panels and s.get("panelCapacityWatts")) else None
+    watt = s.get("panelCapacityWatts") or 400
+    panels = _realistic_max_panels(s, p.get("property"))
+    gmax = s.get("maxArrayPanelsCount")
+    cap_kwp = panels * watt / 1000.0 if panels else None
     cap_str = _num(cap_kwp, 2) if cap_kwp else "\u2014"
+    panel_area = panels * 2.0 if panels else None
+    annual_full = s.get("maxYearlyEnergyDcKwh")
+    annual_est = int(round(annual_full * panels / gmax)) if (annual_full and gmax and panels) else annual_full
     cards = ('<table style="margin-top:20px;"><tr>'
-             f'<td style="border:0; padding:0 5px 0 0; width:25%; vertical-align:top;">{_stat("Usable Roof Area", _num(s.get("roofAreaMeters2")), "m&sup2;")}</td>'
-             f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Max Solar Panels", _num(panels), "panels")}</td>'
+             f'<td style="border:0; padding:0 5px 0 0; width:25%; vertical-align:top;">{_stat("Est. Panel Area", _num(panel_area), "m&sup2;")}</td>'
+             f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Roof Capacity (est.)", _num(panels), "panels")}</td>'
              f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Array Capacity", cap_str, "kWp")}</td>'
-             f'<td style="border:0; padding:0 0 0 5px; width:25%; vertical-align:top;">{_stat("Est. Annual Yield", _num(s.get("maxYearlyEnergyDcKwh")), "kWh")}</td>'
+             f'<td style="border:0; padding:0 0 0 5px; width:25%; vertical-align:top;">{_stat("Est. Annual Yield", _num(annual_est), "kWh")}</td>'
              '</tr></table>')
-    extra = ""
-    if s.get("maxSunshineHoursPerYear"):
-        extra = _para(f'Maximum modelled sunshine at this roof is <b>{_num(s.get("maxSunshineHoursPerYear"))} hours per year</b>. '
-                      'Figures are modelled from Google Solar API roof geometry and are indicative for feasibility only; '
-                      'the installed array is confirmed by the MCS PV design together with the structural and shading survey.')
+    extra = _para('Figures are a single-dwelling estimate constrained to this property\u2019s own roof. The Google Solar model returns the whole building footprint (which for terraces / semis can include adjoining dwellings), so the installable array for this dwelling is confirmed by the MCS PV design together with the structural and shading survey.'
+                  + (f' Maximum modelled sunshine at this roof is <b>{_num(s.get("maxSunshineHoursPerYear"))} hours per year</b>.' if s.get("maxSunshineHoursPerYear") else ""))
     rec = ""
     r = s.get("recommendedPv")
-    if r:
-        parts = []
-        if r.get("kwp"):
-            parts.append(f"{r['kwp']} kWp")
-        if r.get("panels"):
-            parts.append(f"{r['panels']} panels")
-        if r.get("annualKwh"):
-            parts.append(f"~{r['annualKwh']:,} kWh/yr")
-        if parts:
-            rec = _para("<b>Recommended array (auto-designed from roof geometry):</b> " + " &middot; ".join(parts)
-                        + ". This has been applied to the Solar PV measure and can be overridden in the workspace.")
+    if r and r.get("panels"):
+        rp = min(int(r["panels"]), panels) if panels else int(r["panels"])
+        rkwp = round(rp * watt / 1000.0, 2)
+        rann = int(round(r["annualKwh"] * rp / r["panels"])) if (r.get("annualKwh") and r.get("panels")) else None
+        parts = [f"{rkwp} kWp", f"{rp} panels"] + ([f"~{rann:,} kWh/yr"] if rann else [])
+        rec = _para("<b>Recommended array (auto-designed, constrained to this dwelling):</b> " + " &middot; ".join(parts)
+                    + ". This has been applied to the Solar PV measure and can be overridden in the workspace.")
     inner = img + cards + '<div style="margin-top:16px;">' + extra + rec + '</div>'
     return _np("Site Context &middot; Aerial &amp; Solar Survey", "Aerial &amp; Solar Potential", inner,
                "Aerial roof survey and modelled solar potential for the dwelling, informing the PV design and roof-mounted measures.")
@@ -1570,7 +1601,20 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     # Site conditions (computed for TOC + evidence page)
     _sc = (p.get("property") or {}).get("siteConditions") or {}
-    _sc_evidence = _sc.get("evidence") or []
+    _ptype = ((p.get("property") or {}).get("type") or _sc.get("property_type") or "").lower()
+    _single = ("bungalow" in _ptype) or str((p.get("property") or {}).get("storeys") or "").strip() == "1"
+
+    def _sc_keep(e):
+        k = e.get("key")
+        if k == "bathroom_upstairs" and _single:
+            return False  # not applicable to a single-storey dwelling
+        if e.get("present") is False and not e.get("fig") and not e.get("source"):
+            rsn = (e.get("reasoning") or e.get("detail") or "").lower()
+            if (not rsn) or ("not mentioned" in rsn) or ("not stated" in rsn) or ("not present in any" in rsn):
+                return False  # drop uninformative negatives that add noise
+        return True
+
+    _sc_evidence = [e for e in (_sc.get("evidence") or []) if _sc_keep(e)]
     _dc = p.get("designConsiderations") or []
     # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
