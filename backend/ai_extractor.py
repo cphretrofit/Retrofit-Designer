@@ -973,6 +973,191 @@ def _shrink_image(data: bytes, max_px: int = 1000, quality: int = 72):
         return data, None
 
 
+def _autocrop_image(data: bytes, pad: int = 14, thresh: int = 244):
+    """Trim white margins around a scanned plan, then clean it into a crisp
+    black-on-white technical drawing (whiten graph paper / shadows, darken lines,
+    sharpen) so it reads like a finished drawing rather than a phone photo."""
+    try:
+        from PIL import Image, ImageChops, ImageOps, ImageFilter
+        im = Image.open(io.BytesIO(data)).convert("RGB")
+        gray = ImageOps.grayscale(im)
+        bw = gray.point(lambda x: 0 if x < thresh else 255)
+        bbox = ImageChops.invert(bw).getbbox()
+        if bbox:
+            l, t, r, b = bbox
+            if (r - l) > 0.3 * im.width and (b - t) > 0.3 * im.height:
+                l = max(0, l - pad); t = max(0, t - pad)
+                r = min(im.width, r + pad); b = min(im.height, b + pad)
+                gray = gray.crop((l, t, r, b))
+        clean = ImageOps.autocontrast(gray, cutoff=1)
+        clean = clean.point(lambda x: 255 if x > 205 else int((x / 205) * 238))
+        clean = clean.filter(ImageFilter.SHARPEN)
+        out = io.BytesIO()
+        clean.convert("RGB").save(out, format="PNG")
+        return out.getvalue()
+    except Exception:
+        return data
+
+
+FLOORPLAN_VISION_SYSTEM = """You are a retrofit surveyor reviewing candidate images pulled from a property survey pack.
+At most one image is an architectural or surveyor's FLOOR PLAN: a top-down plan of the dwelling showing rooms with walls, room names (e.g. 'Kitchen', 'Living Room', 'Bedroom') and/or room dimensions (e.g. '3.85m').
+It is NOT a floor plan if it is: a window schedule / window form, an elevation or interior/exterior photograph, a data table or checklist, an EPC certificate, a map or aerial image, or a borescope photo.
+Return ONLY JSON: {"index": N, "confidence": "high|medium|low"} where N is the 0-based index (in the order the images are given) of the best FLOOR PLAN, or {"index": -1} when none of the images is a floor plan."""
+
+
+CAD_FLOORPLAN_SYSTEM = """You are a retrofit surveyor and CAD technician. You are given a photograph of a hand-drawn RdSAP surveyor's FLOOR PLAN on graph paper.
+Reconstruct it as clean structured geometry so it can be redrawn as a professional CAD floor plan.
+
+Use a coordinate system in METRES: origin (0,0) at the TOP-LEFT of the building envelope, x increases RIGHT, y increases DOWN.
+Every room is an axis-aligned rectangle. Rooms tile together to form the dwelling (they may form an L-shape; an outbuilding/porch may stick out beyond the main rectangle).
+
+Return ONLY JSON:
+{
+ "title": "GF",
+ "address": ["54 Greenacre,", "OX10 0Q3"],
+ "wallType": "100% cavity | 100% solid/timber/system",
+ "overall": {"w": 8.95, "h": 6.50},
+ "rooms": [ {"name":"Kitchen","x":0.0,"y":2.25,"w":3.85,"h":2.25,"window_circle":"E2","extras":["C"]} ],
+ "topDims":   [{"span":3.85},{"span":1.50},{"span":3.40}],
+ "topDims2":  [{"span":1.45}],
+ "bottomDims":[{"span":2.75},{"span":0.90},{"span":1.50},{"span":1.00},{"span":2.40}],
+ "leftDims":  [{"span":4.10},{"span":2.25}],
+ "rightDims": [{"span":3.75},{"span":2.75}],
+ "windows": [ {"label":"F","wall":"top","x":1.9} ],
+ "doors":   [ {"x":3.9,"y":4.6,"swing":"in"} ],
+ "symbols": [ {"type":"radiator","label":"RA01","x":1.2,"y":6.4}, {"type":"cylinder","label":"C","x":0.3,"y":2.6}, {"type":"lofthatch","label":"LH","x":4.2,"y":3.6} ],
+ "frontDoor": {"x":3.9,"y":6.5},
+ "dataBox": {"title":"Main GF","rows":[["H","2.40 m"],["HLP","18.95 m"],["P/L","13.0 m"],["Area","53.72 m2"]]},
+ "notes": ["Solid Floor","Filled Cavity Walls 300mm","100mm loft ins","1930-1949","Mid-Terrace Bungalow","2 Bedrooms"],
+ "legend": ["HSI = Boiler","C = Hot Water Cylinder","LH = Loft Hatch","A-G = Windows","RA01 = Radiator"],
+ "date": "29.05.2026"
+}
+Rules: read EVERY room name and its window-circle code (e.g. E1..E7) exactly as written; if a circle shows a plain letter with no number keep it as-is. Read all dimension numbers exactly (windows chain 'wall' must be top|bottom|left|right, position in metres along that wall). Keep rectangles consistent so shared walls align (snap coordinates to a sensible grid so topDims sum to overall.w and leftDims sum to overall.h). Do not invent rooms. If a value is unreadable use "".
+"""
+
+_FP_DOC_ORDER = {"Floor Plan": 0, "Assessment": 1, "Technical Survey": 2, "Survey": 2,
+                 "ASHP Survey": 3, "Scope of Works": 4}
+
+
+async def detect_and_extract_floorplan(docs: list, project_id: str):
+    """Scan a project's PDF documents, find the page that is a genuine floor plan
+    (vision-confirmed), extract it at native resolution, store it and return the
+    floorPlan dict. Returns None when no floor plan is found."""
+    candidates = []  # {bytes, b64, label}
+    for d in sorted(docs, key=lambda x: _FP_DOC_ORDER.get(x.get("doc_type"), 9)):
+        if d.get("is_deleted"):
+            continue
+        sp = d.get("storage_path")
+        fn = (d.get("original_filename") or d.get("filename") or "").lower()
+        if not sp or not fn.endswith(".pdf"):
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, sp)
+            doc = pymupdf.open(stream=data, filetype="pdf")
+        except Exception:
+            continue
+        try:
+            for pno in range(doc.page_count):
+                pg = doc[pno]
+                parea = max(1.0, pg.rect.width * pg.rect.height)
+                text = pg.get_text("text") or ""
+                low = text.lower()
+                best_xref, best_area = 0, 0.0
+                for im in pg.get_image_info(xrefs=True):
+                    xref = im.get("xref") or 0
+                    if not xref:
+                        continue
+                    bb = im["bbox"]
+                    a = (bb[2] - bb[0]) * (bb[3] - bb[1])
+                    if a > best_area:
+                        best_area, best_xref = a, xref
+                kw = any(k in low for k in ("floor plan", "ground floor plan", "first floor plan",
+                                            "site plan", "location plan", "not to scale"))
+                drings = len(pg.get_drawings())
+                is_img_page = best_xref and best_area >= 0.28 * parea and len(text.strip()) < 500
+                is_vec_plan = drings >= 90 and len(text.strip()) < 700
+                if not (is_img_page or is_vec_plan or kw):
+                    continue
+                ib = None
+                if is_img_page:
+                    try:
+                        ex = doc.extract_image(best_xref)
+                        if ex and ex.get("width", 0) >= 240 and ex.get("height", 0) >= 240:
+                            ib = ex["image"]
+                    except Exception:
+                        ib = None
+                if ib is None:
+                    try:
+                        ib = pg.get_pixmap(dpi=180).tobytes("png")
+                    except Exception:
+                        continue
+                candidates.append({"bytes": ib, "b64": _img_b64(ib, max_px=920, quality=72),
+                                   "label": f'{d.get("doc_type") or "Document"} — page {pno + 1}'})
+                if len(candidates) >= 8:
+                    break
+        finally:
+            doc.close()
+        if len(candidates) >= 8:
+            break
+
+    if not candidates:
+        return None
+
+    prompt = ("Candidate images, in order:\n"
+              + "\n".join(f"{i}: {c['label']}" for i, c in enumerate(candidates))
+              + "\n\nWhich single image is the dwelling FLOOR PLAN? Return its index, or -1 if none is a floor plan.")
+    try:
+        res = await call_claude_vision_json(FLOORPLAN_VISION_SYSTEM, prompt, [c["b64"] for c in candidates])
+        idx = int(res.get("index", -1))
+    except Exception as e:
+        logger.warning("floorplan vision pick failed: %s", e)
+        return None
+    if idx < 0 or idx >= len(candidates):
+        return None
+
+    chosen = candidates[idx]
+    img = _autocrop_image(chosen["bytes"])
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{pid}.png"
+    try:
+        stored = (await asyncio.to_thread(put_object, path, img, "image/png"))["path"]
+    except Exception as e:
+        logger.warning("floorplan store failed: %s", e)
+        return None
+    await db.documents.insert_one({
+        "id": pid, "project_id": project_id, "storage_path": stored,
+        "original_filename": "floor-plan.png", "content_type": "image/png",
+        "doc_type": "Floor Plan", "size": len(img), "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # supersede any previous auto-detected floor-plan documents on this project
+    try:
+        await db.documents.update_many(
+            {"project_id": project_id, "doc_type": "Floor Plan", "id": {"$ne": pid}},
+            {"$set": {"is_deleted": True}})
+    except Exception:
+        pass
+
+    # Redraw as a clean CAD floor plan from AI-reconstructed geometry
+    cad_svg, cad_data = None, None
+    try:
+        from cad_floorplan import build_cad_floorplan_svg
+        geo = await call_claude_vision_json(
+            CAD_FLOORPLAN_SYSTEM, "Reconstruct this floor plan as structured JSON.",
+            [_img_b64(chosen["bytes"], max_px=1100, quality=80)])
+        if geo and geo.get("rooms"):
+            cad_svg = build_cad_floorplan_svg(geo)
+            cad_data = geo
+    except Exception as e:
+        logger.warning("cad floorplan build failed: %s", e)
+
+    return {"imageUrl": f"/api/documents/{pid}/download", "markers": [],
+            "autoDetected": True, "source": chosen["label"],
+            "cadSvg": cad_svg, "cadData": cad_data,
+            "detectedAt": datetime.now(timezone.utc).isoformat()}
+
+
+
 TEXT_LIMIT = {"ASHP Survey": 9000, "Datasheet": 3000}
 PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey", "Technical Survey")
 
@@ -1094,6 +1279,15 @@ async def run_import_job(job_id: str):
             await _apply_client_catalog(project)
         except Exception as e:
             logger.warning("client catalog apply failed: %s", e)
+        try:
+            fp = await detect_and_extract_floorplan(
+                [{"storage_path": it.get("storage_path"), "doc_type": it.get("doc_type"),
+                  "original_filename": it.get("filename")} for it in inputs],
+                project["id"])
+            if fp:
+                project["floorPlan"] = fp
+        except Exception as e:
+            logger.warning("floor plan auto-detect failed: %s", e)
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)

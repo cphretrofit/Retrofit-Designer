@@ -89,6 +89,7 @@ export const uploadFloorPlan = (id, file) => {
   return api.post(`/projects/${id}/floorplan`, fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
 };
 export const updateFloorPlan = (id, payload) => api.put(`/projects/${id}/floorplan`, payload).then((r) => r.data);
+export const autoDetectFloorPlan = (id) => api.post(`/projects/${id}/floorplan/auto-detect`).then((r) => r.data);
 
 export const listUsers = () => api.get("/admin/users").then((r) => r.data);
 export const createUser = (payload) => api.post("/admin/users", payload).then((r) => r.data);

@@ -2260,8 +2260,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     # Floor plan & measure placements
     fp = p.get("floorPlan") or {}
     fp_uri = fp.get("_data")
+    cad_svg = fp.get("cadSvg")
     floorplan_page = None
-    if fp_uri:
+    if fp_uri or cad_svg:
         MK = {"DMEV": "#0891B2", "LOFT": "#B45309", "TRICKLE": "#16A34A", "ASHP": "#0055FF"}
         MKL = {"DMEV": "dMEV / extract", "LOFT": "Loft insulation", "TRICKLE": "Trickle vent", "ASHP": "ASHP unit"}
         dots = ""
@@ -2294,15 +2295,18 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             f'<td style="border-right:1px solid #d4d4d4; padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">SCALE</span> NTS &nbsp;·&nbsp; <span class="faint" style="font-size:7px;">DATE</span> {_esc(issued_date)}</td>'
             f'<td style="padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">REV</span> <span class="mono">P01</span> &nbsp;·&nbsp; CPH Design</td>'
             '</tr></table>')
-        floorplan_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'
-                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Measure &amp; Ventilation Location Plan</div>'
-                          '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative positions of ventilation (dMEV / trickle), insulation and heat-pump plant, marked up on the assessment floor plan. Confirm exact locations on site. Not to scale.</div>'
-                          f'<div style="margin-top:12px;">{legend}</div>'
-                          '<div style="position:relative; margin-top:12px; border:1.5px solid #171717; padding:7px; background:#fff;">'
-                          f'<div style="position:relative; border:1px solid #e5e5e5; overflow:hidden;"><img src="{fp_uri}" style="width:100%; display:block;">{dots}'
-                          f'<div style="position:absolute; top:8px; right:8px; background:rgba(255,255,255,0.85); border:1px solid #e5e5e5; padding:2px 4px;">{_north}</div>'
-                          '</div></div>'
-                          f'{_tb}')
+        if cad_svg:
+            floorplan_page = f'<div style="position:relative; width:100%;">{cad_svg}{dots}</div>'
+        else:
+            floorplan_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'
+                              '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Measure &amp; Ventilation Location Plan</div>'
+                              '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative positions of ventilation (dMEV / trickle), insulation and heat-pump plant, marked up on the assessment floor plan. Confirm exact locations on site. Not to scale.</div>'
+                              f'<div style="margin-top:10px;">{legend}</div>'
+                              '<div style="position:relative; margin-top:10px; border:1.5px solid #171717; padding:7px; background:#fff; text-align:center;">'
+                              f'<div style="position:relative; display:inline-block; border:1px solid #e5e5e5; overflow:hidden; line-height:0;"><img src="{fp_uri}" style="display:block; max-width:100%; max-height:700px; width:auto; height:auto;">{dots}'
+                              f'<div style="position:absolute; top:8px; right:8px; background:rgba(255,255,255,0.85); border:1px solid #e5e5e5; padding:2px 4px;">{_north}</div></div>'
+                              '</div>'
+                              f'{_tb}')
 
     # Custom sections (user-added "crucial information")
     custom_pages = []

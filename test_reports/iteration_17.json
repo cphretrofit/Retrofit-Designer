@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 17 — verified the CAD-redrawn Floor Plan (inline cadSvg) and the two prior bug fixes on 54 Greenmere (34850d44-8a95-40f4-b8a5-f733546807f1). BACKEND 9/9 pass (/app/backend/tests/test_iter17_cad_floorplan.py, run with -n 0): saved a marker -> POST /floorplan/auto-detect -> polled to floorPlanDetecting=false (finished in ~35s, no floorPlanDetectError); floorPlan.markers STILL contained TEST_keep (marker-preservation fix holds), floorPlan.autoDetected=true, source='Assessment — page 27', floorPlan.cadSvg is a valid non-empty SVG string (>1KB, <svg>..</svg>), floorPlan.cadData.rooms is a non-empty list with named rooms, imageUrl still downloadable as image/* (>5KB). Exactly ONE non-deleted doc_type='Floor Plan' document remains after auto-detect (orphan-supersede fix holds; previous iteration had 7). GET /pack.pdf -> 200, %PDF- magic, 29.4MB. FRONTEND (Playwright, 1920x1080 + 1920x2200): login OK -> project -> Open Design Workspace -> nav-floorplan -> floorplan-panel; floorplan-sheet visible and floorplan-cad-svg renders exactly one inline <svg> (748x1064) containing real content: 'Outbuilding, Kitchen, Wet Room, Bedroom 2, Living Room, Bedroom 1', full dimension chains (3.85/1.50/3.40/2.95/0.90/1.50/1.00/2.40 m), 'Main GF' data box (H=2.47m, HLP=18.95m, P/L=13.0m, Area=53.72m2, Filled Cavity Walls 300mm, 1930-1949, Mid-Terrace Bungalow), north arrow, NOT TO SCALE + wall-type checkboxes, signature strip. Badge reads 'Redrawn to CAD from Assessment — page 27'. HTML titleblock (floorplan-titleblock) correctly NOT rendered when cadSvg present (count=0). Marker flow over the SVG works: floorplan-tool-DMEV -> canvas click -> floorplan-marker-0 created -> Save -> 'saved' toast -> marker persists after full reload; remove+save cleans up. Deep link /project/{id}/design/floorplan also renders the SVG. ZERO console/page errors across the whole run.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Floor Plan panel — CAD SVG sheet", "issues": [
+        "Large dead whitespace: the plan + data box occupy only the top ~40% of the sheet; ~330px of empty sheet sits between the drawing and the bottom signature strip. Consider scaling the drawing up or shortening the sheet viewBox.",
+        "Left vertical dimension chain is detached from the building: the '4.10 m' and '2.40 m' segments continue ~200px BELOW the outer wall outline (into empty space), so the chain does not correspond to the drawn geometry. The stray '1.45 m' segment above the top-left corner is likewise not tied to a wall.",
+        "'0.90 m' bottom dimension text overlaps the 'Front Door' leader label.",
+        "The requested LEGEND / NOTES blocks are absent from the SVG — only the abbreviation key (HSI/C/O/EL) inside the Main GF data box is present.",
+        "Data-box and page-number text is very small (~5-6px effective) at the 748px sheet width; the sheet is still max-w-3xl while the workspace column is much wider (carry-over from iteration 16)."
+      ]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter17_cad_floorplan.py",
+    "/app/test_reports/pytest/iter17_cad_floorplan.xml"
+  ],
+  "action_items": [
+    "Cosmetic only: tighten the SVG sheet layout (remove bottom dead space, clip/attach the left dimension chain to actual wall extents, fix '0.90 m' vs 'Front Door' text overlap).",
+    "Optionally add the LEGEND/NOTES blocks referenced in the design brief to cad_floorplan.build_cad_floorplan_svg.",
+    "Optionally widen the drawing sheet (currently max-w-3xl) to use the available workspace width."
+  ],
+  "critical_code_review_comments": [
+    "FloorPlanPanel.jsx injects fp.cadSvg via dangerouslySetInnerHTML — the SVG is server-generated so risk is low, but it is built from LLM output; consider sanitising (strip <script>/on* attrs) in cad_floorplan.build_cad_floorplan_svg before persisting.",
+    "server.py _run_floorplan_autodetect_bg: markers are only carried over when prev_markers is non-empty; fine today, but note the whole floorPlan sub-doc is still replaced, so any other future user-edited field would be lost. Prefer field-level $set.",
+    "FloorPlanPanel.jsx autoDetect() poll loop is still unbounded on repeated fetch failure and has no unmount cleanup (carry-over from iteration 16, unfixed)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter17_cad_floorplan.py"],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all requested flows, no JS errors)"},
+  "seed_data_creation": "None persisted. Temporary marker TEST_keep created then reset to []; UI test marker created then removed. Auto-detect run once (idempotent, superseded its own old Floor Plan doc).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Run /app/backend/tests/test_iter17_cad_floorplan.py with `-n 0` (module-scoped auto-detect fixture would fire twice under xdist loadscope). Floor Plan UI is reached only from the Design Workspace: /project/{id}/design/floorplan (or ProjectOverview -> data-testid='open-design-workspace' -> nav-floorplan). Testids: floorplan-panel/sheet/cad-svg/canvas/autodetect/autodetect-badge/save, floorplan-tool-{DMEV,LOFT,TRICKLE,ASHP}, floorplan-marker-N, floorplan-remove-N. floorplan-titleblock is intentionally absent while cadSvg exists. Auto-detect completes in ~30-40s; pack.pdf takes ~40s and is 29.4MB.",
+  "rca_of_the_issue": "Both iteration-16 defects are fixed and verified: (1) server.py:882-888 reads prev floorPlan.markers and re-applies them after detect_and_extract_floorplan; (2) ai_extractor.py:1135-1137 update_many marks all other doc_type='Floor Plan' docs for the project is_deleted=true, leaving exactly one live doc. Remaining findings are cosmetic SVG-layout issues only."
+}

@@ -99,6 +99,7 @@ from ai_extractor import (
     next_ref,
     _friendly_caption,
     extract_tagged_photos,
+    detect_and_extract_floorplan,
     _shrink_image,
     TEXT_LIMIT,
     PHOTO_DOC_TYPES,
@@ -874,6 +875,35 @@ async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
     fp.setdefault("markers", [])
     await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp}})
     return {"floorPlan": fp}
+
+
+async def _run_floorplan_autodetect_bg(project_id: str):
+    try:
+        prev = await db.projects.find_one({"id": project_id}, {"_id": 0, "floorPlan": 1})
+        prev_markers = ((prev or {}).get("floorPlan") or {}).get("markers") or []
+        docs = await db.documents.find({"project_id": project_id, "is_deleted": False}).to_list(300)
+        fp = await detect_and_extract_floorplan(docs, project_id)
+        if fp:
+            if prev_markers:
+                fp["markers"] = prev_markers
+            await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "floorPlanDetecting": False}})
+        else:
+            await db.projects.update_one({"id": project_id}, {"$set": {"floorPlanDetecting": False, "floorPlanDetectError": "none-found"}})
+    except Exception as e:
+        logger.exception("floor plan auto-detect background job failed")
+        await db.projects.update_one({"id": project_id}, {"$set": {"floorPlanDetecting": False, "floorPlanDetectError": str(e)}})
+
+
+@api_router.post("/projects/{project_id}/floorplan/auto-detect")
+async def autodetect_floorplan(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 1, "floorPlanDetecting": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if p.get("floorPlanDetecting"):
+        return {"status": "already-running"}
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlanDetecting": True, "floorPlanDetectError": None}})
+    asyncio.create_task(_run_floorplan_autodetect_bg(project_id))
+    return {"status": "started"}
 
 
 class FloorPlanIn(BaseModel):

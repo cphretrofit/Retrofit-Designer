@@ -1,0 +1,44 @@
+{
+  "summary": "Tested the redesigned Floor Plan feature end-to-end on project 54 Greenmere (34850d44-8a95-40f4-b8a5-f733546807f1). Backend: 6/6 floorplan endpoint tests pass (auth guard, 404 for unknown project, POST auto-detect -> started, polling to floorPlanDetecting=false with floorPlan.imageUrl + autoDetected=true + source='Assessment — page 27', image downloadable as image/* ~>5KB, PUT markers persisted). Frontend: login OK, workspace nav 'Floor Plan' opens floorplan-panel; professional sheet, title block (Project/Drawing Title/Drawing No A-101/Ref RTF-2026-0172/Scale NTS/Rev P01), north arrow, and auto-detect badge all render with the REAL pulled hand-drawn plan (600x800 image). Marker tool -> canvas click -> marker created, Save shows 'Placements saved', marker persists after reload and nav badge updates; marker delete + save works. Auto-detect button click showed 'Scanning…' + toast, finished in ~10s and refreshed the plan with success toast. Zero JS/page errors (only a benign pre-login 401 on /api/auth/me). Found 2 backend side-effect bugs: (1) re-running auto-detect WIPES previously saved markers (data loss), (2) every auto-detect run inserts a new 'Floor Plan' document without removing/superseding the old one (7 orphan floor-plan.png docs now on this project).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/projects/{id}/floorplan/auto-detect", "issue": "Data loss: detect_and_extract_floorplan() returns markers:[] and server.py replaces the whole floorPlan doc, so any markers the designer previously placed and saved are deleted when auto-detect is re-run. Should merge/preserve existing p['floorPlan']['markers'].", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/projects/{id}/floorplan/auto-detect", "issue": "Each run inserts a new documents record (doc_type='Floor Plan', floor-plan.png) plus a stored image and never soft-deletes the superseded one — project now has 7 such docs. Pollutes the documents collection/list and storage; should replace or mark the previous auto-detected plan as deleted."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Floor Plan panel", "issues": ["Cosmetic only: the drawing sheet is ~768px wide (max-w-3xl) while the workspace column is much wider, so the sheet is very tall/narrow for a portrait 600x800 plan — consider a wider sheet or fit-to-height. No contrast/spacing problems found."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter16_floorplan.py",
+    "/app/backend/tests/test_iter16_floorplan_regression.py",
+    "/app/test_reports/pytest/iter16_floorplan.xml",
+    "/app/test_reports/pytest/iter16_floorplan_regression.xml"
+  ],
+  "action_items": [
+    "Preserve existing floorPlan.markers when auto-detect overwrites the plan (merge in server.py _run_floorplan_autodetect_bg or in ai_extractor.detect_and_extract_floorplan).",
+    "Soft-delete / replace the previous auto-detected 'Floor Plan' document instead of appending a new one on every auto-detect run (7 orphans on 54 Greenmere; consider cleaning them up)."
+  ],
+  "critical_code_review_comments": [
+    "server.py:885 — `$set: {floorPlan: fp}` blindly replaces the sub-document; markers (user work) are lost. Merge with existing markers.",
+    "ai_extractor.py:1090-1101 — inserts a new Floor Plan document per invocation with no dedupe/cleanup of previously auto-detected plans.",
+    "FloorPlanPanel.jsx autoDetect(): the poll loop is unbounded on repeated fetch failure (catch -> setTimeout(poll)) and continues after unmount; there is no cleanup on component unmount, so state updates can fire on an unmounted panel. Also the 120s timeout is only evaluated when a poll succeeds."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter16_floorplan.py",
+    "/app/backend/tests/test_iter16_floorplan_regression.py"
+  ],
+  "success_rate": {"backend": "78% (7/9 tests; 6/6 core endpoint tests pass, 2 side-effect regression tests fail)", "frontend": "100% (all requested flows pass, no JS errors)"},
+  "seed_data_creation": "None. Test markers created via API were removed; project floorPlan.markers left empty. Note: auto-detect runs during testing created extra 'Floor Plan' documents (see minor issue).",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Floor Plan UI + endpoints verified working (see /app/backend/tests/test_iter16_floorplan.py). After the main agent's fix, re-run /app/backend/tests/test_iter16_floorplan_regression.py — it asserts markers survive auto-detect and that only one 'Floor Plan' document exists per project. Vision detection on 54 Greenmere completes in ~5-10s, not 40s. Frontend testids: nav-floorplan, floorplan-panel/sheet/titleblock/canvas/autodetect/autodetect-badge/save, floorplan-tool-{DMEV,LOFT,TRICKLE,ASHP}, floorplan-marker-N, floorplan-remove-N.",
+  "rca_of_the_issue": "Marker loss: _run_floorplan_autodetect_bg sets the entire floorPlan field to the dict returned by detect_and_extract_floorplan, which hardcodes markers:[]; existing markers are therefore discarded. Document accumulation: detect_and_extract_floorplan always insert_one()s a fresh document for the cropped page image and never soft-deletes prior auto-detected plans, so repeated runs (a supported, idempotent-looking action) leave orphan documents and blobs."
+}

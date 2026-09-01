@@ -172,6 +172,15 @@ Remaining from client audit: **#12 auto-generate CAD-quality drawings** + **#11 
 
 ## Notes
 - Auth required on all `/api` routes. Credentials in `/app/memory/test_credentials.md`.
+
+### Phase 44 — Floor Plan: auto-pull + CAD redraw (2026-06 / this session)
+- **Auto-detect from assessment**: `POST /api/projects/{id}/floorplan/auto-detect` (async, `floorPlanDetecting` flag polled). Scans the project's PDF docs, uses Claude vision to pick the genuine floor-plan page (rejects window schedules/elevations/tables), extracts it at native res, autocrops + cleans it (grayscale/autocontrast/sharpen) → stored `Floor Plan` doc; `floorPlan.imageUrl`, `autoDetected`, `source`. Runs automatically during import too.
+- **CAD redraw** (`cad_floorplan.py` `build_cad_floorplan_svg`): Claude reconstructs plan geometry (rooms as metre-rects, dimension chains, windows/doors/symbols, Main GF data box, notes, legend) via `CAD_FLOORPLAN_SYSTEM`; rendered as a clean professional inline **SVG** (`floorPlan.cadSvg`, geometry cached in `floorPlan.cadData`) — drafted walls (ext thick/int thin), room labels + window circles, normalized dimension chains, north arrow, title block, NTS. Dynamic viewBox height (no dead whitespace).
+- **Render targets**: FloorPlanPanel renders `cadSvg` via dangerouslySetInnerHTML (hides its own HTML title block when cadSvg present); PDF pack embeds the same SVG on a SINGLE page. Falls back to the cleaned photo when geometry extraction fails.
+- **Bug fixes**: re-running auto-detect preserves saved markers; each run supersedes (is_deleted) prior Floor Plan docs (no orphans).
+- Verified: testing_agent iteration_17 backend 9/9 + frontend (SVG renders with real rooms/dims, zero console errors); PDF pack floor-plan sheet renders on one page (render-checked).
+- Follow-ups (cosmetic): occasional AI geometry variance (room subdivision differs slightly run-to-run; window-circle codes sometimes read as 'EL'/letter only); minor label collisions (front-door vs bottom dim). Truly to-scale plan needs dimensioned source drawings.
+
 - Real preview URL: https://retrofit-pro-2.preview.emergentagent.com (use REACT_APP_BACKEND_URL, not stale handoff URL).
-- Demo projects: 12 Marsh End `a559329c-7ee0-4d55-9d04-7a3aa8a7fecc` (0 photos → cover flag), Coldrush `a9713cce-...`, photo-rich `e7e48949-...` (8 photos, use to exercise the real-cover-photo branch).
+- Demo projects: 12 Marsh End `a559329c-7ee0-4d55-9d04-7a3aa8a7fecc` (0 photos → cover flag), Coldrush `a9713cce-...`, photo-rich `e7e48949-...` (8 photos), 54 Greenmere `34850d44-8a95-40f4-b8a5-f733546807f1` (has a real hand-drawn floor plan on assessment p27 → CAD redraw demo).
 - MOCKED: nothing — Claude, object storage, planning APIs are all live.
