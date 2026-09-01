@@ -134,9 +134,9 @@ export default function ImportProject() {
       let attempts = 0;
       pollRef.current = setInterval(async () => {
         attempts += 1;
-        if (attempts > 60) { // ~3 min cap
+        if (attempts > 200) { // ~10 min cap for large 15-doc imports
           clearInterval(pollRef.current); clearInterval(timerRef.current);
-          toast.error("Generation timed out", { description: "Please try again with fewer/smaller documents." });
+          toast.error("Still generating", { description: "This is a large import and is still being processed. Check your Projects list shortly — the design will appear there when it's ready." });
           setBusy(false);
           return;
         }

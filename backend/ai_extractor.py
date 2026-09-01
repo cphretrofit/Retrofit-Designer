@@ -1253,52 +1253,59 @@ async def run_import_job(job_id: str):
             project["jobRef"] = job["reference"]
         if (not project.get("installer") or project.get("installer") == "—") and project.get("client"):
             project["installer"] = project["client"]
-        try:
+
+        # Enrichment steps are independent AI round-trips — run them concurrently
+        # (was sequential, which is what pushed large 15-doc imports past the timeout).
+        async def _t_template():
             tpl = await match_template([m["code"] for m in project["measures"]])
             if tpl:
                 project["templateId"] = tpl["id"]
                 project["templateName"] = tpl["name"]
                 project["templateBlueprint"] = tpl.get("blueprint")
-        except Exception as e:
-            logger.warning("template match failed: %s", e)
-        try:
+
+        async def _t_site_and_considerations():
             ptype = (project.get("property") or {}).get("type") or ""
             sc = await detect_site_conditions(vision_photos, page_images_b64, ptype)
             sc = _merge_doc_site_facts(sc, project.get("siteConditionsFromDocs"))
             if sc:
                 project.setdefault("property", {})["siteConditions"] = sc
-        except Exception as e:
-            logger.warning("site condition detection failed: %s", e)
-        try:
             dc = await generate_design_considerations(project, "\n".join(parts))
             if dc:
                 project["designConsiderations"] = dc
-        except Exception as e:
-            logger.warning("design considerations failed: %s", e)
-        try:
-            await _apply_client_catalog(project)
-        except Exception as e:
-            logger.warning("client catalog apply failed: %s", e)
-        try:
+
+        async def _t_floorplan():
             fp = await detect_and_extract_floorplan(
                 [{"storage_path": it.get("storage_path"), "doc_type": it.get("doc_type"),
                   "original_filename": it.get("filename")} for it in inputs],
                 project["id"])
             if fp:
                 project["floorPlan"] = fp
+
+        async def _t_vision_tags():
+            _photos = (project.get("designPack") or {}).get("photos") or []
+            await _vision_tag_photos(project["id"], _photos)
+
+        _results = await asyncio.gather(
+            _t_template(), _t_site_and_considerations(), _t_floorplan(), _t_vision_tags(),
+            return_exceptions=True)
+        for _r in _results:
+            if isinstance(_r, Exception):
+                logger.warning("import enrichment step failed: %s", _r)
+
+        try:
+            await _apply_client_catalog(project)
         except Exception as e:
-            logger.warning("floor plan auto-detect failed: %s", e)
+            logger.warning("client catalog apply failed: %s", e)
+        try:
+            _photos = (project.get("designPack") or {}).get("photos") or []
+            _defs = project.get("defects") or []
+            _match_defect_photos(_defs, _photos)
+        except Exception as e:
+            logger.warning("defect photo auto-match failed: %s", e)
+
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)
-        try:
-            _photos = (doc.get("designPack") or {}).get("photos") or []
-            await _vision_tag_photos(doc["id"], _photos)
-            _defs = doc.get("defects") or []
-            if _match_defect_photos(_defs, _photos):
-                await db.projects.update_one({"id": doc["id"]}, {"$set": {"defects": _defs}})
-        except Exception as e:
-            logger.warning("import vision tagging failed: %s", e)
         await db.documents.update_many({"id": {"$in": doc_ids}}, {"$set": {"project_id": project["id"]}})
         await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "project_id": project["id"]}})
     except Exception as e:

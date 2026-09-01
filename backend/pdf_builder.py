@@ -2070,6 +2070,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                       '<table><thead><tr><th>Dataset</th><th>Result</th><th>Detail</th></tr></thead><tbody>'
                       + _hrow("Conservation Area", "conservation-area") + _hrow("Listed Building", "listed-building")
                       + _hrow("Article 4 Direction", "article-4-direction-area") + _hrow("World Heritage Site", "world-heritage-site")
+                      + _hrow("Area of Outstanding Natural Beauty", "area-of-outstanding-natural-beauty")
+                      + _hrow("National Park", "national-park")
                       + '</tbody></table>')
         map_img = ""
         if h.get("_map_data") or h.get("_aerial_data"):
@@ -2731,6 +2733,7 @@ async def _collect_source_docs(project_id: str):
             cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(cname)}$", "$options": "i"}})
             if cl:
                 recs += await db.documents.find({"client_id": cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(20)
+        _metas, _tasks = [], []
         for d in recs:
             sp = d.get("storage_path")
             if not sp or sp in seen:
@@ -2740,10 +2743,12 @@ async def _collect_source_docs(project_id: str):
             ct = d.get("content_type") or ""
             if not (fn.endswith(".pdf") or fn.endswith((".png", ".jpg", ".jpeg", ".webp")) or "pdf" in ct or "image" in ct):
                 continue
-            try:
-                data, ct2 = await asyncio.to_thread(get_object, sp)
-            except Exception:
+            _metas.append((d, ct))
+            _tasks.append(asyncio.to_thread(get_object, sp))
+        for (d, ct), res in zip(_metas, await asyncio.gather(*_tasks, return_exceptions=True)):
+            if isinstance(res, Exception):
                 continue
+            data, ct2 = res
             out.append({"name": d.get("original_filename") or "Document", "type": d.get("doc_type") or "", "data": data, "ct": ct2 or ct})
     except Exception as e:
         logger.warning("collect source docs failed: %s", e)

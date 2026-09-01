@@ -1476,8 +1476,11 @@ async def download_document(doc_id: str):
 async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
     p, html = await _render_pack_html(project_id, origin)
     from weasyprint import HTML
-    pdf = await asyncio.to_thread(lambda: HTML(string=html).write_pdf())
-    docs = await _collect_source_docs(project_id)
+    # Render the PDF and fetch the bound source documents concurrently (was sequential).
+    pdf, docs = await asyncio.gather(
+        asyncio.to_thread(lambda: HTML(string=html).write_pdf()),
+        _collect_source_docs(project_id),
+    )
     if docs:
         pdf = await asyncio.to_thread(_merge_appendix, pdf, docs)
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
