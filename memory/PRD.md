@@ -184,3 +184,9 @@ Remaining from client audit: **#12 auto-generate CAD-quality drawings** + **#11 
 - Real preview URL: https://retrofit-pro-2.preview.emergentagent.com (use REACT_APP_BACKEND_URL, not stale handoff URL).
 - Demo projects: 12 Marsh End `a559329c-7ee0-4d55-9d04-7a3aa8a7fecc` (0 photos → cover flag), Coldrush `a9713cce-...`, photo-rich `e7e48949-...` (8 photos), 54 Greenmere `34850d44-8a95-40f4-b8a5-f733546807f1` (has a real hand-drawn floor plan on assessment p27 → CAD redraw demo).
 - MOCKED: nothing — Claude, object storage, planning APIs are all live.
+
+### Phase 45 — Premium cover, CAD measure symbols, datasheet binding (2026-06 / this session)
+- **Premium cover page** (`_premium_cover_html` in pdf_builder.py) inserted as PDF page 1: dark-navy full-bleed sheet (`@page :first` background + suppressed footer), CPH Design logo, "CPH RETROFIT DESIGN", "DESIGN DOCUMENT", large property name + postcode (regex from address), "PROPOSED DESIGN FOR <TYPE>", full-width hero photo, 4 icon info-tiles (Property Type / Document Type / Date / Location), tagline. Kept the existing hero cover as page 2.
+- **CAD measure symbols** (`_measure_symbol` + `_MEASURE_SYM`, mirrored in FloorPlanPanel `MeasureSymbol`): the coloured location-plan dots are now proper line symbols in a colour-bordered box — dMEV=extract fan, Trickle=louvre vent, ASHP=heat-pump unit, Loft=insulation zigzag. Used on the plan markers, the workspace tool buttons and the legend chips.
+- **Datasheets always bound**: `_collect_source_docs` now sorts Datasheet docs FIRST (project + client library) and caps at 24 so manufacturer PI sheets are never dropped by the page cap (54 Greenmere now binds all 12 Coldrush datasheets → 13 datasheet pages in the pack).
+- Verified via PDF render: cover page 1, symbols on the location plan, 187-page pack with datasheets bound.

@@ -18,6 +18,17 @@ const NorthArrow = () => (
   </svg>
 );
 
+const SYM = {
+  DMEV: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="C"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="C" stroke-width="1.3"/>',
+  TRICKLE: '<rect x="3" y="8.5" width="18" height="7" rx="1" fill="none" stroke="C" stroke-width="1.4"/><path d="M8 8.5v7M12 8.5v7M16 8.5v7" stroke="C" stroke-width="1.2"/>',
+  ASHP: '<rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="9" cy="12" r="3" fill="none" stroke="C" stroke-width="1.2"/><path d="M14 9.5h4M14 12h4M14 14.5h4" stroke="C" stroke-width="1.1"/>',
+  LOFT: '<path d="M3 15.5 q3 -6 6 0 t6 0 t6 0" fill="none" stroke="C" stroke-width="1.4"/><path d="M3 15.5 h18" stroke="C" stroke-width="1.1"/>',
+};
+const MeasureSymbol = ({ type, color, size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" style={{ background: "#fff", border: `1.5px solid ${color}`, borderRadius: 5 }}
+    dangerouslySetInnerHTML={{ __html: (SYM[(type || "").toUpperCase()] || '<circle cx="12" cy="12" r="4" fill="C"/>').replaceAll("C", color) }} />
+);
+
 export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [fp, setFp] = useState(initial || { imageUrl: null, markers: [] });
   const [arm, setArm] = useState(null);
@@ -136,7 +147,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
               <button key={t.key} onClick={() => setArm(arm === t.key ? null : t.key)} data-testid={`floorplan-tool-${t.key}`}
                 className="flex items-center gap-1.5 h-8 px-3 rounded-sm border text-[12px] font-medium transition-colors"
                 style={arm === t.key ? { background: t.color, color: "#fff", borderColor: t.color } : { borderColor: "var(--border)" }}>
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: arm === t.key ? "#fff" : t.color }} /> {t.label}
+                <MeasureSymbol type={t.key} color={arm === t.key ? "#fff" : t.color} size={16} /> {t.label}
               </button>
             ))}
             {arm && <span className="text-[11px] text-muted-foreground">Click on the plan to place a {TYPES.find((t) => t.key === arm)?.label}</span>}
@@ -170,7 +181,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
                     data-testid={`floorplan-marker-${i}`}
                     className="absolute flex items-center gap-1 group/mk"
                     style={{ left: `${m.x}%`, top: `${m.y}%`, transform: "translate(-50%,-50%)", cursor: "grab", whiteSpace: "nowrap" }}>
-                    <span className="rounded-full border-2 border-white" style={{ width: 14, height: 14, background: col, boxShadow: `0 0 0 1px ${col}` }} />
+                    <MeasureSymbol type={m.type} color={col} size={22} />
                     <span className="text-[9px] text-white px-1.5 py-0.5 rounded" style={{ background: col }}>{m.label || m.type}</span>
                     <button onClick={(e) => { e.stopPropagation(); removeMarker(i); }} data-testid={`floorplan-remove-${i}`}
                       className="opacity-0 group-hover/mk:opacity-100 h-4 w-4 flex items-center justify-center bg-white border border-border rounded-full text-[var(--c-critical)]"><X className="h-2.5 w-2.5" /></button>

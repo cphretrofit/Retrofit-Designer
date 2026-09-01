@@ -532,6 +532,7 @@ def _default_junctions(fam):
 
 PACK_CSS = """
 @page { size: A4; margin: 0 0 12mm 0; @bottom-left { content: element(docfoot); padding-left: 18mm; border-top: 1px solid #e5e5e5; } @bottom-right { content: counter(page) " / " counter(pages); padding-right: 18mm; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
+@page :first { background: #141b2b; @bottom-left { content: none; border-top: none; } @bottom-right { content: none; border-top: none; } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
 .page { position: relative; width: 210mm; min-height: 285mm; padding: 18mm 18mm 12mm; page-break-after: always; }
@@ -1479,6 +1480,79 @@ def _compliance_html(p, measures):
 
 
 
+_MEASURE_SYM = {
+    "DMEV": '<circle cx="12" cy="12" r="8.5" fill="none" stroke="{col}" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="{col}"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="{col}" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="{col}" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="{col}" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="{col}" stroke-width="1.3"/>',
+    "TRICKLE": '<rect x="3" y="8.5" width="18" height="7" rx="1" fill="none" stroke="{col}" stroke-width="1.4"/><path d="M8 8.5v7M12 8.5v7M16 8.5v7" stroke="{col}" stroke-width="1.2"/>',
+    "ASHP": '<rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="none" stroke="{col}" stroke-width="1.4"/><circle cx="9" cy="12" r="3" fill="none" stroke="{col}" stroke-width="1.2"/><path d="M14 9.5h4M14 12h4M14 14.5h4" stroke="{col}" stroke-width="1.1"/>',
+    "LOFT": '<path d="M3 15.5 q3 -6 6 0 t6 0 t6 0" fill="none" stroke="{col}" stroke-width="1.4"/><path d="M3 15.5 h18" stroke="{col}" stroke-width="1.1"/>',
+}
+
+
+def _measure_symbol(typ, col, size=22):
+    inner = _MEASURE_SYM.get((typ or "").upper(), '<circle cx="12" cy="12" r="4" fill="{col}"/>').format(col=col)
+    return (f'<svg width="{size}" height="{size}" viewBox="0 0 24 24" '
+            f'style="background:#fff; border:1.5px solid {col}; border-radius:5px; vertical-align:middle;">{inner}</svg>')
+
+
+_LOGO_URI = None
+
+
+def _cph_logo_uri():
+    global _LOGO_URI
+    if _LOGO_URI is None:
+        try:
+            import base64
+            from pathlib import Path as _P
+            _LOGO_URI = "data:image/png;base64," + base64.b64encode(
+                (_P(__file__).resolve().parent.parent / "frontend" / "public" / "brand" / "cph-design-logo.png").read_bytes()).decode()
+        except Exception:
+            _LOGO_URI = ""
+    return _LOGO_URI
+
+
+def _premium_cover_html(p, hero_uri, issued_date):
+    import re as _re
+    name = _esc(p.get("name") or "Design Document")
+    addr = _esc(p.get("address") or p.get("town") or "")
+    ptype = _esc((p.get("property") or {}).get("type") or "Dwelling")
+    mm = _re.search(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", (p.get("address") or "").upper())
+    postcode = _esc(mm.group(0) if mm else "")
+    gold = "#b9a37e"
+    logo = _cph_logo_uri()
+    logo_html = (f'<div style="display:inline-block; background:#fff; border-radius:8px; padding:9px 14px;"><img src="{logo}" style="height:32px; display:block;"></div>'
+                 if logo else '<div style="font-family:Georgia,serif; font-size:30px; letter-spacing:0.14em; color:#e8e6df;">CPH</div>')
+    hero = (f'<div style="flex-shrink:0; height:300px; border-radius:8px; overflow:hidden; margin-top:24px; background:#0e1320;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover;"></div>'
+            if hero_uri else '<div style="flex-shrink:0; height:300px; border-radius:8px; margin-top:24px; background:#1d2740; display:flex; align-items:center; justify-content:center; color:#5b6b8a; font-size:11px; letter-spacing:0.24em;">PROPERTY PHOTOGRAPH</div>')
+
+    def _ic(d):
+        return f'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{gold}" stroke-width="1.4">{d}</svg>'
+
+    def _tile(icon, label, value):
+        return (f'<div style="flex:1; text-align:center; padding:0 6px;">{icon}'
+                f'<div style="font-size:7px; letter-spacing:0.18em; color:#8ea0be; margin-top:8px;">{label}</div>'
+                f'<div style="font-size:9.5px; color:#e8e6df; margin-top:3px;">{value}</div></div>')
+    sep = '<div style="width:1px; background:rgba(255,255,255,0.14);"></div>'
+    tiles = ('<div style="display:flex; margin-top:28px; border-top:1px solid rgba(255,255,255,0.14); padding-top:18px;">'
+             + _tile(_ic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>'), "PROPERTY TYPE", ptype) + sep
+             + _tile(_ic('<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>'), "DOCUMENT TYPE", "Design Document") + sep
+             + _tile(_ic('<rect x="4" y="5" width="16" height="16" rx="1"/><path d="M4 9h16M8 3v4M16 3v4"/>'), "DATE", _esc(issued_date)) + sep
+             + _tile(_ic('<path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'), "LOCATION", postcode or addr) + '</div>')
+    return (
+        '<div style="min-height:250mm; background:#141b2b; color:#e8e6df; padding:14mm 16mm; display:flex; flex-direction:column;">'
+        f'<div style="text-align:center;">{logo_html}'
+        '<div style="font-size:8px; letter-spacing:0.34em; color:#8ea0be; margin-top:9px;">CPH RETROFIT DESIGN</div>'
+        f'<div style="width:44px; height:1px; background:{gold}; margin:18px auto;"></div>'
+        '<div style="font-size:9px; letter-spacing:0.32em; color:#b9c2d4;">DESIGN DOCUMENT</div>'
+        f'<div style="font-weight:300; font-size:44px; letter-spacing:-0.01em; margin-top:14px; color:#fff;">{name}</div>'
+        + (f'<div style="font-size:15px; letter-spacing:0.26em; color:{gold}; margin-top:6px;">{postcode}</div>' if postcode else '')
+        + f'<div style="font-size:8.5px; letter-spacing:0.24em; color:#8ea0be; margin-top:16px;">PROPOSED DESIGN FOR {ptype.upper()}</div>'
+        '</div>'
+        f'{hero}{tiles}'
+        '<div style="flex:1;"></div>'
+        '<div style="text-align:center; font-size:7.5px; letter-spacing:0.28em; color:#6f7f9c;">THOUGHTFUL DESIGN &middot; TIMELESS QUALITY</div>'
+        '</div>')
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -2274,10 +2348,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             y = mk.get("y", 50)
             lbl = _esc(mk.get("label") or MKL.get(typ, mk.get("type") or ""))
             dots += (f'<div style="position:absolute; left:{x}%; top:{y}%; transform:translate(-50%,-50%); white-space:nowrap;">'
-                     f'<span style="display:inline-block; width:12px; height:12px; border-radius:50%; background:{col}; border:2px solid #fff; box-shadow:0 0 0 1px {col}; vertical-align:middle;"></span>'
+                     f'{_measure_symbol(typ, col, 22)}'
                      f'<span style="font-size:8px; color:#fff; background:{col}; padding:1px 5px; border-radius:3px; margin-left:4px; vertical-align:middle;">{lbl}</span></div>')
-        legend = "".join(f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{MKL[k]}</span>' for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"] if k in used_types) \
-            or "".join(f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{MKL[k]}</span>' for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"])
+
+        def _chip(k):
+            return f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{_measure_symbol(k, MK[k], 13)} {MKL[k]}</span>'
+        legend = "".join(_chip(k) for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"] if k in used_types) \
+            or "".join(_chip(k) for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"])
         _north = ('<svg viewBox="0 0 40 46" width="34" height="40">'
                   '<polygon points="20,3 27,26 20,20 13,26" fill="#171717"/>'
                   '<polygon points="20,3 20,20 13,26" fill="#737373"/>'
@@ -2348,7 +2425,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     summary_page = _design_summary_html(p, measures)
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
-    pages = [cover, summary_page, contents_page, foreword_page, *directory_pages,
+    premium_cover = _premium_cover_html(p, hero_uri, issued_date)
+    pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *([considerations_page] if considerations_page else []),
              ventilation_page, *([floorplan_page] if floorplan_page else []),
@@ -2500,7 +2578,9 @@ async def _collect_source_docs(project_id: str):
             out.append({"name": d.get("original_filename") or "Document", "type": d.get("doc_type") or "", "data": data, "ct": ct2 or ct})
     except Exception as e:
         logger.warning("collect source docs failed: %s", e)
-    return out[:12]
+    # Bind datasheets first so they are never dropped by the cap
+    out.sort(key=lambda d: 0 if (d.get("type") == "Datasheet") else 1)
+    return out[:24]
 
 
 def _merge_appendix(pdf_bytes, docs):
