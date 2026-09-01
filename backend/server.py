@@ -988,8 +988,71 @@ async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile 
     })
     d["photo"] = f"/api/documents/{pid}/download"
     d["photoDocId"] = pid
+    d["photoAuto"] = False
     await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
     return {"defects": defects}
+
+
+_DEFECT_STOP = {"the", "and", "of", "in", "to", "for", "with", "all", "not", "present", "existing",
+                "some", "any", "are", "was", "were", "before", "after", "from", "this", "that", "have", "has"}
+
+
+def _dtokens(s):
+    syn = {"extractor": "extract", "fans": "fan", "vents": "vent", "ventilators": "vent",
+           "ventilator": "vent", "ventilation": "vent", "windows": "window", "doors": "door",
+           "kitchens": "kitchen", "bathrooms": "bathroom", "walls": "wall", "roofs": "roof",
+           "lofts": "loft", "floors": "floor"}
+    out = set()
+    for w in re.findall(r"[a-z]+", (s or "").lower()):
+        if len(w) <= 2 or w in _DEFECT_STOP:
+            continue
+        out.add(syn.get(w, w))
+    return out
+
+
+def _match_defect_photos(defects, photos):
+    if not defects or not photos:
+        return 0
+    matched = 0
+    for d in defects:
+        if d.get("photo"):
+            continue
+        ev = d.get("evidence") or ""
+        chosen = None
+        fm = re.search(r"\bfig(?:ure)?\.?\s*0?(\d{1,2})\b", ev, re.I)
+        if fm:
+            n = fm.group(1)
+            nz = n.zfill(2)
+            chosen = next((ph for ph in photos if str(ph.get("fig")) in (n, nz)), None)
+        if not chosen:
+            dt = _dtokens(d.get("element")) | _dtokens(d.get("description"))
+            best, best_score = None, 0
+            for ph in photos:
+                pt = _dtokens(ph.get("caption")) | _dtokens(ph.get("observation"))
+                score = len(dt & pt)
+                if score > best_score:
+                    best, best_score = ph, score
+            if best and best_score >= 2:
+                chosen = best
+        if chosen and chosen.get("url"):
+            d["photo"] = chosen["url"]
+            d["photoAuto"] = True
+            d["photoFig"] = chosen.get("fig")
+            matched += 1
+    return matched
+
+
+@api_router.post("/projects/{project_id}/defects/auto-match-photos")
+async def auto_match_defect_photos(project_id: str):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    defects = proj.get("defects") or []
+    photos = ((proj.get("designPack") or {}).get("photos") or [])
+    matched = _match_defect_photos(defects, photos)
+    if matched:
+        await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects, "matched": matched}
 
 
 @api_router.post("/projects/{project_id}/heritage/lookup")
@@ -2020,6 +2083,10 @@ async def run_import_job(job_id: str):
         ai = await call_claude(prompt)
         ref = await next_ref()
         project = ai_build_project(ai, ref, photos)
+        try:
+            _match_defect_photos(project.get("defects") or [], (project.get("designPack") or {}).get("photos") or [])
+        except Exception as e:
+            logger.warning("defect photo auto-match failed: %s", e)
         if job.get("client"):
             project["client"] = job["client"]
         if job.get("reference"):
@@ -3372,9 +3439,11 @@ def _measure_evidence_html(m):
     html = ""
     if photos:
         cells = "".join(
-            f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 12px 0;">'
+            f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 14px 0;">'
             f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{ph.get("data")}" style="width:100%; height:100%; object-fit:cover;"></div>'
-            f'<div style="margin-top:5px; font-size:10px; color:#262626;">{_esc(ph.get("caption") or "Site evidence")}</div></div>'
+            f'<div style="margin-top:5px; font-size:10.5px; color:#262626; font-weight:600;">{_esc(ph.get("caption") or "Site evidence")}</div>'
+            + (f'<div style="font-size:10px; color:#525252; margin-top:2px; line-height:1.45;">{_esc(ph.get("note"))}</div>' if ph.get("note") else "")
+            + '</div>'
             for ph in photos[:8])
         html += f'<div class="faint upper" style="font-size:9.5px; margin-top:6px; margin-bottom:8px;">Site Evidence</div><div>{cells}</div>'
     if req:

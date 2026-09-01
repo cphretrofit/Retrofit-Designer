@@ -32,6 +32,7 @@ export const uploadDefectPhoto = (id, did, file) => {
   fd.append("file", file);
   return api.post(`/projects/${id}/defects/${did}/photo`, fd).then((r) => r.data);
 };
+export const autoMatchDefectPhotos = (id) => api.post(`/projects/${id}/defects/auto-match-photos`).then((r) => r.data);
 
 export const heritageLookup = (id) => api.post(`/projects/${id}/heritage/lookup`).then((r) => r.data);
 export const solarLookup = (id) => api.post(`/projects/${id}/solar/lookup`).then((r) => r.data);

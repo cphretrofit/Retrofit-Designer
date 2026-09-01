@@ -41,17 +41,22 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
       </div>
       <div className="p-4 space-y-4">
         {photos.length > 0 ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <div className="grid sm:grid-cols-2 gap-3">
             {photos.map((ph, i) => (
               <div key={i} className="relative group/photo border border-border rounded-sm overflow-hidden" data-testid={`evidence-photo-${i}`}>
-                <img src={ph.data} alt={ph.caption || "Evidence"} className="w-full h-28 object-cover" />
-                <button onClick={() => remove(i)} data-testid={`evidence-remove-${i}`}
-                  className="absolute top-1.5 right-1.5 h-6 w-6 flex items-center justify-center rounded-sm bg-background/85 backdrop-blur text-muted-foreground hover:text-[var(--c-critical)] opacity-0 group-hover/photo:opacity-100 transition-opacity">
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
-                </button>
-                <input defaultValue={ph.caption || ""} placeholder="Caption…" data-testid={`evidence-caption-${i}`}
+                <div className="relative">
+                  <img src={ph.data} alt={ph.caption || "Evidence"} className="w-full h-32 object-cover" />
+                  <button onClick={() => remove(i)} data-testid={`evidence-remove-${i}`}
+                    className="absolute top-1.5 right-1.5 h-6 w-6 flex items-center justify-center rounded-sm bg-background/85 backdrop-blur text-muted-foreground hover:text-[var(--c-critical)] opacity-0 group-hover/photo:opacity-100 transition-opacity">
+                    <Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </button>
+                </div>
+                <input defaultValue={ph.caption || ""} placeholder="Short caption…" data-testid={`evidence-caption-${i}`}
                   onBlur={(e) => { const next = photos.map((x, j) => j === i ? { ...x, caption: e.target.value } : x); onSaveField(`measures.${mi}.evidencePhotos`, next, true); }}
-                  className="w-full px-2 py-1 text-[11px] bg-card border-t border-border outline-none" />
+                  className="w-full px-2 py-1.5 text-[12px] font-medium bg-card border-t border-border outline-none" />
+                <textarea defaultValue={ph.note || ""} placeholder="Write about this screenshot — what it shows and why it matters…" rows={3} data-testid={`evidence-note-${i}`}
+                  onBlur={(e) => { const next = photos.map((x, j) => j === i ? { ...x, note: e.target.value } : x); onSaveField(`measures.${mi}.evidencePhotos`, next, true); }}
+                  className="w-full px-2 py-1.5 text-[11.5px] leading-relaxed bg-card border-t border-border outline-none resize-y" />
               </div>
             ))}
           </div>

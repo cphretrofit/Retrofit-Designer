@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, mediaUrl } from "@/lib/api";
+import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Camera, Loader2, Check, Pencil } from "lucide-react";
+import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2 } from "lucide-react";
 
 const SEV = {
   high: { c: "var(--c-critical)", l: "High" },
@@ -42,9 +42,21 @@ export function DefectsPanel({ projectId, initial, onChange }) {
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(null);
+  const [matching, setMatching] = useState(false);
   const fileRefs = useRef({});
 
   const sync = (list) => { setDefects(list); onChange?.(list); };
+
+  const autoMatch = async () => {
+    setMatching(true);
+    try {
+      const { defects: list, matched } = await autoMatchDefectPhotos(projectId);
+      sync(list);
+      toast.success(matched ? `Matched ${matched} photo(s) from the survey` : "No matching survey photos found", {
+        description: matched ? "Auto-attached from the retrofit assessment photos." : "Attach photos manually or add survey photos in Photos.",
+      });
+    } catch { toast.error("Could not auto-match photos"); } finally { setMatching(false); }
+  };
 
   const create = async (f) => {
     setBusy(true);
@@ -73,10 +85,18 @@ export function DefectsPanel({ projectId, initial, onChange }) {
     <div className="anim-in space-y-4 max-w-3xl">
       <div className="flex items-center justify-between gap-4">
         <div className="text-[12px] text-muted-foreground" data-testid="defects-summary">{defects.length} defect(s) logged — these appear in the Design Pack “Property Condition” section.</div>
-        {!adding && (
-          <button onClick={() => { setAdding(true); setEditing(null); }} data-testid="defects-add-btn"
-            className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary shrink-0"><Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add defect</button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {defects.some((d) => !d.photo) && (
+            <button onClick={autoMatch} disabled={matching} data-testid="defects-automatch-btn"
+              className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50">
+              {matching ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />} Auto-match photos
+            </button>
+          )}
+          {!adding && (
+            <button onClick={() => { setAdding(true); setEditing(null); }} data-testid="defects-add-btn"
+              className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary"><Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add defect</button>
+          )}
+        </div>
       </div>
 
       {adding && <DefectForm onCancel={() => setAdding(false)} onSave={create} busy={busy} />}
