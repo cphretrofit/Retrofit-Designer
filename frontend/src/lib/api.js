@@ -27,9 +27,10 @@ export const updatePhotos = (id, photos) =>
 export const addDefect = (id, payload) => api.post(`/projects/${id}/defects`, payload).then((r) => r.data);
 export const updateDefect = (id, did, payload) => api.put(`/projects/${id}/defects/${did}`, payload).then((r) => r.data);
 export const deleteDefect = (id, did) => api.delete(`/projects/${id}/defects/${did}`).then((r) => r.data);
-export const uploadDefectPhoto = (id, did, file) => {
+export const uploadDefectPhoto = (id, did, file, caption = "") => {
   const fd = new FormData();
   fd.append("file", file);
+  if (caption) fd.append("caption", caption);
   return api.post(`/projects/${id}/defects/${did}/photo`, fd).then((r) => r.data);
 };
 export const autoMatchDefectPhotos = (id) => api.post(`/projects/${id}/defects/auto-match-photos`).then((r) => r.data);

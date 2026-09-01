@@ -99,6 +99,13 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - **Latent bug fixed**: AI-imported defects had **no `id`**, silently breaking update/delete/upload-photo/attach (all match by id → 404). Now backfilled in `get_project` on load (persisted) and assigned in `ai_build_project` at import.
 - Verified on 4 Beeson: attach endpoint (curl), gallery modal shows 14 photos incl. the mould shots, 4 defect gallery buttons.
 
+### Phase 41 — Vision photo tagging, assessment image sweep, manual photo captions (2026-06) [VERIFIED]
+- **Assessment image sweep**: `_reextract_project_photos` now pulls EVERY distinct embedded image from the survey PDFs (hash-dedup via md5, not caption), gated by a one-time `designPack.swept` flag so repeat clicks stay fast. 4 Beeson: 14→44 photos.
+- **Vision photo tagging**: `_vision_tag_photos` sends generic/uncaptioned photos to Claude vision (`call_claude_vision_json`) for concise labels (e.g. fig 01 → "West elevation, brick bungalow, uPVC door and windows"), run inside the Auto-match flow (asyncio.gather, cap 14).
+- **Stronger matcher**: `_match_defect_photos` adds a strong-element boost (window/door/loft/skirting/mould/…) so a single specific-element overlap counts — Windows & Internal-doors defects now match fig 01 via its vision caption. Sets `photoCaption` on matches.
+- **Manual photo captions**: `upload_defect_photo` accepts a `caption`; added `defects.` to ALLOWED_PATCH_PREFIXES; DefectsPanel shows a caption input under any defect photo (saved via field patch). PDF defect card renders `photoCaption` under the image.
+- Verified on 4 Beeson: auto-match fast path 0.29s, Bedroom 1/2 + Windows + Doors all matched with captions; manual caption patch persists.
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

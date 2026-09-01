@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, mediaUrl } from "@/lib/api";
+import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images } from "lucide-react";
 
@@ -53,6 +53,15 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
       const { defects: list } = await attachDefectSurveyPhoto(projectId, did, ph.url, ph.fig, ph.caption);
       sync(list); setPicking(null); toast.success("Photo attached from survey");
     } catch { toast.error("Could not attach photo"); }
+  };
+
+  const saveCaption = async (d, value) => {
+    const idx = defects.findIndex((x) => x.id === d.id);
+    if (idx < 0 || value === (d.photoCaption || "")) return;
+    try {
+      await updateField(projectId, { path: `defects.${idx}.photoCaption`, value });
+      sync(defects.map((x) => (x.id === d.id ? { ...x, photoCaption: value } : x)));
+    } catch { toast.error("Could not save caption"); }
   };
 
   const autoMatch = async () => {
@@ -136,6 +145,11 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
                       className="w-28 flex items-center justify-center gap-1 text-[10.5px] text-muted-foreground hover:text-foreground">
                       <Images className="h-3 w-3" strokeWidth={1.75} /> {d.photo ? "Change from survey" : "From survey"}
                     </button>
+                  )}
+                  {d.photo && (
+                    <input defaultValue={d.photoCaption || ""} placeholder="Photo caption…" data-testid={`defect-caption-${d.id}`}
+                      onBlur={(e) => saveCaption(d, e.target.value)}
+                      className="w-28 px-1.5 py-1 text-[10px] bg-background border border-border rounded-sm outline-none focus:border-foreground/40" />
                   )}
                   <input ref={(el) => (fileRefs.current[d.id] = el)} type="file" accept="image/*" className="hidden" onChange={(e) => onPhoto(d.id, e)} data-testid={`defect-photo-input-${d.id}`} />
                 </div>

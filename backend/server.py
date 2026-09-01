@@ -867,7 +867,7 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
 ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
                        "coordinator", "designer", "installer", "tenant", "town", "address", "measureSummary",
                        "epcBefore", "epcAfter", "partner", "itemsBeforeIssue", "sectionOverrides"}
-ALLOWED_PATCH_PREFIXES = ("property.", "measures.", "readiness.", "heatLoss.")
+ALLOWED_PATCH_PREFIXES = ("property.", "measures.", "readiness.", "heatLoss.", "defects.")
 
 
 @api_router.patch("/projects/{project_id}/field")
@@ -966,7 +966,7 @@ async def delete_defect(project_id: str, defect_id: str):
 
 
 @api_router.post("/projects/{project_id}/defects/{defect_id}/photo")
-async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile = File(...)):
+async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile = File(...), caption: Optional[str] = Form(None)):
     proj = await db.projects.find_one({"id": project_id})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -996,6 +996,7 @@ async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile 
     d["photo"] = f"/api/documents/{pid}/download"
     d["photoDocId"] = pid
     d["photoAuto"] = False
+    d["photoCaption"] = (caption or "").strip()
     await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
     return {"defects": defects}
 
@@ -1017,6 +1018,10 @@ def _dtokens(s):
     return out
 
 
+_STRONG_ELEMENTS = {"window", "door", "loft", "skirting", "mould", "damp", "condensation",
+                    "ceiling", "kitchen", "bathroom", "chimney", "boiler", "radiator", "flue", "vent"}
+
+
 def _match_defect_photos(defects, photos):
     if not defects or not photos:
         return 0
@@ -1033,25 +1038,88 @@ def _match_defect_photos(defects, photos):
             chosen = next((ph for ph in photos if str(ph.get("fig")) in (n, nz)), None)
         if not chosen:
             dt = _dtokens(d.get("element")) | _dtokens(d.get("description"))
-            best, best_score = None, 0
+            best, best_w = None, 0
             for ph in photos:
                 pt = _dtokens(ph.get("caption")) | _dtokens(ph.get("observation"))
-                score = len(dt & pt)
-                if score > best_score:
-                    best, best_score = ph, score
-            if best and best_score >= 2:
+                inter = dt & pt
+                w = len(inter) + (2 if (inter & _STRONG_ELEMENTS) else 0)
+                if w > best_w:
+                    best, best_w = ph, w
+            if best and best_w >= 2:
                 chosen = best
         if chosen and chosen.get("url"):
             d["photo"] = chosen["url"]
             d["photoAuto"] = True
             d["photoFig"] = chosen.get("fig")
+            d["photoCaption"] = chosen.get("caption")
             matched += 1
     return matched
 
 
+async def _photo_bytes_from_url(url):
+    if not url or "/documents/" not in url:
+        return None
+    did = url.split("/documents/")[1].split("/")[0]
+    doc = await db.documents.find_one({"id": did}, {"storage_path": 1})
+    if not doc or not doc.get("storage_path"):
+        return None
+    try:
+        data, _ = await asyncio.to_thread(get_object, doc["storage_path"])
+        return data
+    except Exception:
+        return None
+
+
+_GENERIC_CAP = ("survey photograph", "property condition — observed defect", "property — front elevation")
+
+
+def _needs_vision(cap):
+    c = (cap or "").strip().lower()
+    return (not c) or c in _GENERIC_CAP or len(c) > 80 or c.startswith("the project")
+
+
+async def _vision_tag_photos(project_id, photos, limit=14):
+    if not EMERGENT_LLM_KEY:
+        return 0
+    targets = [ph for ph in photos if not ph.get("visionTag") and _needs_vision(ph.get("caption"))][:limit]
+    if not targets:
+        return 0
+
+    async def tag(ph):
+        data = await _photo_bytes_from_url(ph.get("url"))
+        if not data:
+            return
+        try:
+            out = await call_claude_vision_json(
+                "You label UK domestic retrofit survey photographs.",
+                "Return JSON {\"caption\": \"...\"} — a concise 3-8 word label of what this single photo shows, "
+                "favouring building elements or defects a retrofit designer cares about (e.g. 'uPVC window, misted double glazing', "
+                "'black mould to bedroom wall', 'external front elevation', 'internal door and frame', 'loft insulation between joists'). "
+                "No sentences, no trailing punctuation.",
+                [_img_b64(data, 900, 70)])
+            cap = (out.get("caption") or "").strip()
+            if cap:
+                ph["caption"] = cap[:80]
+                ph["visionTag"] = True
+        except Exception as e:
+            logger.warning("vision tag failed: %s", e)
+    await asyncio.gather(*[tag(ph) for ph in targets])
+    tagged = sum(1 for ph in targets if ph.get("visionTag"))
+    if tagged:
+        await db.projects.update_one({"id": project_id}, {"$set": {"designPack.photos": photos}})
+    return tagged
+
+
 async def _reextract_project_photos(project_id, proj):
+    import hashlib
+    if (proj.get("designPack") or {}).get("swept"):
+        return 0
     existing = ((proj.get("designPack") or {}).get("photos") or [])
-    existing_caps = {(p.get("caption") or "").strip().lower() for p in existing}
+    seen = set()
+    for ep in existing:
+        b = await _photo_bytes_from_url(ep.get("url"))
+        if b:
+            seen.add(hashlib.md5(b).hexdigest())
     fig = len(existing)
     docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True},
             "doc_type": {"$in": ["Technical Survey", "Assessment", "ASHP Survey", "Survey", "Scope of Works", "Job Card"]}}, {"_id": 0}).to_list(30)
@@ -1065,12 +1133,12 @@ async def _reextract_project_photos(project_id, proj):
             data, _ = await asyncio.to_thread(get_object, sp)
         except Exception:
             continue
-        for pm in (await asyncio.to_thread(extract_tagged_photos, data, 30)):
-            cap = (pm.get("caption") or "").strip()
-            key = cap.lower()
-            if key in existing_caps:
+        for pm in (await asyncio.to_thread(extract_tagged_photos, data, 60)):
+            h = hashlib.md5(pm["data"]).hexdigest()
+            if h in seen:
                 continue
-            existing_caps.add(key)
+            seen.add(h)
+            cap = (pm.get("caption") or "").strip()
             iext = pm["ext"] if pm["ext"] in ("jpg", "jpeg", "png", "webp") else "jpg"
             mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
             pid = str(uuid.uuid4())
@@ -1089,14 +1157,17 @@ async def _reextract_project_photos(project_id, proj):
             added.append({"fig": f"{fig:02d}", "caption": cap,
                           "observation": pm.get("observation") or "Photograph recorded during the site inspection.",
                           "url": f"/api/documents/{pid}/download"})
-            if len(added) >= 24:
+            if len(added) >= 30:
                 break
-        if len(added) >= 24:
+        if len(added) >= 30:
             break
     if added:
         allphotos = existing + added
-        await db.projects.update_one({"id": project_id}, {"$set": {"designPack.photos": allphotos}})
+        await db.projects.update_one({"id": project_id}, {"$set": {"designPack.photos": allphotos, "designPack.swept": True}})
         proj.setdefault("designPack", {})["photos"] = allphotos
+    else:
+        await db.projects.update_one({"id": project_id}, {"$set": {"designPack.swept": True}})
+    proj.setdefault("designPack", {})["swept"] = True
     return len(added)
 
 
@@ -1106,12 +1177,13 @@ async def auto_match_defect_photos(project_id: str):
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
     added = await _reextract_project_photos(project_id, proj)
-    defects = proj.get("defects") or []
     photos = ((proj.get("designPack") or {}).get("photos") or [])
+    tagged = await _vision_tag_photos(project_id, photos)
+    defects = proj.get("defects") or []
     matched = _match_defect_photos(defects, photos)
     if matched:
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
-    return {"defects": defects, "matched": matched, "added": added}
+    return {"defects": defects, "matched": matched, "added": added, "tagged": tagged}
 
 
 class AttachPhotoIn(BaseModel):
@@ -4281,7 +4353,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         for i, d in enumerate(defects[:24]):
             sv = (d.get("severity") or "medium").lower()
             col = DSEV.get(sv, "#B45309")
-            img_html = (f'<div style="margin-bottom:6px;"><img src="{d["_photo_data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;"></div>'
+            img_html = ((f'<div style="margin-bottom:6px;"><img src="{d["_photo_data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;">'
+                         + (f'<div class="mono faint" style="font-size:8px; margin-top:3px; width:120px; line-height:1.3;">{_esc(d.get("photoCaption") or "")}</div>' if d.get("photoCaption") else "")
+                         + '</div>')
                         if d.get("_photo_data") else "")
             extra = ""
             if d.get("cause"):
