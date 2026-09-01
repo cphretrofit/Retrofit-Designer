@@ -1,0 +1,36 @@
+{
+  "summary": "Full backend regression after the pure modularization refactor (server.py -> deps.py / ai_extractor.py / pdf_builder.py). Created /app/backend/tests/test_iter13_refactor_regression.py (60 pytest tests) covering every endpoint group against the public preview URL with httpOnly-cookie auth: auth (login/me/refresh/logout/401/bad-password/brute-force lockout 429), dashboard/projects/project-detail/404, clients CRUD (create->GET->patch->archive + 422 validation), templates list/get/analyze, documents list/download/upload, defects CRUD + attach-survey-photo + AI auto-match-photos, site-conditions vision detect + PUT, heritage lookup, Google Solar lookup + PV apply (real key configured and working), measure evidence photo upload/delete, project mutations (field patch allow-list, custom sections CRUD, ventilation PUT, floorplan upload + markers PUT, item confirm / confirm-all, apply-client-library, photos PUT, extract-photos validation, datasheets/parse), and pack.html + pack.pdf. RESULT: 60/60 passed, 0 5xx in backend logs during the run. PDF pack verified end-to-end with pymupdf: 12 Marsh End = 101 pages / 10.7MB; RTF-2026-0170 (solar+heritage) = 173 pages / 31MB; RTF-2026-0140 = 78 pages. pack.html 183KB-5.3MB. No import-wiring or behavioural regression found from the module split; no duplicate function definitions remain between server.py and the new modules and all four modules import cleanly.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/documents/{doc_id}/download", "issue": "get_object() is called synchronously inside the async route (server.py ~line 1398) instead of via asyncio.to_thread like everywhere else - blocking object-store IO on the event loop; noticeable when downloading large survey PDFs/photos concurrently with a pack render."},
+      {"endpoint": "POST /api/templates/{tid}/analyze", "issue": "No existence check: returns 200 {'status':'analyzing'} for any tid (including non-existent) and fires asyncio.create_task with no error surface, so analysis failures are silent (only visible in logs)."},
+      {"endpoint": "GET /api/clients", "issue": "_seed_clients() runs a count_documents on every request plus a full projects scan for counts - avoidable per-request work on a hot list endpoint."},
+      {"endpoint": "GET /api/projects/{id}/pack.pdf", "issue": "WeasyPrint logs repeated 'Anchor defined twice: gnd/dots/hatch/grain' warnings (duplicate SVG element ids emitted per page in pdf_builder) plus ignored text-shadow/box-shadow properties. Cosmetic/log noise only - PDF renders correctly."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_refactor_regression.py",
+    "/app/test_reports/pytest/iteration_13_results.xml"
+  ],
+  "action_items": [
+    "Wrap get_object() in asyncio.to_thread inside GET /api/documents/{doc_id}/download (only remaining sync-blocking storage call).",
+    "Add a 404 existence check to POST /api/templates/{tid}/analyze and surface background analysis errors on the template record.",
+    "Optional: split pdf_builder.py (2441 lines) further (e.g. pack sections vs solar/heritage vs PV autofill) - it still exceeds the 700-line guideline, as do ai_extractor.py (1278) and server.py (1491)."
+  ],
+  "critical_code_review_comments": [
+    "Refactor verified clean: no symbol defined in both server.py and deps/ai_extractor/pdf_builder (comm on def lists returned nothing), all modules import standalone, ruff lint clean on /app/backend/*.py.",
+    "pdf_builder.py is 2441 lines and ai_extractor.py 1278 - the split fixed server.py but two of the three new modules still breach the 700-line guideline.",
+    "server.py POST and PUT /projects/{id}/defects duplicate the same field-normalisation block; extract to a helper.",
+    "POST /projects/{id}/extract-photos inserts documents with both '_id' and 'id' set to the same uuid while every other insert lets Mongo generate _id - inconsistent, harmless today but easy to trip over."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter13_refactor_regression.py"],
+  "success_rate": {"backend": "100% (60/60 tests)", "frontend": "not tested (backend-only request)"},
+  "seed_data_creation": "All test artifacts created were reverted: TEST_Regression_* client deleted, TEST_upload.png / TEST_plan.png documents deleted, TEST defect deleted via API, installer / ventilation / floorPlan (imageUrl 9b80e86b + original markers) / designPack.photos / customSections on 12 Marsh End restored, siteConditions on e7e48949 restored, solar.targetKwp on RTF-2026-0170 restored to null, RTF-2026-0142 designConsiderations restored to its original empty list, TEST_lockout login_attempts rows removed. Note: POST /defects/auto-match-photos and /site-conditions/detect on e7e48949-743a-4ae8-af67-07ce16ea0a91 legitimately re-ran AI vision and may have (re)written defect photo matches / siteConditions there - those are idempotent re-derivations of the same source photos.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (from /app/memory/test_credentials.md; bcrypt hash verified $2b$12$, httpOnly cookie confirmed, lockout after 5 fails -> 429 confirmed)",
+  "context_for_next_testing_agent": "Reusable suite: /app/backend/tests/test_iter13_refactor_regression.py (60 tests, ~47s, all restore their own data). Useful project ids: MARSH_END a559329c-... (imported, 101-page pack, NO postcode so heritage/solar correctly 422), PC_PROJECT f4a33e9d-4172-415f-94ae-f11164e1a34a (RTF-2026-0170, postcode RG8 0UZ + solar cached - use this for heritage/solar/PV), PHOTO_PROJECT e7e48949-... (survey photos, use for vision detect / defect auto-match), LIGHT_PROJECT RTF-2026-0142 (3 itemsBeforeIssue, empty designConsiderations). Google Solar API key IS configured and returns real data. pytest.ini forces -n 2 --dist loadscope; run AI/pack classes with a long timeout (nohup + log) as they can take minutes on cold cache.",
+  "rca_of_the_issue": "N/A - no regression found. Two initial test failures were test-side: a hand-crafted base64 PNG was invalid (replaced with a PIL-generated PNG) and heritage/solar were being exercised on 12 Marsh End which has no postcode, so the 422 was correct behaviour (tests re-pointed to RTF-2026-0170 and the 422 path kept as an explicit negative test). Old SyntaxError tracebacks in backend.err.log are historical (reference pre-refactor server.py line ~3067) and predate the current code."
+}

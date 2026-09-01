@@ -112,6 +112,16 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - **Appendix index**: `_merge_appendix` opens Appendix B with a contents page listing every bound document (number, filename, type) before the binds. Verified on 4 Beeson (page 61).
 - **Realistic PV target**: `_pv_from_solar(solar, target_kwp)` snaps panels/kWp/annual to a target; new `POST /projects/{id}/pv/apply` (+ SolarPanel "Target array size" input) with `pvSource="target"` protected from render auto-overwrite. Verified: 4 kWp → 10×400W panels, ~3,080 kWh.
 
+### Phase 43 — Backend modularization refactor (2026-06) [VERIFIED]
+- Split the ~5,100-line `server.py` into modules with **no behaviour change**:
+  - `deps.py` (177 lines): env/db/logger/IMG, shared domain builders (`indicators`, `mk_fabric`, `mk_service`, `measure_for`), object-storage funcs (`init_storage`/`put_object`/`get_object`).
+  - `ai_extractor.py` (1,278 lines): Claude text+vision calls, document extraction (PDF/DOCX/XLSX, OCR), defect photo matching/vision tagging, `run_import_job`, template cluster (`seed_templates`/`analyze_template`/`match_template`).
+  - `pdf_builder.py` (2,441 lines): all WeasyPrint HTML/SVG builders, `build_pack_html`, `_render_pack_html`, `_collect_source_docs`/`_merge_appendix`, solar/heritage lookups+render, `_apply_pv_autofill`.
+  - `server.py` (1,491 lines): FastAPI app + routes only.
+- Acyclic import graph: `deps` ← `ai_extractor` ← `pdf_builder` ← `server`. No duplicate symbols across modules; ruff/pyflakes clean.
+- Verified: **60/60 backend regression tests passed** (iteration_13), PDF packs 78/101/173 pages render correctly, all endpoint groups 200.
+- Bonus fixes flagged by tester: document download now uses `asyncio.to_thread(get_object,...)`; `POST /templates/{tid}/analyze` returns 404 for unknown template.
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.
@@ -124,7 +134,7 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - **P1 Scope of Works / Schedule of Works / Measure Interaction Matrix** pages.
 - **P2 Bind real source documents** (heat-pump report, solar calcs, surveys) into appendix.
 - **P2 Auto-run heritage on import**; measure hero banners; lighter packs (downscale embedded photos — pack.html ~4MB cold load).
-- **Tech debt**: split `server.py` (>3.4k lines) into `pdf_builder.py` / `ai_extractor.py`; `DesignWorkspace.jsx` (~890 lines) into smaller files.
+- **Tech debt**: ✅ `server.py` split into `deps.py`/`ai_extractor.py`/`pdf_builder.py` (Phase 43). Remaining: `pdf_builder.py` (2.4k) and `ai_extractor.py` (1.3k) still breach the 700-line guideline; `DesignWorkspace.jsx` (~890 lines) could be split.
 
 ## Notes
 - Auth required on all `/api` routes. Credentials in `/app/memory/test_credentials.md`.
