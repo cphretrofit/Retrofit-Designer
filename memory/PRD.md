@@ -150,6 +150,12 @@ Remaining from client audit: **#12 auto-generate CAD-quality drawings** + **#11 
 - **Branding**: CPH Design logo in header + login; removed the stray hardcoded "AO" avatar.
 - Tested: iteration_15 backend 17/17 + frontend Playwright all pass; robustness fixes re-verified by curl (concurrent guard, 422, restart sweep).
 
+### Phase 47 — CAD location-plan sheet, live re-extract, detail materials, appendix (2026-06) [VERIFIED]
+- **CAD Drawings v2 (#12)**: the marked-up assessment floor plan now renders as a formal drawing sheet — "Measure & Ventilation Location Plan" with a legend (dMEV/extract, Loft, Trickle vent, ASHP), placed labelled markers, a **north arrow**, drawing frame and a full **title block** (Project/Ref, Drawing Title, Drawing No A-101, Scale NTS, Date, Rev P01 · CPH Design). Marker editing (dMEV/Trickle/Loft/ASHP) was already supported in FloorPlanPanel (upload/drag-drop + place/drag/remove). Verified visually on a test plan. NOTE: labelled NTS (no fake scale bar) — a true calibrated scale bar needs a known plan scale.
+- **Live Progress (#2)**: `ReextractControl` accepts `initialBusy={p.reextracting}` and resumes the spinner + polling on mount, so a page reload during a job keeps showing progress.
+- **Detail Materials (#3)**: each auto-generated Construction Detail card now shows the measure's primary insulant (material · thickness · λ, parsed safely from the build-up) and its calculated/target U-value.
+- **Slimmer Appendix (#4)**: kept `tobytes(deflate, garbage=3)` dedupe. A full image re-render (150 DPI JPEG) was trialled — it cut ~27% off size but pushed generation past the ingress timeout (502) once a floor plan was added, so it was reverted to the reliable fast `insert_pdf` path (~15s). A true "compressed export" should be a background job (future).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

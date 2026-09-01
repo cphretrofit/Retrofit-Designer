@@ -1,14 +1,38 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { addDocuments, reextractProject, getProject } from "@/lib/api";
 import { toast } from "sonner";
 import { RefreshCw, Upload, Loader2 } from "lucide-react";
 
 const DOC_TYPES = ["Technical Survey", "ASHP Survey", "Assessment", "Scope of Works", "Job Card", "Site Notes"];
 
-export function ReextractControl({ projectId, onDone }) {
+export function ReextractControl({ projectId, onDone, initialBusy = false }) {
   const [type, setType] = useState("Technical Survey");
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(initialBusy);
   const fileRef = useRef(null);
+
+  const startPolling = () => {
+    const started = Date.now();
+    const poll = async () => {
+      try {
+        const p = await getProject(projectId);
+        if (!p.reextracting || Date.now() - started > 240000) {
+          setBusy(false);
+          if (p.reextractError) toast.error("Re-extract failed", { description: p.reextractError });
+          else toast.success("Re-extraction complete — data refreshed");
+          onDone?.(p);
+        } else {
+          setTimeout(poll, 4000);
+        }
+      } catch { setTimeout(poll, 5000); }
+    };
+    setTimeout(poll, 4000);
+  };
+
+  // Resume the spinner + polling if a job is already running when this mounts
+  useEffect(() => {
+    if (initialBusy) { setBusy(true); startPolling(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const run = async (files) => {
     setBusy(true);
@@ -19,21 +43,7 @@ export function ReextractControl({ projectId, onDone }) {
       }
       await reextractProject(projectId);
       toast.info("Re-extraction started", { description: "Refreshing ventilation, site conditions & design considerations…" });
-      const started = Date.now();
-      const poll = async () => {
-        try {
-          const p = await getProject(projectId);
-          if (!p.reextracting || Date.now() - started > 200000) {
-            setBusy(false);
-            if (p.reextractError) toast.error("Re-extract failed", { description: p.reextractError });
-            else toast.success("Re-extraction complete — data refreshed");
-            onDone?.(p);
-          } else {
-            setTimeout(poll, 4000);
-          }
-        } catch { setTimeout(poll, 5000); }
-      };
-      setTimeout(poll, 4000);
+      startPolling();
     } catch (e) {
       setBusy(false);
       toast.error("Could not start re-extract", { description: e?.response?.data?.detail });
@@ -78,7 +88,7 @@ export function ReextractControl({ projectId, onDone }) {
           className="flex items-center gap-1.5 h-8 px-3 rounded-sm bg-primary text-primary-foreground text-[12px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.75} />}
-          Re-extract now
+          {busy ? "Re-extracting…" : "Re-extract now"}
         </button>
       </div>
     </div>

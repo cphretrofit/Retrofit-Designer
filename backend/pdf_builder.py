@@ -2060,6 +2060,25 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                        f'<td style="width:7%;"><span style="color:{jc}; font-size:12px;">{JSY.get(js, "&#8211;")}</span></td>'
                        f'<td class="mono faint" style="width:20%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
                        f'<td class="muted" style="font-size:10px;">{_esc(j.get("note"))}</td></tr>')
+            _ins = None
+            _best_th = -1.0
+            for _l in (m.get("buildup") or []):
+                try:
+                    _lam = float(_l.get("lambda"))
+                    _th = float(_l.get("thickness") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if _lam <= 0.06 and _th > _best_th:
+                    _ins, _best_th = _l, _th
+            mat_line = ""
+            if _ins:
+                mat_line = f"{_esc(_ins.get('material'))} &middot; {_num(_ins.get('thickness'))}mm &middot; \u03bb {_ins.get('lambda')}"
+            elif m.get("products"):
+                _p0 = m["products"][0]
+                mat_line = _esc((_p0.get("specs") or _p0.get("product") or ""))
+            u_line = ""
+            if m.get("calculatedU") is not None:
+                u_line = f"U {_num(m.get('calculatedU'), 2)} W/m\u00b2K" + (f" (target {_num(m.get('targetU'), 2)})" if m.get("targetU") is not None else "")
             cards = ""
             for j in jns[:9]:
                 cards += (f'<div style="width:31.5%; display:inline-block; vertical-align:top; margin:0 1% 12px 0; border:1px solid #e5e5e5;">'
@@ -2068,7 +2087,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           f'<div class="mono" style="font-size:9px; color:#0055ff;">{_esc(j.get("detail") or "DET")}</div>'
                           f'<div style="font-size:10.5px; color:#171717; font-weight:500; margin-top:1px;">{_esc(j.get("name"))}</div>'
                           f'<div class="muted" style="font-size:9px; margin-top:3px; line-height:1.35;">{_esc((j.get("note") or "")[:130])}</div>'
-                          f'<div class="faint mono" style="font-size:7.5px; margin-top:5px; letter-spacing:0.04em;">SCALE NTS &middot; fRsi &gt; 0.75 &middot; BRE IP1/06</div>'
+                          + (f'<div class="mono" style="font-size:8px; color:#525252; margin-top:4px; line-height:1.3;">Insulant: {mat_line}</div>' if mat_line else "")
+                          + (f'<div class="mono" style="font-size:8px; color:#525252; margin-top:1px;">{u_line}</div>' if u_line else "")
+                          + f'<div class="faint mono" style="font-size:7.5px; margin-top:5px; letter-spacing:0.04em;">SCALE NTS &middot; fRsi &gt; 0.75 &middot; BRE IP1/06</div>'
                           f'</div></div>')
             jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Junction Schedule</div>'
                        '<table><thead><tr><th style="width:14%;">Detail</th><th style="width:19%;">Junction</th><th style="width:7%;"></th><th style="width:20%;">Detail Ref</th><th>Note</th></tr></thead>'
@@ -2256,11 +2277,32 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                      f'<span style="font-size:8px; color:#fff; background:{col}; padding:1px 5px; border-radius:3px; margin-left:4px; vertical-align:middle;">{lbl}</span></div>')
         legend = "".join(f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{MKL[k]}</span>' for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"] if k in used_types) \
             or "".join(f'<span class="chip" style="border-color:{MK[k]}; color:{MK[k]};">{MKL[k]}</span>' for k in ["DMEV", "LOFT", "TRICKLE", "ASHP"])
-        floorplan_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Floor Plan</div>'
-                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Floor Plan &amp; Measure Placements</div>'
-                          '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative positions of key measures and services. Confirm exact locations on site.</div>'
-                          f'<div style="margin-top:14px;">{legend}</div>'
-                          f'<div style="position:relative; margin-top:14px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{fp_uri}" style="width:100%; display:block;">{dots}</div>')
+        _north = ('<svg viewBox="0 0 40 46" width="34" height="40">'
+                  '<polygon points="20,3 27,26 20,20 13,26" fill="#171717"/>'
+                  '<polygon points="20,3 20,20 13,26" fill="#737373"/>'
+                  '<text x="20" y="42" font-size="11" text-anchor="middle" fill="#171717" font-family="Arial" font-weight="bold">N</text></svg>')
+        _addr = _esc((p.get("property") or {}).get("address") or "")
+        _tb = (
+            '<table style="margin-top:0; border:1.5px solid #171717; border-collapse:collapse; width:100%; font-size:9px;">'
+            '<tr>'
+            f'<td style="border-right:1px solid #d4d4d4; padding:6px 8px; width:46%;"><div class="faint" style="font-size:7px; letter-spacing:0.1em;">PROJECT</div><div style="font-size:11px; color:#171717; margin-top:1px;">{_addr or _esc(p.get("ref") or "")}</div></td>'
+            f'<td style="border-right:1px solid #d4d4d4; padding:6px 8px; width:30%;"><div class="faint" style="font-size:7px; letter-spacing:0.1em;">DRAWING TITLE</div><div style="font-size:10px; color:#171717; margin-top:1px;">Measure &amp; Ventilation Location Plan</div></td>'
+            f'<td style="padding:6px 8px;"><div class="faint" style="font-size:7px; letter-spacing:0.1em;">DRAWING No.</div><div class="mono" style="font-size:11px; color:#0055ff; margin-top:1px;">A-101</div></td>'
+            '</tr>'
+            '<tr style="border-top:1px solid #d4d4d4;">'
+            f'<td style="border-right:1px solid #d4d4d4; padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">REF</span> <span class="mono">{_esc(p.get("ref") or "")}</span></td>'
+            f'<td style="border-right:1px solid #d4d4d4; padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">SCALE</span> NTS &nbsp;·&nbsp; <span class="faint" style="font-size:7px;">DATE</span> {_esc(issued_date)}</td>'
+            f'<td style="padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">REV</span> <span class="mono">P01</span> &nbsp;·&nbsp; CPH Design</td>'
+            '</tr></table>')
+        floorplan_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'
+                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Measure &amp; Ventilation Location Plan</div>'
+                          '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative positions of ventilation (dMEV / trickle), insulation and heat-pump plant, marked up on the assessment floor plan. Confirm exact locations on site. Not to scale.</div>'
+                          f'<div style="margin-top:12px;">{legend}</div>'
+                          '<div style="position:relative; margin-top:12px; border:1.5px solid #171717; padding:7px; background:#fff;">'
+                          f'<div style="position:relative; border:1px solid #e5e5e5; overflow:hidden;"><img src="{fp_uri}" style="width:100%; display:block;">{dots}'
+                          f'<div style="position:absolute; top:8px; right:8px; background:rgba(255,255,255,0.85); border:1px solid #e5e5e5; padding:2px 4px;">{_north}</div>'
+                          '</div></div>'
+                          f'{_tb}')
 
     # Custom sections (user-added "crucial information")
     custom_pages = []
@@ -2528,7 +2570,7 @@ def _merge_appendix(pdf_bytes, docs):
                     link_page.insert_link({"kind": pymupdf.LINK_GOTO, "from": rect, "page": tp, "to": pymupdf.Point(0, 0)})
                 except Exception:
                     pass
-        return main.tobytes()
+        return main.tobytes(deflate=True, deflate_images=True, deflate_fonts=True, garbage=3)
     except Exception as e:
         logger.warning("merge appendix failed: %s", e)
         return pdf_bytes

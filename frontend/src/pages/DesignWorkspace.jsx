@@ -122,7 +122,7 @@ export default function DesignWorkspace() {
                 />
               </div>
               <Field label="Property Type" value={p.property.type} mono={false} path="property.type" onSave={saveField} />
-              <ReextractControl projectId={id} onDone={(np) => setP(np)} />
+              <ReextractControl projectId={id} initialBusy={!!p.reextracting} onDone={(np) => setP(np)} />
               <Field label="Age Band" value={p.property.age} mono={false} path="property.age" onSave={saveField} />
               <Field label="Floor Area" value={p.property.floorArea} path="property.floorArea" onSave={saveField} />
               <Field label="Storeys" value={p.property.storeys} path="property.storeys" onSave={saveField} />
