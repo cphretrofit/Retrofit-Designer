@@ -94,6 +94,11 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - New `_reextract_project_photos`: re-scans a project's already-stored survey PDFs (Technical Survey/PIBI, Assessment, ASHP Survey, Scope of Works, Job Card), appends NEW photos (dedupe by caption) to designPack.photos as Survey Photo docs. Wired into `POST /defects/auto-match-photos` (the "Auto-match photos" button) so one click pulls images from the surveys AND matches them to defects; returns `{matched, added}`.
 - Verified on 4 Beeson: pulled 6 more photos incl. fig 09 "Severe mould growth on wall in Bedroom 1" and fig 10 (Bedroom 2 near skirting) — both genuine photos, matched to the two mould defects. Windows/doors correctly unmatched (no such photo in the surveys).
 
+### Phase 40 — Defect survey-photo gallery picker + defect id backfill (2026-06) [VERIFIED]
+- **Gallery picker**: each defect now has a "From survey / Change from survey" button opening a modal of all survey photos (thumbnail + caption); one click attaches. Backend `POST /projects/{id}/defects/{did}/attach-survey-photo` (`AttachPhotoIn`) sets `photo/photoFig/photoAuto=false`. DefectsPanel receives `photos={p.designPack.photos}`.
+- **Latent bug fixed**: AI-imported defects had **no `id`**, silently breaking update/delete/upload-photo/attach (all match by id → 404). Now backfilled in `get_project` on load (persisted) and assigned in `ai_build_project` at import.
+- Verified on 4 Beeson: attach endpoint (curl), gallery modal shows 14 photos incl. the mould shots, 4 defect gallery buttons.
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

@@ -711,7 +711,7 @@ export default function DesignWorkspace() {
           </div>
         );
       case "defects":
-        return <DefectsPanel projectId={id} initial={p.defects || []} onChange={(list) => setP((prev) => ({ ...prev, defects: list }))} />;
+        return <DefectsPanel projectId={id} initial={p.defects || []} photos={p.designPack?.photos || []} onChange={(list) => setP((prev) => ({ ...prev, defects: list }))} />;
       case "conditions":
         return <SiteConditionsPanel projectId={id} project={p} onChange={(sc) => setP((prev) => ({ ...prev, property: { ...prev.property, siteConditions: sc } }))} />;
       case "sections":

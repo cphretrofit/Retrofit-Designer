@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, mediaUrl } from "@/lib/api";
+import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2 } from "lucide-react";
+import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images } from "lucide-react";
 
 const SEV = {
   high: { c: "var(--c-critical)", l: "High" },
@@ -36,16 +36,24 @@ function DefectForm({ initial, onCancel, onSave, busy }) {
   );
 }
 
-export function DefectsPanel({ projectId, initial, onChange }) {
+export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
   const [defects, setDefects] = useState(initial || []);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(null);
   const [matching, setMatching] = useState(false);
+  const [picking, setPicking] = useState(null);
   const fileRefs = useRef({});
 
   const sync = (list) => { setDefects(list); onChange?.(list); };
+
+  const pickSurvey = async (did, ph) => {
+    try {
+      const { defects: list } = await attachDefectSurveyPhoto(projectId, did, ph.url, ph.fig, ph.caption);
+      sync(list); setPicking(null); toast.success("Photo attached from survey");
+    } catch { toast.error("Could not attach photo"); }
+  };
 
   const autoMatch = async () => {
     setMatching(true);
@@ -113,7 +121,7 @@ export function DefectsPanel({ projectId, initial, onChange }) {
               <div className="p-3"><DefectForm initial={d} onCancel={() => setEditing(null)} onSave={(f) => save(d.id, f)} busy={busy} /></div>
             ) : (
               <div className="flex gap-4 p-4">
-                <div className="w-28 shrink-0">
+                <div className="w-28 shrink-0 space-y-1.5">
                   {d.photo ? (
                     <img src={mediaUrl(d.photo)} alt="defect" className="w-28 h-20 object-cover border border-border rounded-sm" data-testid={`defect-photo-${d.id}`} />
                   ) : (
@@ -121,6 +129,12 @@ export function DefectsPanel({ projectId, initial, onChange }) {
                       className="w-28 h-20 border border-dashed border-border rounded-sm flex flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-secondary text-[10.5px]">
                       {photoBusy === d.id ? <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} /> : <Camera className="h-4 w-4" strokeWidth={1.5} />}
                       {photoBusy === d.id ? "Uploading" : "Attach photo"}
+                    </button>
+                  )}
+                  {photos.length > 0 && (
+                    <button onClick={() => setPicking(d.id)} data-testid={`defect-gallery-${d.id}`}
+                      className="w-28 flex items-center justify-center gap-1 text-[10.5px] text-muted-foreground hover:text-foreground">
+                      <Images className="h-3 w-3" strokeWidth={1.75} /> {d.photo ? "Change from survey" : "From survey"}
                     </button>
                   )}
                   <input ref={(el) => (fileRefs.current[d.id] = el)} type="file" accept="image/*" className="hidden" onChange={(e) => onPhoto(d.id, e)} data-testid={`defect-photo-input-${d.id}`} />
@@ -146,6 +160,26 @@ export function DefectsPanel({ projectId, initial, onChange }) {
           </div>
         ))}
       </div>
+
+      {picking && (
+        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-6" data-testid="defect-gallery-modal" onClick={() => setPicking(null)}>
+          <div className="bg-card border border-border rounded-md max-w-3xl w-full max-h-[80vh] overflow-auto p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[13px] font-medium">Choose a survey photo to attach</span>
+              <button onClick={() => setPicking(null)} data-testid="gallery-close" className="text-muted-foreground hover:text-foreground text-[12px]">Close</button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {photos.map((ph, i) => (
+                <button key={i} onClick={() => pickSurvey(picking, ph)} data-testid={`gallery-photo-${i}`}
+                  className="text-left border border-border rounded-sm overflow-hidden hover:border-foreground/40 transition-colors">
+                  <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-24 object-cover" />
+                  <div className="px-2 py-1.5 text-[11px] leading-tight"><span className="font-mono text-muted-foreground mr-1">{ph.fig}</span>{ph.caption}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

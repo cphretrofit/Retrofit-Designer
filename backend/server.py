@@ -600,6 +600,13 @@ async def get_project(project_id: str):
     doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Project not found")
+    defects = doc.get("defects") or []
+    if any(not d.get("id") for d in defects):
+        for d in defects:
+            if not d.get("id"):
+                d["id"] = str(uuid.uuid4())
+        await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+        doc["defects"] = defects
     doc["partner"] = _resolve_partner(doc)
     return doc
 
@@ -1105,6 +1112,32 @@ async def auto_match_defect_photos(project_id: str):
     if matched:
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
     return {"defects": defects, "matched": matched, "added": added}
+
+
+class AttachPhotoIn(BaseModel):
+    url: str
+    fig: Optional[str] = None
+    caption: Optional[str] = None
+
+
+@api_router.post("/projects/{project_id}/defects/{defect_id}/attach-survey-photo")
+async def attach_defect_survey_photo(project_id: str, defect_id: str, payload: AttachPhotoIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    defects = proj.get("defects") or []
+    found = False
+    for d in defects:
+        if d.get("id") == defect_id:
+            d["photo"] = payload.url
+            d["photoFig"] = payload.fig
+            d["photoAuto"] = False
+            found = True
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="Defect not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects}
 
 
 @api_router.post("/projects/{project_id}/heritage/lookup")
@@ -1939,7 +1972,7 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
         },
         "readiness": {"overall": overall, "breakdown": breakdown},
         "itemsBeforeIssue": items, "measures": measures,
-        "defects": ai.get("defects") or [],
+        "defects": [{**d, "id": d.get("id") or str(uuid.uuid4())} for d in (ai.get("defects") or [])],
         "designPack": {"photos": photos or [], "drawings": drawings},
     }
 
