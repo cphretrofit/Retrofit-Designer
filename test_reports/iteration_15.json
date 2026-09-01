@@ -1,0 +1,49 @@
+{
+  "summary": "Iteration 15 verification of: editable Reference (PasHub) field, Surveys & Re-extraction control (async re-extract + polling), CPH Design logo in header/login, backend PATCH /reference, POST /documents, POST /reextract, plus pack/dashboard regression. Backend: 17/17 pytest cases passed (incl. a full async re-extract lifecycle run that returned in <1s and cleared the reextracting flag in ~170s with no error). Frontend: full Playwright flow passed — login logo renders (image actually loads, naturalWidth 1029), login works with the admin credentials, header brand-logo renders and navigates home, reference-input is editable and persists via PATCH /projects/{id}/reference (verified after reload, then restored to RTF-2026-0172), reextract-control renders with type select (6 options) + both buttons, 'Re-extract now' issued POST /reextract (HTTP 200, instant), showed the 'Re-extraction started' sonner toast and put both buttons into a disabled/spinner busy state. No ORTHOGRAPH wordmark remains. Pack regression: pack.html 200 with Drawing Register/heritage/junction/panel-count content, pack.pdf 200 valid %PDF >200KB.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/projects/{id}/reextract", "issue": "Background job state is not durable/reconciled: if the backend process restarts (deploy, hot reload) while the asyncio task is in flight, project.reextracting stays true forever with reextractError=null — nothing ever clears it. Reproduced (uvicorn WatchFiles reload killed an in-flight job; I cleared the stuck flag manually in Mongo). Suggest storing reextractStartedAt and clearing/marking stale flags on startup or treating flags older than N minutes as failed."},
+      {"endpoint": "POST /api/projects/{id}/reextract", "issue": "Endpoint is not idempotent/guarded — repeated calls while reextracting=true spawn additional concurrent AI jobs (no 409/no-op). Frontend disables the button locally but a second browser tab or direct API call can stack jobs."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Shell.jsx TopBar", "issue": "Hardcoded placeholder avatar circle showing initials 'AO' is rendered right after the real UserMenu (which already shows 'DF Dean Foster'), so every user sees a duplicate/incorrect avatar in the header.", "selector": "header div.rounded-full (Shell.jsx lines 107-109)", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [
+      {"flow": "Re-extract polling", "issue": "Polling lives only in ReextractControl local state — navigating away or reloading during a job loses all progress/completion feedback (no busy indicator on remount even though project.reextracting is true). Consider deriving the busy state from project.reextracting on load.", "affected_selectors": ["[data-testid=\"reextract-only-button\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Project workspace header", "issues": ["Redundant 'AO' avatar next to the user menu (see ui_bugs)", "CPH Design logo renders quite small (h-8, ~56x36px) in a 1920px header; acceptable but visually lightweight next to the breadcrumb divider"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter15_ref_reextract.py",
+    "/app/backend/tests/test_iter15_pack_content.py",
+    "/app/test_reports/pytest/pytest_iter15.xml"
+  ],
+  "action_items": [
+    "Add stale-flag reconciliation for reextracting (startup sweep or reextractStartedAt timeout) so a backend restart cannot leave a project permanently 'reextracting'.",
+    "Guard POST /projects/{id}/reextract against concurrent runs (return 409 or no-op when already reextracting).",
+    "Remove the hardcoded 'AO' avatar div in Shell.jsx TopBar (duplicate of UserMenu avatar).",
+    "Optional: initialise ReextractControl busy state from project.reextracting so the spinner survives reload/navigation."
+  ],
+  "critical_code_review_comments": [
+    "server.py PATCH /projects/{id}/reference correctly trims + 422s on empty and 404s on unknown project; response excludes _id. Good.",
+    "asyncio.create_task in reextract_project has no reference held and no persistence — task is fire-and-forget; on process exit the DB flag is orphaned (see minor issue).",
+    "server.py is ~1500 lines; continues to exceed the 700-line guidance — consider splitting project/pack/document routers.",
+    "add_documents zips files/types without validating equal lengths — mismatched lists silently drop files; add a length check with 422."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter15_ref_reextract.py",
+    "/app/backend/tests/test_iter15_pack_content.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "None persisted. Temporarily set project 34850d44 ref to TEST_REF_9001 / TEST-UI-REF-01 during tests; restored to RTF-2026-0172 (verified). Cleared one stuck reextracting flag caused by a hot-reload during the UI-triggered job.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (httpOnly cookie, role=admin) — from /app/memory/test_credentials.md",
+  "context_for_next_testing_agent": "Base URL https://retrofit-pro-2.preview.emergentagent.com, /api prefix, all /api routes behind require_user (login sets httpOnly cookie; POST /api/auth/login returns the user object flat, not nested under 'user'). pytest.ini runs xdist loadscope — do NOT pass -n/-p no:xdist. IMPORTANT: writing files under /app/backend/ triggers uvicorn WatchFiles reload and will kill in-flight background AI jobs (re-extract/import) — write scratch scripts to /tmp instead. Re-extract on project 34850d44 takes ~150-180s end to end; only trigger it once per run. Reference for that project must remain RTF-2026-0172.",
+  "rca_of_the_issue": "Stuck reextracting flag: POST /reextract sets project.reextracting=true then fires asyncio.create_task(_run_reextract_bg). The clearing update only happens inside that task, so any process restart (deploy or hot reload) drops the task and the flag is never reset — there is no startup reconciliation or timeout. Reproduced by creating a file under /app/backend during an in-flight job; flag remained true with reextractError=null until manually cleared in Mongo."
+}

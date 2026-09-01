@@ -468,7 +468,7 @@ def _buildup_svg(layers):
     return f'<svg viewBox="0 0 {W:.0f} {H:.0f}" width="100%" style="max-height:150px;">{defs}{lbl}{bands}</svg>'
 
 
-def _junction_svg(name):
+def _junction_svg(name, size=46):
     n = (name or "").lower()
     wall = ('<rect x="12" y="4" width="12" height="52" fill="#e4d9cf" stroke="#171717" stroke-width="0.6"/>'
             '<rect x="24" y="4" width="9" height="52" fill="#fde9b0" stroke="#171717" stroke-width="0.6"/>'
@@ -494,7 +494,40 @@ def _junction_svg(name):
     else:
         feat = '<rect x="24" y="22" width="16" height="16" fill="none" stroke="#171717" stroke-width="0.7" stroke-dasharray="3 2"/>'
     defs = '<defs><pattern id="gnd" width="5" height="5" patternUnits="userSpaceOnUse"><path d="M0,5 L5,0" stroke="#b9a48f" stroke-width="0.5"/></pattern></defs>'
-    return f'<svg viewBox="0 0 60 60" width="46" height="46">{defs}{wall}{feat}</svg>'
+    return f'<svg viewBox="0 0 60 60" width="{size}" height="{size}">{defs}{wall}{feat}</svg>'
+
+
+_DEFAULT_JUNCTIONS = {
+    "LOFT": [
+        {"name": "Eaves", "detail": "D-L01", "status": "pending", "note": "Maintain insulation continuity to the wall head; provide a proprietary eaves guard to preserve the 25mm continuous free air path and prevent wind-wash."},
+        {"name": "Verge / Gable", "detail": "D-L02", "status": "pending", "note": "Continue insulation to the gable wall line without compression at the verge."},
+        {"name": "Party Wall Junction", "detail": "D-L03", "status": "pending", "note": "Return/abut insulation at the party wall to control flanking heat loss."},
+        {"name": "Loft Hatch", "detail": "D-L04", "status": "pending", "note": "Insulated, draught-sealed loft hatch matched to the surrounding U-value."},
+        {"name": "Service Penetration", "detail": "D-L05", "status": "pending", "note": "Seal and fire-stop all service penetrations; maintain insulation around them."},
+        {"name": "Cold Water Tank", "detail": "D-L06", "status": "pending", "note": "Insulate tank and pipework above the insulation line; omit insulation directly beneath the tank."},
+    ],
+    "WALL": [
+        {"name": "Window / Door Reveal", "detail": "D-W01", "status": "pending", "note": "Insulated reveals to maintain continuity; minimum 30mm overlap to the frame."},
+        {"name": "Head", "detail": "D-W02", "status": "pending", "note": "Continuous insulation over the lintel; proprietary closer to control the bridge."},
+        {"name": "Sill", "detail": "D-W03", "status": "pending", "note": "Extended sill with drip to throw water clear of the new wall face."},
+        {"name": "DPC / Base", "detail": "D-W04", "status": "pending", "note": "Terminate insulation at least 150mm above ground with a base track and bell-cast bead."},
+        {"name": "Eaves / Roofline", "detail": "D-W05", "status": "pending", "note": "Detail the insulation to the roofline / soffit to control the eaves bridge."},
+        {"name": "Verge", "detail": "D-W06", "status": "pending", "note": "Continue insulation to the verge; weather the junction to the barge."},
+    ],
+    "WIN": [
+        {"name": "Jamb / Reveal", "detail": "D-G01", "status": "pending", "note": "Frame set to maintain insulation continuity at the reveal."},
+        {"name": "Head", "detail": "D-G02", "status": "pending", "note": "Insulated closer over the head; airtightness tape to the structure."},
+        {"name": "Sill", "detail": "D-G03", "status": "pending", "note": "Sill detail with continuous seal and drainage."},
+    ],
+    "FLOOR": [
+        {"name": "Perimeter / Skirting", "detail": "D-F01", "status": "pending", "note": "Perimeter insulation upstand with continuity to the wall insulation."},
+        {"name": "Threshold", "detail": "D-F02", "status": "pending", "note": "Threshold detail maintaining insulation and airtightness continuity."},
+    ],
+}
+
+
+def _default_junctions(fam):
+    return [dict(j) for j in _DEFAULT_JUNCTIONS.get(fam, [])]
 
 
 PACK_CSS = """
@@ -1588,16 +1621,26 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>'
                            '<div style="margin-top:22px;" class="muted"><span style="font-size:12px;">No survey photographs recorded for this project.</span></div>')
 
-    # Drawing register
+    # Drawing register — include auto-generated junction details per measure
     draw_rows = "".join(
         f'<tr><td class="mono" style="color:#262626;">{_esc(d.get("ref"))}</td><td>{_esc(d.get("title"))}</td>'
         f'<td class="mono muted" style="text-align:right;">{_esc(d.get("scale"))}</td><td class="mono muted" style="text-align:right;">{_esc(d.get("revision"))}</td></tr>'
         for d in drawings)
+    _auto_rows = ""
+    for _m in measures:
+        _fam = _mfam(_m.get("code"), _m.get("name"))
+        _jns = _m.get("junctions") or _default_junctions(_fam)
+        for _j in _jns[:9]:
+            _auto_rows += (f'<tr><td class="mono" style="color:#262626;">{_esc(_j.get("detail") or "DET")}</td>'
+                           f'<td>{_esc(_m.get("name"))} &mdash; {_esc(_j.get("name"))} junction detail</td>'
+                           f'<td class="mono muted" style="text-align:right;">NTS</td>'
+                           f'<td class="mono muted" style="text-align:right;">P01</td></tr>')
     drawings_page = f'''
-      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 · Construction Details</div>
+      <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>
       <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Drawing Register</div>
-      <table style="margin-top:24px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
-      <tbody>{draw_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
+      <div class="muted" style="font-size:11px; margin-top:8px;">Junction details are auto-generated per measure and reproduced in the relevant Technical Specification section. Scaled bespoke details are calculated to BRE IP1/06 (f<span>Rsi</span> &gt; 0.75) at technical design stage.</div>
+      <table style="margin-top:20px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
+      <tbody>{draw_rows}{_auto_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
     # Site conditions (computed for TOC + evidence page)
     _sc = (p.get("property") or {}).get("siteConditions") or {}
@@ -2004,11 +2047,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         if bu_html or u_html:
             spec_pages.append(_head("Construction & Thermal Detail") + bu_html + u_html)
 
-        jns = m.get("junctions") or []
+        fam_j = _mfam(m.get("code"), m.get("name"))
+        jns = m.get("junctions") or _default_junctions(fam_j)
         jn_html = ""
         if jns:
             jr = ""
-            for j in jns[:6]:
+            for j in jns[:8]:
                 js = j.get("status") or "not_started"
                 jc = JST.get(js, "#a3a3a3")
                 jr += (f'<tr><td style="width:14%; padding:6px 0;">{_junction_svg(j.get("name"))}</td>'
@@ -2016,9 +2060,21 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                        f'<td style="width:7%;"><span style="color:{jc}; font-size:12px;">{JSY.get(js, "&#8211;")}</span></td>'
                        f'<td class="mono faint" style="width:20%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
                        f'<td class="muted" style="font-size:10px;">{_esc(j.get("note"))}</td></tr>')
+            cards = ""
+            for j in jns[:9]:
+                cards += (f'<div style="width:31.5%; display:inline-block; vertical-align:top; margin:0 1% 12px 0; border:1px solid #e5e5e5;">'
+                          f'<div style="text-align:center; padding:10px 0 4px; background:#fafafa; border-bottom:1px solid #f0f0f0;">{_junction_svg(j.get("name"), 116)}</div>'
+                          f'<div style="padding:7px 9px 9px;">'
+                          f'<div class="mono" style="font-size:9px; color:#0055ff;">{_esc(j.get("detail") or "DET")}</div>'
+                          f'<div style="font-size:10.5px; color:#171717; font-weight:500; margin-top:1px;">{_esc(j.get("name"))}</div>'
+                          f'<div class="muted" style="font-size:9px; margin-top:3px; line-height:1.35;">{_esc((j.get("note") or "")[:130])}</div>'
+                          f'<div class="faint mono" style="font-size:7.5px; margin-top:5px; letter-spacing:0.04em;">SCALE NTS &middot; fRsi &gt; 0.75 &middot; BRE IP1/06</div>'
+                          f'</div></div>')
             jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Junction Schedule</div>'
                        '<table><thead><tr><th style="width:14%;">Detail</th><th style="width:19%;">Junction</th><th style="width:7%;"></th><th style="width:20%;">Detail Ref</th><th>Note</th></tr></thead>'
-                       f'<tbody>{jr}</tbody></table>')
+                       f'<tbody>{jr}</tbody></table>'
+                       '<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:8px;">Construction Details &mdash; Auto-generated</div>'
+                       f'<div>{cards}</div>')
         checks = m.get("checks") or []
         ch_html = ""
         if checks:
@@ -2273,11 +2329,13 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         p.setdefault("property", {})["siteConditions"] = _merge_doc_site_facts(_sc0, _scdocs)
     photos = [ph for ph in ((p.get("designPack") or {}).get("photos") or []) if ph.get("included", True)]
     photos.sort(key=lambda ph: ph.get("order", 1e9))
-    photo_uris = []
-    for ph in photos[:24]:
-        u = ph.get("url") or ""
-        data = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
-        photo_uris.append({**ph, "data": data})
+    async def _uri(u):
+        if not u:
+            return None
+        return (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
+    _sel = photos[:24]
+    _datas = await asyncio.gather(*[_uri(ph.get("url") or "") for ph in _sel])
+    photo_uris = [{**ph, "data": d} for ph, d in zip(_sel, _datas)]
     def _is_doc_img(ph):
         cap = (ph.get("caption") or "").lower()
         url = (ph.get("url") or "").lower()

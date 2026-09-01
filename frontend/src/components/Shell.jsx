@@ -104,9 +104,6 @@ export function TopBar({ crumbs = [], right = null }) {
           {theme === "dark" ? <Sun className="h-4 w-4" strokeWidth={1.5} /> : <Moon className="h-4 w-4" strokeWidth={1.5} />}
         </button>
         <UserMenu />
-        <div className="h-8 w-8 rounded-full bg-foreground text-background flex items-center justify-center text-[11px] font-mono font-medium select-none">
-          AO
-        </div>
       </div>
     </header>
   );

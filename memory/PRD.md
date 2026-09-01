@@ -143,6 +143,13 @@ Client audit of 54 Greenmere (RTF-2026-0172, id 34850d44…). Fixes:
 
 Remaining from client audit: **#12 auto-generate CAD-quality drawings** + **#11 auto loft junctions** (Phase 3, agreed as a separate multi-step build); **#16 speed up draft generation**; **#14 frontend UI** to add extra surveys/site-notes to an existing project + trigger re-extract (backend endpoints already exist); **#17 solar datasheets** = user re-uploads correct PV datasheet (data, not code).
 
+### Phase 46 — Re-extract button, faster packs, Phase 3 v1 auto-drawings, robustness (2026-06) [VERIFIED]
+- **Re-extract button (#14)**: `ReextractControl` in Survey Details — pick a doc type, "Add files & re-extract" or "Re-extract now". Backend `POST /reextract` is now async (returns `{status:"started"}` instantly, sets `reextracting` flag, background job clears it; frontend polls). Guarded against concurrent runs (`already-running`); `add_documents` validates files/types length (422). Startup sweep clears flags orphaned by a restart.
+- **Faster packs (#16)**: photo data-URIs fetched in parallel (`asyncio.gather`) instead of sequentially.
+- **Phase 3 v1 auto-drawings (#11/#12)**: `_default_junctions(fam)` auto-generates a standard junction set (loft: eaves/verge/party-wall/hatch/penetration/tank; wall/window/floor sets) when a measure has none; each junction now renders as a labelled, scaled **Construction Detail card** (detail ref, note, "SCALE NTS · fRsi>0.75 · BRE IP1/06") on the measure's Junctions page; the Section-07 **Drawing Register** auto-lists every detail. NOTE: full CAD-quality tracing of the assessment floor plan remains a deeper future step.
+- **Branding**: CPH Design logo in header + login; removed the stray hardcoded "AO" avatar.
+- Tested: iteration_15 backend 17/17 + frontend Playwright all pass; robustness fixes re-verified by curl (concurrent guard, 422, restart sweep).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

@@ -27,6 +27,15 @@ export const confirmAllItems = (id) =>
 export const updatePhotos = (id, photos) =>
   api.put(`/projects/${id}/photos`, { photos }).then((r) => r.data);
 
+export const addDocuments = (id, files, types) => {
+  const fd = new FormData();
+  Array.from(files).forEach((f) => fd.append("files", f));
+  types.forEach((t) => fd.append("types", t));
+  return api.post(`/projects/${id}/documents`, fd, { headers: { "Content-Type": "multipart/form-data" } }).then((r) => r.data);
+};
+
+export const reextractProject = (id) => api.post(`/projects/${id}/reextract`).then((r) => r.data);
+
 export const addDefect = (id, payload) => api.post(`/projects/${id}/defects`, payload).then((r) => r.data);
 export const updateDefect = (id, did, payload) => api.put(`/projects/${id}/defects/${did}`, payload).then((r) => r.data);
 export const deleteDefect = (id, did) => api.delete(`/projects/${id}/defects/${did}`).then((r) => r.data);

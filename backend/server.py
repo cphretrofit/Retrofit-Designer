@@ -1306,6 +1306,8 @@ async def add_documents(project_id: str, files: List[UploadFile] = File(...), ty
     proj = await db.projects.find_one({"id": project_id})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+    if len(files) != len(types):
+        raise HTTPException(status_code=422, detail="files and types must be the same length")
     out = []
     for f, dtype in zip(files, types):
         data = await f.read()
@@ -1326,15 +1328,28 @@ async def add_documents(project_id: str, files: List[UploadFile] = File(...), ty
     return {"added": out}
 
 
+async def _run_reextract_bg(project_id: str):
+    from ai_extractor import reextract_project_fields
+    try:
+        res = await reextract_project_fields(project_id)
+        await db.projects.update_one({"id": project_id}, {"$set": {
+            "reextracting": False, "reextractError": (res or {}).get("error"),
+            "reextractedAt": datetime.now(timezone.utc).isoformat()}})
+    except Exception as e:
+        logger.exception("reextract background job failed")
+        await db.projects.update_one({"id": project_id}, {"$set": {"reextracting": False, "reextractError": str(e)}})
+
+
 @api_router.post("/projects/{project_id}/reextract")
 async def reextract_project(project_id: str):
-    from ai_extractor import reextract_project_fields
-    res = await reextract_project_fields(project_id)
-    if res is None:
+    proj = await db.projects.find_one({"id": project_id}, {"_id": 1, "reextracting": 1})
+    if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
-    if res.get("error"):
-        raise HTTPException(status_code=422, detail=res["error"])
-    return res
+    if proj.get("reextracting"):
+        return {"status": "already-running"}
+    await db.projects.update_one({"id": project_id}, {"$set": {"reextracting": True, "reextractError": None}})
+    asyncio.create_task(_run_reextract_bg(project_id))
+    return {"status": "started"}
 
 
 @api_router.post("/projects/{project_id}/extract-photos")
@@ -1496,6 +1511,8 @@ async def startup():
     await seed_admins()
     await seed()
     await seed_templates()
+    # clear any re-extract flags orphaned by a previous restart
+    await db.projects.update_many({"reextracting": True}, {"$set": {"reextracting": False, "reextractError": "Interrupted by a server restart — please run again."}})
     try:
         init_storage()
         logger.info("Storage initialized")
