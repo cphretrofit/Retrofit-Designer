@@ -122,6 +122,13 @@ Root cause of "no defect images pulled" (4 Beeson): import capped photo extracti
 - Verified: **60/60 backend regression tests passed** (iteration_13), PDF packs 78/101/173 pages render correctly, all endpoint groups 200.
 - Bonus fixes flagged by tester: document download now uses `asyncio.to_thread(get_object,...)`; `POST /templates/{tid}/analyze` returns 404 for unknown template.
 
+### Phase 44 — Datasheet specs, lighter packs, workspace split, clickable appendix (2026-06) [VERIFIED]
+- **Datasheet Spec Pull**: `DATASHEET_SYSTEM` now also extracts a one-line "specs" summary (ASHP kW/CoP/SCoP/flow, PV Wp/kWp, insulation λ/thickness/U, glazing U/g, vent l/s). Carried through `_assign_products` + `_rebuild_client_catalog`; auto-runs on datasheet upload and apply-client-library. New **Key specs** column shown in each measure's product table (PDF + workspace editor), the datasheet products page, and the Client Library catalogue. Verified live: Coldrush catalog re-parsed 13/13 with real values (e.g. "5.0 kW · COP 3.00 · SCoP 4.57 · 55°C flow").
+- **Lighter Packs**: `_remote_data_uri` + `_doc_data_uri` downscale embedded site/survey photos to 1400px / JPEG q78 (`_shrink_image`). Bound Appendix B source PDFs stay full quality.
+- **Workspace Split**: `DesignWorkspace.jsx` (880→427 lines) — sub-components extracted to `src/pages/workspace/` (`constants.js`, `EditableCell.jsx`, `Nav.jsx`, `Sections.jsx`, `IntelligencePanel.jsx`, `MeasureDetail.jsx`). No visual/behaviour change; measure products table gained an editable Key specs cell.
+- **Clickable PDF Links**: `_merge_appendix` adds internal GoTo links on the Appendix B index page (re-fetches `main[idx_no]` after `insert_pdf` to avoid stale page refs). Verified: 12/12 entries link to their bound-document divider pages.
+- Tested: backend 72/72 (12 new + 60 regression), frontend workspace + Client Library render/edit/nav all pass (iteration_14).
+
 ## Backlog / Roadmap (remaining, client-confirmed pack spec)
 - **P1 Cover overlay collision**: crop or detect the surveyor's burnt-in photo banner so our cover title/gradient don't overlap it.
 - **P2 Aerial heritage map option**: optionally offer Esri World Imagery aerial tiles as an alternative to the OSM street map.

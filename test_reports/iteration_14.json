@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 14 verification of the four new features (datasheet spec pull, lighter packs, workspace component split, clickable Appendix B links) plus regression. BACKEND: created /app/backend/tests/test_iter14_specs_links.py (12 tests, 12/12 PASS) and re-ran the prior suite /app/backend/tests/test_iter13_refactor_regression.py (60/60 PASS, no 5xx in backend logs). Confirmed independently: (1) Coldrush project a9713cce measures[].products[] all carry a non-empty 'specs' string (13/13 real values e.g. '5.0 kW heating capacity · COP 3.00 (A-7/W35) · SCoP 4.57 (35°C) · 55°C flow'); client 'Coldrush' catalog (clients/{id}.products) also carries specs; POST /apply-client-library re-applies and preserves specs with no product loss. (2) Coldrush pack.pdf (92 pages) renders the Key specs column (header extracted as uppercase 'KEY SPECS' on pages 22/28/33/38, actual values e.g. 'COP 3.00' on page 28); pack.html contains '<th>Key specs</th>' in all 4 measure product tables. (3) Marsh End a559329c pack.pdf = 101 pages / 10.7MB, Appendix B index page 49 carries 12 internal pymupdf LINK_GOTO links to pages 50/60/63/74/77/80/83/86/89/91/94/96, every target verified to be the matching 'SOURCE DOCUMENT · ...' divider page in order. (4) Lighter packs: _shrink_image(3000x2000 PNG,1400,78) -> 1400px JPEG and smaller bytes; photo-heavy project e7e48949 pack (225 pages) embeds all survey photos as JPEG <=1024x768 with only one >1500px image (from a bound appendix source PDF, intentionally full quality). FRONTEND (Playwright, 1920x1080): login -> dashboard OK; workspace /project/{id}/design/overview and every measure route render correctly after the component extraction on BOTH projects (Coldrush LOFT/ASHP/SOLAR/VENT and Marsh End LOFT/SOLAR/VENT) - sidebar nav (25 nav items), measure cards, build-up table, U-value readout, Intelligence panel (Design Status / Design Checks / Project Intelligence) and Specified Products table WITH the Key specs column all present and populated; section navigation works; project overview page, Design Pack viewer (46 pages rendered) and Client Library page load. Editing regression all PASS with real PATCH /projects/{id}/field 200s: edit product-0-specs (persisted after reload, then restored to original), product-add + product-remove (4->5->4), buildup-add-layer + buildup-remove (3->4->3), u-calculated-trigger opens its input. Zero console errors, zero non-2xx API responses across all frontend runs.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/projects/{id}/pack.pdf (_merge_appendix, pdf_builder ~2420)", "issue": "If a bound document fails to insert (except -> continue) its Appendix B index entry is still drawn in link-blue with the 'Click any entry below to jump' instruction but gets no GoTo link - a silently dead entry. Consider rendering non-linked entries in grey."},
+      {"endpoint": "GET /api/projects/e7e48949-.../pack.pdf", "issue": "Photo-heavy pack is 45MB / 225 pages. The new 1400px/q78 shrink is working (survey photos embed at <=1024x768 JPEG); the remaining weight is the full-quality bound appendix PDFs, so 'lighter packs' has little effect where source PDFs dominate. Informational only."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ClientDetail.jsx (Client Library > Product Catalogue table, ~line 85)", "issue": "The 'datasheet products page' does NOT render the new Key specs column - the table only shows Manufacturer / Product / Ref / Standard, so the AI-extracted specs are invisible there even though they exist in clients/{id}.products[].specs and are rendered in the PDF datasheet page. Feature (1) is therefore only half delivered on the frontend.", "selector": "/clients/d90b7747-01df-49d9-8d67-79bda0f1e59d product catalogue table", "priority": "MEDIUM"},
+      {"component": "workspace/MeasureDetail.jsx build-up row delete", "issue": "buildup-remove-{i} is opacity-0 until row hover, so a plain Playwright/keyboard click needs force/hover (product-remove uses opacity-40 and is fine). Minor discoverability/a11y inconsistency.", "selector": "[data-testid^=\"buildup-remove-\"]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Coldrush workspace measure-LOFT", "issues": ["Calculated U-value reads '—' although 3 build-up layers with lambda values exist, while the Design Checks panel still shows 'Target U-value achieved' as a warning - data/derivation gap, not caused by this iteration but visible to users."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter14_specs_links.py",
+    "/app/backend/tests/test_iter13_refactor_regression.py",
+    "/app/test_reports/pytest/iteration_14_results.xml",
+    "/app/test_reports/pytest/iteration_14_iter13rerun.xml"
+  ],
+  "action_items": [
+    "Add the Key specs column to the Client Library product catalogue table in /app/frontend/src/pages/ClientDetail.jsx (data already present as p.specs) - currently the only place the new feature is missing.",
+    "Optional: grey out Appendix B index entries that failed to bind (no GoTo target) so users are not invited to click a dead entry.",
+    "Optional (carried over from iteration 13, still open): asyncio.to_thread the get_object() call in GET /api/documents/{doc_id}/download; add a 404 existence check to POST /api/templates/{tid}/analyze; pdf_builder.py is now 2462 lines (>700-line guideline)."
+  ],
+  "critical_code_review_comments": [
+    "Workspace extraction is clean: eslint on /app/frontend/src/pages passes, all sub-components (constants/EditableCell/Nav/Sections/IntelligencePanel/MeasureDetail) import correctly, no console/page errors at runtime, and DesignWorkspace.jsx is down to 427 lines.",
+    "_merge_appendix correctly re-fetches main[idx_no] after insert_pdf before inserting links - verified 12/12 GoTo targets land on the right divider page, so the stale-page-ref hazard is handled.",
+    "PDF 'Key specs' header is uppercased by CSS text-transform, so any future PDF text assertion must be case-insensitive (three of my initial tests failed on this alone, plus the divider text 'SOURCE DOCUMENT').",
+    "Client catalog product array is exposed as clients/{id}.products (not productCatalog) - keep naming consistent with the project-level measures[].products."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter14_specs_links.py"],
+  "success_rate": {"backend": "100% (12/12 new + 60/60 iter13 regression)", "frontend": "95% (all workspace render/edit/nav flows pass; Client Library Key specs column missing)"},
+  "seed_data_creation": "No new seed data. All mutations reverted: Coldrush a9713cce measure LOFT products[0].specs edited to 'TEST_SPEC_EDIT 1.23 kW' then restored to the original value, one product row added then removed, one build-up layer added then removed (both counts back to 4 and 3). POST /apply-client-library was re-run on Coldrush (idempotent re-derivation of the same catalog).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (httpOnly cookie login verified)",
+  "context_for_next_testing_agent": "Reusable suites: /app/backend/tests/test_iter14_specs_links.py (12 tests, ~15s: core reads, datasheet specs, apply-client-library, pack.pdf appendix GoTo links, Key specs in pack, _shrink_image) and /app/backend/tests/test_iter13_refactor_regression.py (60 tests, ~47s). PDF text is uppercase for table headers/dividers - assert case-insensitively. Useful ids: COLDRUSH a9713cce-9685-4f8b-b300-c222a5903776 (13 products with specs, 92-page pack), MARSH_END a559329c-7ee0-4d55-9d04-7a3aa8a7fecc (101 pages, Appendix B index at page 49 with 12 GoTo links), PHOTO project e7e48949-743a-4ae8-af67-07ce16ea0a91 (225-page 45MB pack, good for image-shrink checks), Coldrush client d90b7747-01df-49d9-8d67-79bda0f1e59d. Frontend testids used: nav-{section}, nav-measure-{CODE}, product-add, product-{i}-specs / -specs-trigger, product-remove-{i}, buildup-add-layer, buildup-remove-{i} (needs hover/force), u-calculated-trigger.",
+  "rca_of_the_issue": "No product defects found in the four features. The only real gap is ClientDetail.jsx never being updated with the Key specs column (backend already returns clients/{id}.products[].specs and the PDF datasheet page renders it). My three initial test failures were test-side: PDF text extraction returns CSS-uppercased 'KEY SPECS'/'SOURCE DOCUMENT', and the client catalog field is 'products' not 'productCatalog'; tests corrected and now pass."
+}

@@ -82,10 +82,11 @@ export default function ClientDetail() {
                   <tbody>
                     {rows.map((p, i) => (
                       <tr key={i} className="border-t border-border/50">
-                        <td className="px-5 py-2 font-medium w-1/4">{p.manufacturer}</td>
+                        <td className="px-5 py-2 font-medium w-1/5">{p.manufacturer}</td>
                         <td className="py-2">{p.product}</td>
-                        <td className="py-2 font-mono text-muted-foreground text-[11.5px] w-1/5">{p.reference}</td>
-                        <td className="py-2 pr-5 font-mono text-muted-foreground text-[11px] w-1/5">{p.standard}</td>
+                        <td className="py-2 text-muted-foreground text-[11.5px] w-1/4" data-testid={`catalog-specs-${code || "none"}-${i}`}>{p.specs || "—"}</td>
+                        <td className="py-2 font-mono text-muted-foreground text-[11.5px] w-1/6">{p.reference}</td>
+                        <td className="py-2 pr-5 font-mono text-muted-foreground text-[11px] w-1/6">{p.standard}</td>
                       </tr>
                     ))}
                   </tbody>

@@ -345,7 +345,7 @@ async def _doc_data_uri(url: str):
         return None
     ct = rec.get("content_type") or ctype or ""
     if ct.startswith("image"):
-        sd, sm = await asyncio.to_thread(_shrink_image, data)
+        sd, sm = await asyncio.to_thread(_shrink_image, data, 1400, 78)
         if sm:
             data, ct = sd, sm
     return f"data:{ct};base64,{base64.b64encode(data).decode()}"
@@ -395,7 +395,12 @@ def _remote_data_uri(url: str):
         r = requests.get(url, timeout=20)
         r.raise_for_status()
         ct = r.headers.get("Content-Type", "image/jpeg")
-        return f"data:{ct};base64,{base64.b64encode(r.content).decode()}"
+        data = r.content
+        if ct.startswith("image"):
+            sd, sm = _shrink_image(data, 1400, 78)
+            if sm:
+                data, ct = sd, sm
+        return f"data:{ct};base64,{base64.b64encode(data).decode()}"
     except Exception:
         return None
 
@@ -1851,9 +1856,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         if prod:
             prows = ""
             for x in prod[:12]:
-                prows += ('<tr><td style="color:#262626;">' + _esc(x.get("manufacturer")) + '</td><td>' + _esc(x.get("product")) + '</td><td class="mono faint">' + _esc(x.get("reference")) + '</td><td class="mono muted">' + _esc(x.get("standard")) + '</td></tr>')
+                prows += ('<tr><td style="color:#262626;">' + _esc(x.get("manufacturer")) + '</td><td>' + _esc(x.get("product")) + '</td><td class="mono muted" style="font-size:9px;">' + _esc(x.get("specs")) + '</td><td class="mono faint">' + _esc(x.get("reference")) + '</td><td class="mono muted">' + _esc(x.get("standard")) + '</td></tr>')
             system_html += ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Specified Products</div>'
-                            '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Ref</th><th>Cert / Standard</th></tr></thead><tbody>' + prows + '</tbody></table>')
+                            '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Key specs</th><th>Ref</th><th>Cert / Standard</th></tr></thead><tbody>' + prows + '</tbody></table>')
         for ci, chunk in enumerate(spec_chunks):
             sub = "Technical Specification" if ci == 0 else "Design Requirements (cont.)"
             body = _head(sub) + (system_html if ci == 0 else "")
@@ -2177,9 +2182,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           f'<table><thead><tr><th style="width:6%;">#</th><th>Document</th><th style="width:26%;">Type</th></tr></thead><tbody>{frows}</tbody></table>')
         prod_html = ""
         if dprods:
-            prows = "".join('<tr><td style="color:#262626;">' + _esc(x.get("manufacturer")) + '</td><td>' + _esc(x.get("product")) + '</td><td class="mono faint">' + _esc(x.get("reference")) + '</td><td class="mono muted">' + _esc(x.get("standard")) + '</td></tr>' for x in dprods[:20])
+            prows = "".join('<tr><td style="color:#262626;">' + _esc(x.get("manufacturer")) + '</td><td>' + _esc(x.get("product")) + '</td><td class="mono muted" style="font-size:9px;">' + _esc(x.get("specs")) + '</td><td class="mono faint">' + _esc(x.get("reference")) + '</td><td class="mono muted">' + _esc(x.get("standard")) + '</td></tr>' for x in dprods[:20])
             prod_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Additional Specified Products</div>'
-                         '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Ref</th><th>Cert / Standard</th></tr></thead><tbody>' + prows + '</tbody></table>')
+                         '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Key specs</th><th>Ref</th><th>Cert / Standard</th></tr></thead><tbody>' + prows + '</tbody></table>')
         datasheet_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Appendix A &middot; Supporting Documents</div>'
                           '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Product Datasheets &amp; Supporting Documents</div>'
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
@@ -2372,21 +2377,27 @@ def _merge_appendix(pdf_bytes, docs):
     added = 0
     try:
         idx = main.new_page(width=595, height=842)
+        idx_no = main.page_count - 1
         idx.insert_text((54, 92), "APPENDIX B", fontsize=8, color=(0.64, 0.64, 0.64))
         idx.insert_text((54, 120), "Bound Source Documents", fontsize=18, color=(0.09, 0.09, 0.09))
         idx.draw_line((54, 132), (541, 132), color=(0.9, 0.9, 0.9))
-        y = 168
+        idx.insert_text((54, 150), "Click any entry below to jump straight to that document.", fontsize=7.5, color=(0.6, 0.6, 0.6))
+        entries = []
+        y = 178
         for i, d in enumerate(docs, 1):
-            idx.insert_text((54, y), f"{i:02d}", fontsize=9, color=(0.0, 0.33, 1.0))
-            idx.insert_text((86, y), (d.get("name") or "Document")[:68], fontsize=10, color=(0.13, 0.13, 0.13))
-            idx.insert_text((86, y + 13), (d.get("type") or "").upper()[:62], fontsize=7, color=(0.6, 0.6, 0.6))
-            y += 32
             if y > 790:
                 break
+            idx.insert_text((54, y), f"{i:02d}", fontsize=9, color=(0.0, 0.33, 1.0))
+            idx.insert_text((86, y), (d.get("name") or "Document")[:68], fontsize=10, color=(0.0, 0.33, 1.0))
+            idx.insert_text((86, y + 13), (d.get("type") or "").upper()[:62], fontsize=7, color=(0.6, 0.6, 0.6))
+            entries.append((d, pymupdf.Rect(50, y - 11, 541, y + 18)))
+            y += 32
+        target = {}
         for d in docs:
             if added > 150:
                 break
             name, data, ct = d["name"], d["data"], (d.get("ct") or "")
+            tgt = main.page_count  # divider is created at this page index
             if name.lower().endswith(".pdf") or "pdf" in ct:
                 try:
                     src = pymupdf.open(stream=data, filetype="pdf")
@@ -2395,6 +2406,7 @@ def _merge_appendix(pdf_bytes, docs):
                     main.insert_pdf(src, from_page=0, to_page=n - 1)
                     added += n
                     src.close()
+                    target[id(d)] = tgt
                 except Exception:
                     continue
             else:
@@ -2403,8 +2415,17 @@ def _merge_appendix(pdf_bytes, docs):
                     pg = main.new_page(width=595, height=842)
                     pg.insert_image(pymupdf.Rect(40, 40, 555, 802), stream=data, keep_proportion=True)
                     added += 1
+                    target[id(d)] = tgt
                 except Exception:
                     continue
+        link_page = main[idx_no]  # re-fetch: the original page ref goes stale after insert_pdf
+        for d, rect in entries:
+            tp = target.get(id(d))
+            if tp is not None:
+                try:
+                    link_page.insert_link({"kind": pymupdf.LINK_GOTO, "from": rect, "page": tp, "to": pymupdf.Point(0, 0)})
+                except Exception:
+                    pass
         return main.tobytes()
     except Exception as e:
         logger.warning("merge appendix failed: %s", e)

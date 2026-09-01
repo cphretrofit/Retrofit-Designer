@@ -620,8 +620,14 @@ async def generate_design_considerations(project: dict, assessment_text: str = "
 DATASHEET_SYSTEM = """You extract PRODUCT information from UK retrofit manufacturer datasheets and BBA / certificate documents for ONE specific project.
 List every distinct product found. Map each to the retrofit measure it is used for using one of these codes: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT. Use "" if genuinely unclear.
 Return ONLY JSON:
-{"products":[{"manufacturer":"","product":"","reference":"model / product code","standard":"BBA cert no. or standard met","measure":"LOFT"}]}
-Use the exact names and codes printed on the datasheets. Do not invent products."""
+{"products":[{"manufacturer":"","product":"","reference":"model / product code","standard":"BBA cert no. or standard met","specs":"key performance figures","measure":"LOFT"}]}
+"specs" is a SHORT one-line summary of the KEY performance figures actually printed on the datasheet, using the units on the sheet:
+- Heat pumps (ASHP): rated output + SCoP/CoP + flow temp, e.g. "5 kW \u00b7 SCoP 4.3 \u00b7 55\u00b0C flow".
+- Solar PV (SOLAR): panel watt-peak + efficiency (and array kWp if shown), e.g. "410 Wp \u00b7 20.9%".
+- Insulation (EWI/IWI/LOFT/RIR/UFI/SWI): thermal conductivity + thickness + achieved U-value, e.g. "\u03bb 0.022 \u00b7 100mm \u00b7 U 0.19".
+- Glazing/doors (WIN/DOORS): U-value / g-value, e.g. "U 1.2 \u00b7 g 0.5".
+- Ventilation (VENT): extract/continuous rates, e.g. "13 l/s boost \u00b7 8 l/s continuous".
+Leave "specs" as "" if the figures are not stated. Use the exact names and codes printed on the datasheets. Do not invent products or figures."""
 
 
 async def parse_datasheet_products(texts: list) -> list:
@@ -649,7 +655,8 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
     for pr in products:
         code = (pr.get("measure") or "").upper()
         rec = {"manufacturer": pr.get("manufacturer") or "", "product": pr.get("product") or "",
-               "reference": pr.get("reference") or "", "standard": pr.get("standard") or "", "source": source}
+               "reference": pr.get("reference") or "", "standard": pr.get("standard") or "",
+               "specs": pr.get("specs") or "", "source": source}
         if not (rec["manufacturer"] or rec["product"]):
             continue
         key = _norm(rec["manufacturer"]) + "|" + _norm(rec["product"])
@@ -701,6 +708,7 @@ async def _rebuild_client_catalog(client_id: str):
     for pr in prods:
         rec = {"manufacturer": pr.get("manufacturer") or "", "product": pr.get("product") or "",
                "reference": pr.get("reference") or "", "standard": pr.get("standard") or "",
+               "specs": pr.get("specs") or "",
                "measure": (pr.get("measure") or "").upper(), "source": "catalog"}
         if not (rec["manufacturer"] or rec["product"]):
             continue
