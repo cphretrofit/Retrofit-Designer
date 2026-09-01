@@ -11,10 +11,9 @@ import {
 import { cn } from "@/lib/utils";
 
 const SLOTS = [
-  { type: "Assessment", label: "RdSAP Assessment / Site Notes", hint: "Property, constructions, existing ventilation" },
-  { type: "Technical Survey", label: "Technical Survey", hint: "Detailed technical survey, floor plans, site measurements" },
+  { type: "Assessment", label: "RdSAP Assessment / Site Notes", hint: "Property, constructions, existing ventilation — add all assessment documents" },
+  { type: "Technical Survey", label: "Technical / Heat Loss Survey", hint: "Technical & ASHP / heat-loss surveys, floor plans, emitters, site measurements" },
   { type: "Scope of Works", label: "Scope of Works", hint: "Proposed measures, target U-values, strategy" },
-  { type: "ASHP Survey", label: "ASHP / Heat Loss Survey", hint: "Heat loss, ASHP model, emitters" },
   { type: "Job Card", label: "Job Card", hint: "Measures, SAP, per-room ventilation" },
 ];
 
@@ -211,6 +210,7 @@ export default function ImportProject() {
             <div className="flex items-center gap-2 mb-3">
               <span className="flex items-center justify-center h-5 w-5 rounded-full bg-primary text-primary-foreground text-[11px] font-mono">2</span>
               <span className="text-[13px] font-medium">Upload the documents</span>
+              <span className="text-[11.5px] text-muted-foreground ml-1">&mdash; drop or select multiple files in any section</span>
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               {SLOTS.map((s) => (
