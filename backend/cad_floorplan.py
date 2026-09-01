@@ -120,37 +120,44 @@ def build_cad_floorplan_svg(d: dict) -> str:
             ext = not covered(mid[0], mid[1])
             wall_segs.append((a[0], a[1], b[0], b[1], ext))
 
-    # room fills first
+    # room fills (subtle)
     for r in rooms:
         rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
-        parts.append(f'<rect x="{mx(rx):.1f}" y="{my(ry):.1f}" width="{rw*S:.1f}" height="{rh*S:.1f}" fill="#fff"/>')
-    # interior walls (thin) then exterior (thick) on top
+        parts.append(f'<rect x="{mx(rx):.1f}" y="{my(ry):.1f}" width="{rw*S:.1f}" height="{rh*S:.1f}" fill="#f6f5f2" stroke="#e4e1da" stroke-width="0.6"/>')
+    # interior walls
     for (x1, y1, x2, y2, ext) in wall_segs:
         if ext:
             continue
-        parts.append(f'<line x1="{mx(x1):.1f}" y1="{my(y1):.1f}" x2="{mx(x2):.1f}" y2="{my(y2):.1f}" stroke="#111" stroke-width="2"/>')
+        parts.append(f'<line x1="{mx(x1):.1f}" y1="{my(y1):.1f}" x2="{mx(x2):.1f}" y2="{my(y2):.1f}" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round"/>')
+    # exterior walls — solid poché
     for (x1, y1, x2, y2, ext) in wall_segs:
         if not ext:
             continue
-        parts.append(f'<line x1="{mx(x1):.1f}" y1="{my(y1):.1f}" x2="{mx(x2):.1f}" y2="{my(y2):.1f}" stroke="#111" stroke-width="6" stroke-linecap="square"/>')
+        parts.append(f'<line x1="{mx(x1):.1f}" y1="{my(y1):.1f}" x2="{mx(x2):.1f}" y2="{my(y2):.1f}" stroke="#111" stroke-width="9" stroke-linecap="square"/>')
 
-    # room labels + window circle (placed proportionally to reduce collisions)
+    # room labels + area (clean sans)
+    FF = "Helvetica,Arial,sans-serif"
     for r in rooms:
         rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
         ccx, ccy = mx(rx + rw / 2), my(ry + rh / 2)
         rhpx = rh * S
-        name = r.get("name") or ""
-        lines = name.split()
-        name_y = ccy - rhpx * 0.14
-        if len(name) > 11 and len(lines) > 1:
-            half = (len(lines) + 1) // 2
-            parts.append(f'<text x="{ccx:.1f}" y="{name_y-9:.1f}" font-size="15" text-anchor="middle" font-family="Georgia,serif">{_esc(" ".join(lines[:half]))}</text>')
-            parts.append(f'<text x="{ccx:.1f}" y="{name_y+9:.1f}" font-size="15" text-anchor="middle" font-family="Georgia,serif">{_esc(" ".join(lines[half:]))}</text>')
+        name = (r.get("name") or "").strip()
+        area = rw * rh
+        name_y = ccy - rhpx * 0.12
+        words = name.split()
+        if len(name) > 11 and len(words) > 1:
+            half = (len(words) + 1) // 2
+            parts.append(f'<text x="{ccx:.1f}" y="{name_y-8:.1f}" font-size="15" font-weight="600" text-anchor="middle" fill="#1a1a1a" font-family="{FF}">{_esc(" ".join(words[:half]))}</text>')
+            parts.append(f'<text x="{ccx:.1f}" y="{name_y+9:.1f}" font-size="15" font-weight="600" text-anchor="middle" fill="#1a1a1a" font-family="{FF}">{_esc(" ".join(words[half:]))}</text>')
+            ay = name_y + 27
         else:
-            parts.append(f'<text x="{ccx:.1f}" y="{name_y:.1f}" font-size="15" text-anchor="middle" font-family="Georgia,serif">{_esc(name)}</text>')
+            parts.append(f'<text x="{ccx:.1f}" y="{name_y:.1f}" font-size="15" font-weight="600" text-anchor="middle" fill="#1a1a1a" font-family="{FF}">{_esc(name)}</text>')
+            ay = name_y + 18
+        if area > 0.5:
+            parts.append(f'<text x="{ccx:.1f}" y="{ay:.1f}" font-size="11" text-anchor="middle" fill="#6b6b6b" font-family="{FF}">{area:.1f} m&#178;</text>')
         wc = r.get("window_circle")
         if wc:
-            parts.append(_circle_label(ccx, ccy + rhpx * 0.20, wc, r=11))
+            parts.append(_circle_label(ccx, ccy + rhpx * 0.24, wc, r=11))
 
     # windows: gap rectangle on wall + circled label just outside
     for wdw in (d.get("windows") or []):

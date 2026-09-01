@@ -532,7 +532,7 @@ def _default_junctions(fam):
 
 PACK_CSS = """
 @page { size: A4; margin: 0 0 12mm 0; @bottom-left { content: element(docfoot); padding-left: 18mm; border-top: 1px solid #e5e5e5; } @bottom-right { content: counter(page) " / " counter(pages); padding-right: 18mm; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
-@page :first { background: #141b2b; @bottom-left { content: none; border-top: none; } @bottom-right { content: none; border-top: none; } }
+@page :first { @bottom-left { content: none; border-top: none; } @bottom-right { content: none; border-top: none; } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
 .page { position: relative; width: 210mm; min-height: 285mm; padding: 18mm 18mm 12mm; page-break-after: always; }
@@ -693,6 +693,124 @@ SCOPE_WORKS = {
     "FLOOR": ["Install floor insulation to the specified depth", "Maintain sub-floor ventilation", "Reinstate floor finishes"],
     "GEN": ["Install the measure to specification", "Associated builder's work and making good", "Commissioning and handover"],
 }
+
+
+def _isvg(inner):
+    return f'<svg viewBox="0 0 200 140" width="160" height="112" style="max-width:100%;">{inner}</svg>'
+
+
+# Family keyword map used to match uploaded datasheets/products to each measure
+_DS_FAM_KW = {
+    "LOFT": ["loft", "insulation", "mineral wool", "glass wool", "knauf", "rockwool", "superglass", "earthwool", "supafil", "quilt"],
+    "ASHP": ["heat pump", "ashp", "mitsubishi", "ecodan", "vaillant", "arotherm", "daikin", "samsung", "grant", "aerona", "panasonic", "aquarea", "cylinder", "pre-plumbed", "midea"],
+    "SOLAR": ["solar", " pv", "photovoltaic", "inverter", "fox", "foxess", "jinko", "longi", "ja solar", "trina", "gse", "optimiser", "battery", "solaredge", "growatt"],
+    "VENT": ["vent", "dmev", " mev", "mvhr", "extract", "vent-axia", "ventaxia", "airbox", "air-box", "mabitek", "nuaire", "envirovent", "trickle", "lo-carbon", "svara", "greenwood"],
+    "WALL": ["ewi", "iwi", "cavity", "render", "wall insulation", "wetherby", "baumit", "k-rend", "weber", "alsecco", "sto ", "eps", "mineral board", "rockwool"],
+    "FLOOR": ["floor insulation", "underfloor", "suspended floor", "pir floor", "celotex", "kingspan floor"],
+    "WIN": ["window", "glazing", "door", "frame", "glass", "rehau", "veka", "residence"],
+}
+
+
+def _measure_ds_match(fam, dprods, dsd):
+    kws = _DS_FAM_KW.get(fam, [])
+
+    def _hit(txt):
+        t = " " + (txt or "").lower() + " "
+        return any(k in t for k in kws)
+    prods = [x for x in (dprods or []) if _hit(f'{x.get("manufacturer") or ""} {x.get("product") or ""} {x.get("specs") or ""} {x.get("measure") or ""}')]
+    docs = [d for d in (dsd or []) if (("datasheet" in (d.get("type") or "").lower()) or True) and _hit(f'{d.get("name") or ""} {d.get("type") or ""}')]
+    return prods, docs, len(docs) > 0
+
+
+def _measure_datasheet_block(m, fam, p):
+    prods, docs, has_pdf = _measure_ds_match(fam, p.get("datasheetProducts"), p.get("_datasheetDocs"))
+    prods = (m.get("products") or []) or prods
+    if prods:
+        rows = "".join(
+            f'<tr><td style="color:#262626;">{_esc(x.get("manufacturer") or "—")}</td><td>{_esc(x.get("product") or x.get("name") or "—")}</td>'
+            f'<td class="mono muted" style="font-size:9px;">{_esc(x.get("specs") or "")}</td><td class="mono faint">{_esc(x.get("reference") or "")}</td>'
+            f'<td class="mono muted">{_esc(x.get("standard") or "")}</td></tr>' for x in prods[:8])
+        summary = ('<div class="faint upper" style="font-size:9.5px; margin-bottom:2px;">Specified Product &mdash; Generated Specification Summary</div>'
+                   '<table><thead><tr><th>Manufacturer</th><th>Product</th><th>Key specs</th><th>Ref</th><th>Cert / Standard</th></tr></thead>'
+                   f'<tbody>{rows}</tbody></table>')
+    else:
+        summary = ('<div class="faint upper" style="font-size:9.5px; margin-bottom:2px;">Specified Product &mdash; Generated Specification Summary</div>'
+                   '<div class="muted" style="font-size:11px;">Product to be confirmed. Specify the manufacturer, model and BBA / third-party certification for this measure so a full datasheet can be bound.</div>')
+    if has_pdf:
+        names = ", ".join(_esc(d.get("name")) for d in docs[:4])
+        badge = f'<div style="margin-top:14px; border:1px solid #16A34A; background:#f0fdf4; padding:9px 12px; font-size:10.5px; color:#166534;">&#10003; Manufacturer datasheet bound in Appendix A &mdash; {names}</div>'
+    else:
+        badge = ('<div style="margin-top:14px; border:1px solid #B45309; background:#fffbeb; padding:9px 12px; font-size:10.5px; color:#9a3412;">'
+                 '&#9888; Manufacturer datasheet required &mdash; to be supplied and bound into Appendix A before issue. The generated summary above serves as an interim specification record.</div>')
+    return summary + badge
+
+
+# Generated installation detail figures for service measures (fabric reuses junction details)
+_INSTALL_FIGS = {
+    "ASHP": [
+        ("External Unit on Base &mdash; Clearances", "Unit set level on anti-vibration mounts and a solid base/slab, with manufacturer airflow and service clearances maintained and frost-safe condensate discharge.",
+         _isvg('<rect x="34" y="34" width="92" height="52" rx="3" fill="#eef2f7" stroke="#171717" stroke-width="1.2"/>'
+               '<circle cx="66" cy="60" r="16" fill="none" stroke="#171717" stroke-width="1"/><path d="M66 60 L66 46 M66 60 L78 68 M66 60 L54 68" stroke="#0055ff" stroke-width="1"/>'
+               '<rect x="98" y="46" width="24" height="30" fill="none" stroke="#171717" stroke-width="0.7"/><path d="M98 52 H122 M98 58 H122 M98 64 H122 M98 70 H122" stroke="#171717" stroke-width="0.4"/>'
+               '<rect x="28" y="86" width="104" height="9" fill="#d9d3cb" stroke="#171717" stroke-width="0.8"/>'
+               '<rect x="44" y="83" width="7" height="4" fill="#8a8a8a"/><rect x="108" y="83" width="7" height="4" fill="#8a8a8a"/>'
+               '<line x1="34" y1="24" x2="126" y2="24" stroke="#0055ff" stroke-width="0.6"/><path d="M34 24 l4 -3 M34 24 l4 3" stroke="#0055ff" stroke-width="0.6"/><path d="M126 24 l-4 -3 M126 24 l-4 3" stroke="#0055ff" stroke-width="0.6"/>'
+               '<text x="80" y="20" font-size="8" text-anchor="middle" fill="#0055ff" font-family="Arial">airflow clearance</text>'
+               '<text x="80" y="108" font-size="7.5" text-anchor="middle" fill="#525252" font-family="Arial">base slab / anti-vibration mounts</text>')),
+        ("Primary Pipework &amp; Cylinder", "Insulated primary pipework to a hot-water cylinder with buffer/volumiser, pump, expansion vessel, filling loop and magnetic filter to the manufacturer's schematic.",
+         _isvg('<rect x="30" y="34" width="40" height="60" rx="3" fill="#eef2f7" stroke="#171717" stroke-width="1.1"/><circle cx="50" cy="58" r="12" fill="none" stroke="#171717" stroke-width="0.9"/>'
+               '<rect x="132" y="30" width="34" height="72" rx="4" fill="#f5f5f5" stroke="#171717" stroke-width="1.1"/><text x="149" y="70" font-size="9" text-anchor="middle" font-family="Arial">HW</text>'
+               '<path d="M70 46 H132" stroke="#DC2626" stroke-width="1.4"/><path d="M70 82 H132" stroke="#0055ff" stroke-width="1.4"/>'
+               '<circle cx="92" cy="46" r="4" fill="none" stroke="#171717" stroke-width="0.8"/><rect x="106" y="78" width="8" height="8" fill="none" stroke="#171717" stroke-width="0.8"/>'
+               '<text x="100" y="42" font-size="7" text-anchor="middle" fill="#DC2626" font-family="Arial">flow</text>'
+               '<text x="100" y="94" font-size="7" text-anchor="middle" fill="#0055ff" font-family="Arial">return</text>')),
+    ],
+    "SOLAR": [
+        ("Roof Fixing Detail", "Roof anchors fixed to rafters, mounting rail and modules secured with the specified clamps, maintaining weather-tightness and edge / fire set-backs.",
+         _isvg('<path d="M20 96 L180 40" stroke="#171717" stroke-width="1.2"/><path d="M20 104 L180 48" stroke="#171717" stroke-width="0.8"/>'
+               '<rect x="70" y="60" width="60" height="7" fill="#eef2f7" stroke="#171717" stroke-width="0.9" transform="rotate(-19 100 63)"/>'
+               '<rect x="86" y="72" width="6" height="12" fill="none" stroke="#0055ff" stroke-width="1" transform="rotate(-19 89 78)"/>'
+               '<path d="M60 70 l4 -8" stroke="#171717" stroke-width="1"/><circle cx="64" cy="70" r="2.5" fill="#171717"/>'
+               '<text x="120" y="40" font-size="7.5" fill="#525252" font-family="Arial">module + clamp</text>'
+               '<text x="40" y="96" font-size="7.5" fill="#525252" font-family="Arial">rafter / anchor</text>')),
+        ("System Schematic", "Array to inverter, generation meter and consumer unit with DC/AC isolation and G98/G99 notification; battery storage where specified.",
+         _isvg('<rect x="18" y="30" width="46" height="26" fill="#eef2f7" stroke="#171717" stroke-width="1"/><path d="M18 38 H64 M18 46 H64 M33 30 V56 M49 30 V56" stroke="#171717" stroke-width="0.4"/>'
+               '<rect x="88" y="60" width="26" height="22" fill="#f5f5f5" stroke="#171717" stroke-width="1"/><text x="101" y="74" font-size="7" text-anchor="middle" font-family="Arial">INV</text>'
+               '<rect x="150" y="60" width="24" height="22" fill="#f5f5f5" stroke="#171717" stroke-width="1"/><text x="162" y="74" font-size="7" text-anchor="middle" font-family="Arial">CU</text>'
+               '<path d="M41 56 L101 60" stroke="#DC2626" stroke-width="1.1"/><path d="M114 71 H150" stroke="#0055ff" stroke-width="1.1"/>'
+               '<rect x="66" y="52" width="7" height="7" fill="none" stroke="#171717" stroke-width="0.7"/><rect x="126" y="67" width="7" height="7" fill="none" stroke="#171717" stroke-width="0.7"/>'
+               '<text x="80" y="46" font-size="6.5" fill="#DC2626" font-family="Arial">DC isol.</text><text x="130" y="90" font-size="6.5" fill="#0055ff" font-family="Arial">AC isol.</text>')),
+    ],
+    "VENT": [
+        ("dMEV Extract &amp; Duct Route", "Continuous extract at source in the wet room, ducted the shortest practical run to an external grille; ducts insulated in cold zones to prevent condensation.",
+         _isvg('<rect x="14" y="90" width="172" height="10" fill="#e4d9cf" stroke="#171717" stroke-width="0.7"/>'
+               '<rect x="24" y="70" width="20" height="20" fill="#eef2f7" stroke="#171717" stroke-width="1"/><circle cx="34" cy="80" r="7" fill="none" stroke="#0055ff" stroke-width="1"/><path d="M34 80 L34 74 M34 80 L39 84 M34 80 L29 84" stroke="#0055ff" stroke-width="0.8"/>'
+               '<path d="M44 76 H150 L150 44" fill="none" stroke="#171717" stroke-width="3" opacity="0.35"/><path d="M44 76 H150 L150 44" fill="none" stroke="#171717" stroke-width="0.8"/>'
+               '<rect x="144" y="30" width="14" height="16" fill="none" stroke="#171717" stroke-width="1"/><path d="M146 34 H156 M146 38 H156 M146 42 H156" stroke="#171717" stroke-width="0.5"/>'
+               '<text x="34" y="66" font-size="7" text-anchor="middle" fill="#0055ff" font-family="Arial">dMEV fan</text>'
+               '<text x="151" y="26" font-size="7" text-anchor="middle" fill="#525252" font-family="Arial">grille</text>'
+               '<text x="96" y="72" font-size="7" text-anchor="middle" fill="#525252" font-family="Arial">insulated duct</text>')),
+    ],
+}
+
+
+def _install_details_block(fam):
+    figs = _INSTALL_FIGS.get(fam)
+    if not figs:
+        jns = _default_junctions(fam)[:4]
+        figs = [(j.get("name"), (j.get("note") or "")[:150], _junction_svg(j.get("name"), 120)) for j in jns]
+    if not figs:
+        return '<div class="muted" style="font-size:11px;">Installation details to be issued at technical design stage, to the manufacturer&rsquo;s instructions.</div>'
+    cards = ""
+    for (title, cap, svg) in figs:
+        cards += ('<div style="width:48%; display:inline-block; vertical-align:top; margin:0 1% 14px 0; border:1px solid #e5e5e5;">'
+                  f'<div style="background:#fafafa; border-bottom:1px solid #f0f0f0; padding:10px 0; text-align:center;">{svg}</div>'
+                  '<div style="padding:8px 10px;">'
+                  f'<div style="font-size:10.5px; color:#171717; font-weight:500;">{_esc(title)}</div>'
+                  f'<div class="muted" style="font-size:9.5px; margin-top:3px; line-height:1.4;">{_esc(cap)}</div>'
+                  '<div class="faint mono" style="font-size:7.5px; margin-top:5px; letter-spacing:0.04em;">INDICATIVE DETAIL &middot; NTS &middot; TO MANUFACTURER INSTRUCTIONS</div>'
+                  '</div></div>')
+    return cards
 
 
 def _np(kicker, title, inner, intro=""):
@@ -1517,39 +1635,61 @@ def _premium_cover_html(p, hero_uri, issued_date):
     ptype = _esc((p.get("property") or {}).get("type") or "Dwelling")
     mm = _re.search(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", (p.get("address") or "").upper())
     postcode = _esc(mm.group(0) if mm else "")
-    gold = "#b9a37e"
+    navy = "#14233b"
+    green = "#3aa655"
     logo = _cph_logo_uri()
-    logo_html = (f'<div style="display:inline-block; background:#fff; border-radius:8px; padding:9px 14px;"><img src="{logo}" style="height:32px; display:block;"></div>'
-                 if logo else '<div style="font-family:Georgia,serif; font-size:30px; letter-spacing:0.14em; color:#e8e6df;">CPH</div>')
-    hero = (f'<div style="flex-shrink:0; height:300px; border-radius:8px; overflow:hidden; margin-top:24px; background:#0e1320;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover;"></div>'
-            if hero_uri else '<div style="flex-shrink:0; height:300px; border-radius:8px; margin-top:24px; background:#1d2740; display:flex; align-items:center; justify-content:center; color:#5b6b8a; font-size:11px; letter-spacing:0.24em;">PROPERTY PHOTOGRAPH</div>')
+    logo_html = (f'<img src="{logo}" style="height:58px; display:block;">' if logo
+                 else '<div style="font-weight:800; font-size:30px; color:#14233b;">CPH <span style="color:#3aa655;">RETROFIT</span></div>')
 
-    def _ic(d):
-        return f'<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="{gold}" stroke-width="1.4">{d}</svg>'
+    def _ci(inner, stroke=navy):
+        return f'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="{stroke}" stroke-width="1.6" style="vertical-align:-2px; margin-right:8px;">{inner}</svg>'
+    globe = '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18"/>'
+    mail = '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>'
+    phone = '<path d="M6 4h3l2 5-2.5 1.5a11 11 0 005 5L16 13l5 2v3a2 2 0 01-2 2A16 16 0 014 6a2 2 0 012-2z"/>'
+    pin = '<path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+    contact = ('<div style="font-size:11px; color:#33414f; line-height:2.15; text-align:left;">'
+               f'{_ci(globe)}www.cphretrofit.co.uk<br>'
+               f'{_ci(mail)}admin@cphretrofit.co.uk<br>'
+               f'{_ci(phone)}01914 812002</div>')
+    hero = (f'<div style="height:330px; overflow:hidden; margin-top:9mm; background:#0e1320;"><img src="{hero_uri}" style="width:100%; height:100%; object-fit:cover;"></div>'
+            if hero_uri else '<div style="height:330px; margin-top:9mm; background:#eef1f4; display:flex; align-items:center; justify-content:center; color:#94a3b3; font-size:11px; letter-spacing:0.24em;">PROPERTY PHOTOGRAPH</div>')
+
+    def _tic(inner):
+        return f'<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="{green}" stroke-width="1.5">{inner}</svg>'
 
     def _tile(icon, label, value):
-        return (f'<div style="flex:1; text-align:center; padding:0 6px;">{icon}'
-                f'<div style="font-size:7px; letter-spacing:0.18em; color:#8ea0be; margin-top:8px;">{label}</div>'
-                f'<div style="font-size:9.5px; color:#e8e6df; margin-top:3px;">{value}</div></div>')
-    sep = '<div style="width:1px; background:rgba(255,255,255,0.14);"></div>'
-    tiles = ('<div style="display:flex; margin-top:28px; border-top:1px solid rgba(255,255,255,0.14); padding-top:18px;">'
-             + _tile(_ic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>'), "PROPERTY TYPE", ptype) + sep
-             + _tile(_ic('<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>'), "DOCUMENT TYPE", "Design Document") + sep
-             + _tile(_ic('<rect x="4" y="5" width="16" height="16" rx="1"/><path d="M4 9h16M8 3v4M16 3v4"/>'), "DATE", _esc(issued_date)) + sep
-             + _tile(_ic('<path d="M12 21s7-6 7-11a7 7 0 0 0-14 0c0 5 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'), "LOCATION", postcode or addr) + '</div>')
+        return (f'<div style="flex:1; text-align:center; padding:0 8px;">{icon}'
+                f'<div style="font-size:7.5px; letter-spacing:0.2em; color:#9fb0c2; margin-top:8px;">{label}</div>'
+                f'<div style="font-size:10.5px; color:#fff; margin-top:4px;">{value}</div></div>')
+    tsep = '<div style="width:1px; background:rgba(255,255,255,0.16);"></div>'
+    tiles = (f'<div style="display:flex; background:{navy}; padding:16px 14mm;">'
+             + _tile(_tic('<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>'), "PROPERTY TYPE", ptype) + tsep
+             + _tile(_tic('<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>'), "DOCUMENT TYPE", "Design Document") + tsep
+             + _tile(_tic('<rect x="4" y="5" width="16" height="16" rx="1"/><path d="M4 9h16M8 3v4M16 3v4"/>'), "DATE", _esc(issued_date)) + tsep
+             + _tile(_tic(pin), "LOCATION", postcode or addr) + '</div>')
+    cad = ((p.get("floorPlan") or {}).get("cadSvg")) or ""
+    plan_strip = (f'<div style="height:26mm; overflow:hidden; opacity:0.07; padding:2mm 14mm 0;">{cad}</div>'
+                  if cad else '<div style="height:8mm;"></div>')
     return (
-        '<div style="min-height:250mm; background:#141b2b; color:#e8e6df; padding:14mm 16mm; display:flex; flex-direction:column;">'
-        f'<div style="text-align:center;">{logo_html}'
-        '<div style="font-size:8px; letter-spacing:0.34em; color:#8ea0be; margin-top:9px;">CPH RETROFIT DESIGN</div>'
-        f'<div style="width:44px; height:1px; background:{gold}; margin:18px auto;"></div>'
-        '<div style="font-size:9px; letter-spacing:0.32em; color:#b9c2d4;">DESIGN DOCUMENT</div>'
-        f'<div style="font-weight:300; font-size:44px; letter-spacing:-0.01em; margin-top:14px; color:#fff;">{name}</div>'
-        + (f'<div style="font-size:15px; letter-spacing:0.26em; color:{gold}; margin-top:6px;">{postcode}</div>' if postcode else '')
-        + f'<div style="font-size:8.5px; letter-spacing:0.24em; color:#8ea0be; margin-top:16px;">PROPOSED DESIGN FOR {ptype.upper()}</div>'
+        '<div style="min-height:250mm; background:#fff; color:#14233b; display:flex; flex-direction:column;">'
+        '<div style="display:flex; justify-content:space-between; align-items:center; padding:13mm 14mm 6mm;">'
+        f'<div>{logo_html}</div>'
+        '<div style="display:flex; align-items:center;">'
+        '<div style="width:1px; height:56px; background:#e2e2e2; margin-right:16px;"></div>'
+        f'{contact}</div></div>'
+        f'<div style="height:4px; background:linear-gradient(90deg,{green} 0%,#2f8fd6 100%);"></div>'
+        '<div style="padding:11mm 14mm 0;">'
+        '<div style="font-size:13px; letter-spacing:0.28em; color:#33414f; font-weight:600;">DESIGN DOCUMENT</div>'
+        f'<div style="width:56px; height:3px; background:{green}; margin-top:8px;"></div>'
+        f'<div style="font-weight:800; font-size:52px; color:#14233b; margin-top:15px; letter-spacing:-0.01em;">{name}</div>'
+        + (f'<div style="font-size:16px; letter-spacing:0.2em; color:#5a6b7a; margin-top:9px;">{_ci(pin, green)}{postcode}</div>' if postcode else '')
+        + '<div style="height:1px; background:#e6e6e6; margin:15px 0;"></div>'
+        + f'<div style="font-size:12px; letter-spacing:0.24em; color:#5a6b7a;">PROPOSED DESIGN FOR {ptype.upper()}</div>'
         '</div>'
-        f'{hero}{tiles}'
+        f'{hero}{tiles}{plan_strip}'
         '<div style="flex:1;"></div>'
-        '<div style="text-align:center; font-size:7.5px; letter-spacing:0.28em; color:#6f7f9c;">THOUGHTFUL DESIGN &middot; TIMELESS QUALITY</div>'
+        '<div style="display:flex; justify-content:space-between; padding:5mm 14mm; font-size:9px; letter-spacing:0.18em; color:#8a97a3;">'
+        '<span>VERSION 1.0</span><span>THOUGHTFUL DESIGN. TIMELESS QUALITY.</span></div>'
         '</div>')
 
 
@@ -1709,10 +1849,15 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                            f'<td>{_esc(_m.get("name"))} &mdash; {_esc(_j.get("name"))} junction detail</td>'
                            f'<td class="mono muted" style="text-align:right;">NTS</td>'
                            f'<td class="mono muted" style="text-align:right;">P01</td></tr>')
+    for _d in [d for d in (p.get("_datasheetDocs") or []) if any(k in ((d.get("type") or "") + " " + (d.get("name") or "")).lower() for k in ("detail drawing", "installation detail", "construction detail", "standard detail", "inca"))]:
+        _auto_rows += ('<tr><td class="mono" style="color:#262626;">ATT</td>'
+                       f'<td>{_esc(_d.get("name"))} &mdash; attached detail drawing</td>'
+                       '<td class="mono muted" style="text-align:right;">&mdash;</td>'
+                       '<td class="mono muted" style="text-align:right;">&mdash;</td></tr>')
     drawings_page = f'''
       <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>
       <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Drawing Register</div>
-      <div class="muted" style="font-size:11px; margin-top:8px;">Junction details are auto-generated per measure and reproduced in the relevant Technical Specification section. Scaled bespoke details are calculated to BRE IP1/06 (f<span>Rsi</span> &gt; 0.75) at technical design stage.</div>
+      <div class="muted" style="font-size:11px; margin-top:8px;">Junction and installation details are auto-generated per measure and reproduced in each measure&rsquo;s Technical Specification. Official INCA / manufacturer standard details, where supplied, are bound in the appendix and listed here. Scaled bespoke details are calculated to BRE IP1/06 (f<span>Rsi</span> &gt; 0.75) at technical design stage.</div>
       <table style="margin-top:20px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
       <tbody>{draw_rows}{_auto_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
@@ -1803,6 +1948,16 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     # Items Before Issue register
     items = p.get("itemsBeforeIssue") or []
+    _ds_cov = []
+    for _cm in measures:
+        _cf = _mfam(_cm.get("code"), _cm.get("name"))
+        _mp, _md, _hp = _measure_ds_match(_cf, p.get("datasheetProducts"), p.get("_datasheetDocs"))
+        _ds_cov.append({"name": _cm.get("name") or "Measure", "fam": _cf,
+                        "prods": _mp or (_cm.get("products") or []), "docs": _md, "has_pdf": _hp})
+    items = list(items) + [
+        {"severity": "info_required",
+         "text": f'Manufacturer datasheet required for {c["name"]} \u2014 supply the product datasheet / BBA certificate to bind into Appendix A before issue.'}
+        for c in _ds_cov if not c["has_pdf"]]
     SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
     SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
     it_row_list = []
@@ -2196,6 +2351,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         if jn_html or ch_html or rk_html:
             spec_pages.append(_head("Junctions, Checks & Risks") + jn_html + ch_html + rk_html)
 
+        spec_pages.append(_head("Installation Details \u2014 How It Should Look")
+                          + '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative installation / construction details showing the intended finished arrangement. Read with the manufacturer instructions and any attached INCA / manufacturer standard details.</div>'
+                          + f'<div style="margin-top:14px;">{_install_details_block(fam_j)}</div>')
+        spec_pages.append(_head("Product Datasheet &amp; Specification") + _measure_datasheet_block(m, fam_j, p))
+
     # ---- Defects & remedial actions ----
     defects = list(p.get("defects") or [])
     if not defects:
@@ -2397,7 +2557,16 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     dsd = p.get("_datasheetDocs") or []
     dprods = p.get("datasheetProducts") or []
     datasheet_page = None
-    if dsd or dprods:
+    _cov_rows = "".join(
+        f'<tr><td style="color:#262626;">{_esc(c["name"])}</td>'
+        f'<td>{_esc((c["prods"][0].get("manufacturer") if c.get("prods") else "") or "—")}</td>'
+        f'<td>{_esc((c["prods"][0].get("product") if c.get("prods") else "") or "—")}</td>'
+        f'<td><span style="color:{"#16A34A" if c["has_pdf"] else "#B45309"}; font-size:10.5px;">{"&#10003; Bound in appendix" if c["has_pdf"] else "&#9888; Required before issue"}</span></td></tr>'
+        for c in (_ds_cov or []))
+    cov_html = (('<div class="faint upper" style="font-size:9.5px; margin-top:8px; margin-bottom:2px;">Datasheet Coverage by Measure</div>'
+                 '<table><thead><tr><th>Measure</th><th>Manufacturer</th><th>Product</th><th style="width:30%;">Datasheet status</th></tr></thead>'
+                 f'<tbody>{_cov_rows}</tbody></table>') if _ds_cov else "")
+    if dsd or dprods or _ds_cov:
         files_html = ""
         if dsd:
             frows = "".join(f'<tr><td class="mono faint" style="width:6%;">{i + 1:02d}</td><td>{_esc(d.get("name"))}</td><td class="mono muted" style="width:26%;">{_esc(d.get("type"))}</td></tr>' for i, d in enumerate(dsd))
@@ -2411,7 +2580,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         datasheet_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Appendix A &middot; Supporting Documents</div>'
                           '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Product Datasheets &amp; Supporting Documents</div>'
                           '<div class="muted" style="font-size:11px; margin-top:8px;">Project-specific products, technical surveys and manufacturer certificates uploaded for this job. Specified products per measure appear within each measure&rsquo;s technical specification.</div>'
-                          f'{files_html}{prod_html}')
+                          f'{cov_html}{files_html}{prod_html}')
 
     foreword_page = _ov_page(p, "foreword") or _foreword_html(p)
     preliminaries_page = _ov_page(p, "preliminaries") or _preliminaries_html(p)

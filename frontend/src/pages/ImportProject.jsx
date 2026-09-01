@@ -27,13 +27,14 @@ const STAGES = [
   "Flagging items for review…",
 ];
 
-function Slot({ slot, file, onPick, onClear }) {
+function Slot({ slot, files, onPick, onClearOne }) {
   const inputId = `file-${slot.type.replace(/\s/g, "")}`;
   const [over, setOver] = useState(false);
+  const list = files || [];
   const onDrop = (e) => {
     e.preventDefault(); setOver(false);
-    const f = e.dataTransfer.files?.[0];
-    if (f) onPick(f);
+    const fs = Array.from(e.dataTransfer.files || []);
+    if (fs.length) onPick(fs);
   };
   return (
     <div
@@ -41,36 +42,42 @@ function Slot({ slot, file, onPick, onClear }) {
       onDragLeave={() => setOver(false)}
       onDrop={onDrop}
       data-testid={`dropzone-${slot.type}`}
-      className={cn("border rounded-sm bg-card transition-colors", over ? "border-solid" : (file ? "border-foreground/30" : "border-dashed border-border"))}
+      className={cn("border rounded-sm bg-card transition-colors", over ? "border-solid" : (list.length ? "border-foreground/30" : "border-dashed border-border"))}
       style={over ? { borderColor: "var(--c-action)", background: "var(--c-action-bg, rgba(0,85,255,0.04))" } : {}}>
       <label htmlFor={inputId} className="block p-4 cursor-pointer">
         <div className="flex items-start gap-3">
-          <div className={cn("h-9 w-9 rounded-sm flex items-center justify-center shrink-0", file ? "bg-pass/10" : "bg-secondary")}
-               style={file ? { background: "var(--c-pass-bg)" } : {}}>
-            {file ? <FileCheck2 className="h-4.5 w-4.5" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} /> : <FileText className="h-4.5 w-4.5 text-muted-foreground" strokeWidth={1.5} />}
+          <div className={cn("h-9 w-9 rounded-sm flex items-center justify-center shrink-0", list.length ? "bg-pass/10" : "bg-secondary")}
+               style={list.length ? { background: "var(--c-pass-bg)" } : {}}>
+            {list.length ? <FileCheck2 className="h-4.5 w-4.5" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} /> : <FileText className="h-4.5 w-4.5 text-muted-foreground" strokeWidth={1.5} />}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className="text-[13px] font-medium">{slot.label}</span>
-              {file && <StatusChip tone="pass">Ready</StatusChip>}
+              {list.length > 0 && <StatusChip tone="pass">{list.length} file{list.length > 1 ? "s" : ""}</StatusChip>}
             </div>
-            {file ? (
-              <div className="flex items-center gap-2 mt-1">
-                <span className="text-[12px] font-mono text-muted-foreground truncate">{file.name}</span>
-                <button onClick={(e) => { e.preventDefault(); onClear(); }} className="text-muted-foreground hover:text-foreground shrink-0" data-testid={`clear-${slot.type}`}>
-                  <X className="h-3.5 w-3.5" strokeWidth={1.75} />
-                </button>
-              </div>
-            ) : (
-              <div className="text-[11.5px] text-muted-foreground mt-0.5">{over ? "Drop file to attach…" : slot.hint}</div>
-            )}
+            <div className="text-[11.5px] text-muted-foreground mt-0.5">
+              {over ? "Drop file(s) to attach…" : (list.length ? "Click or drop to add more files" : slot.hint)}
+            </div>
           </div>
-          {!file && <Upload className="h-4 w-4 text-muted-foreground/60 shrink-0" strokeWidth={1.5} />}
+          <Upload className="h-4 w-4 text-muted-foreground/60 shrink-0" strokeWidth={1.5} />
         </div>
       </label>
-      <input id={inputId} type="file" accept=".pdf,.xlsx,.xls,.docx" className="hidden"
+      {list.length > 0 && (
+        <div className="px-4 pb-3 space-y-1.5">
+          {list.map((f, i) => (
+            <div key={i} className="flex items-center gap-2" data-testid={`file-${slot.type}-${i}`}>
+              <FileCheck2 className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} />
+              <span className="text-[12px] font-mono text-muted-foreground truncate flex-1">{f.name}</span>
+              <button onClick={(e) => { e.preventDefault(); onClearOne(i); }} className="text-muted-foreground hover:text-foreground shrink-0" data-testid={`clear-${slot.type}-${i}`}>
+                <X className="h-3.5 w-3.5" strokeWidth={1.75} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <input id={inputId} type="file" multiple accept=".pdf,.xlsx,.xls,.docx" className="hidden"
              data-testid={`input-${slot.type}`}
-             onChange={(e) => e.target.files[0] && onPick(e.target.files[0])} />
+             onChange={(e) => { const fs = Array.from(e.target.files || []); if (fs.length) onPick(fs); e.target.value = ""; }} />
     </div>
   );
 }
@@ -103,9 +110,14 @@ export default function ImportProject() {
     finally { setAddingClient(false); }
   };
 
-  const setSlot = (type, file) => setFiles((f) => ({ ...f, [type]: file }));
-  const clearSlot = (type) => setFiles((f) => { const n = { ...f }; delete n[type]; return n; });
-  const count = Object.keys(files).length;
+  const setSlot = (type, newFiles) => setFiles((f) => ({ ...f, [type]: [...(f[type] || []), ...newFiles] }));
+  const clearOne = (type, idx) => setFiles((f) => {
+    const arr = (f[type] || []).filter((_, i) => i !== idx);
+    const n = { ...f };
+    if (arr.length) n[type] = arr; else delete n[type];
+    return n;
+  });
+  const count = Object.values(files).reduce((s, arr) => s + (arr?.length || 0), 0);
   const selClient = clients.find((c) => c.name === client);
 
   const generate = async () => {
@@ -117,7 +129,7 @@ export default function ImportProject() {
       const fd = new FormData();
       fd.append("client", client);
       fd.append("reference", reference);
-      Object.entries(files).forEach(([type, file]) => { fd.append("files", file); fd.append("types", type); });
+      Object.entries(files).forEach(([type, arr]) => (arr || []).forEach((file) => { fd.append("files", file); fd.append("types", type); }));
       const { data } = await axios.post(`${API}/projects/import`, fd, { headers: { "Content-Type": "multipart/form-data" } });
       const jobId = data.job_id;
       let attempts = 0;
@@ -202,7 +214,7 @@ export default function ImportProject() {
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               {SLOTS.map((s) => (
-                <Slot key={s.type} slot={s} file={files[s.type]} onPick={(f) => setSlot(s.type, f)} onClear={() => clearSlot(s.type)} />
+                <Slot key={s.type} slot={s} files={files[s.type]} onPick={(fs) => setSlot(s.type, fs)} onClearOne={(i) => clearOne(s.type, i)} />
               ))}
             </div>
 
