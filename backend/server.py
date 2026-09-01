@@ -1042,17 +1042,69 @@ def _match_defect_photos(defects, photos):
     return matched
 
 
+async def _reextract_project_photos(project_id, proj):
+    existing = ((proj.get("designPack") or {}).get("photos") or [])
+    existing_caps = {(p.get("caption") or "").strip().lower() for p in existing}
+    fig = len(existing)
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True},
+            "doc_type": {"$in": ["Technical Survey", "Assessment", "ASHP Survey", "Survey", "Scope of Works", "Job Card"]}}, {"_id": 0}).to_list(30)
+    added = []
+    for d in docs:
+        sp = d.get("storage_path")
+        fn = (d.get("original_filename") or "").lower()
+        if not sp or not (fn.endswith(".pdf") or "pdf" in (d.get("content_type") or "")):
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, sp)
+        except Exception:
+            continue
+        for pm in (await asyncio.to_thread(extract_tagged_photos, data, 30)):
+            cap = (pm.get("caption") or "").strip()
+            key = cap.lower()
+            if key in existing_caps:
+                continue
+            existing_caps.add(key)
+            iext = pm["ext"] if pm["ext"] in ("jpg", "jpeg", "png", "webp") else "jpg"
+            mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
+            pid = str(uuid.uuid4())
+            ppath = f"{APP_NAME}/uploads/{pid}.{iext}"
+            try:
+                await asyncio.to_thread(put_object, ppath, pm["data"], mime)
+            except Exception:
+                continue
+            fig += 1
+            await db.documents.insert_one({
+                "id": pid, "project_id": project_id, "storage_path": ppath,
+                "original_filename": f"survey-extra-{fig:02d}.{iext}", "content_type": mime,
+                "doc_type": "Survey Photo", "size": len(pm["data"]), "is_deleted": False,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            added.append({"fig": f"{fig:02d}", "caption": cap,
+                          "observation": pm.get("observation") or "Photograph recorded during the site inspection.",
+                          "url": f"/api/documents/{pid}/download"})
+            if len(added) >= 24:
+                break
+        if len(added) >= 24:
+            break
+    if added:
+        allphotos = existing + added
+        await db.projects.update_one({"id": project_id}, {"$set": {"designPack.photos": allphotos}})
+        proj.setdefault("designPack", {})["photos"] = allphotos
+    return len(added)
+
+
 @api_router.post("/projects/{project_id}/defects/auto-match-photos")
 async def auto_match_defect_photos(project_id: str):
     proj = await db.projects.find_one({"id": project_id})
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
+    added = await _reextract_project_photos(project_id, proj)
     defects = proj.get("defects") or []
     photos = ((proj.get("designPack") or {}).get("photos") or [])
     matched = _match_defect_photos(defects, photos)
     if matched:
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
-    return {"defects": defects, "matched": matched}
+    return {"defects": defects, "matched": matched, "added": added}
 
 
 @api_router.post("/projects/{project_id}/heritage/lookup")
@@ -1902,6 +1954,10 @@ async def next_ref():
 
 def _friendly_caption(raw: str, section: str) -> str:
     low = (raw or "").lower()
+    for kw in ("mould", "mold", "damp", "condensation", "penetrat", "crack", "skirting"):
+        if kw in low:
+            c = re.sub(r"\s+", " ", raw).strip(" :-")
+            return ((c[:1].upper() + c[1:])[:72]) if c else "Property condition — observed defect"
     if "glazing" in low or "window" in low:
         m = re.search(r"(\d+)", section or "")
         return f"Window {m.group(1)} — glazing" if m else "Windows — glazing"
@@ -1965,7 +2021,11 @@ def extract_tagged_photos(pdf_bytes: bytes, max_photos: int = 40):
                 ix0, iy0, ix1, iy1 = info["bbox"]
                 best, best_gap = None, 1e9
                 for (lb, txt) in lines:
-                    if not (txt.rstrip().endswith(":") or "Elevation" in txt or "Property Photo" in txt):
+                    _tl = txt.lower()
+                    if not (txt.rstrip().endswith(":") or "Elevation" in txt or "Property Photo" in txt
+                            or any(k in _tl for k in ("mould", "mold", "damp", "condensation", "penetrat",
+                                                       "crack", "skirting", "bedroom", "bathroom", "kitchen",
+                                                       "window", "door", "ceiling", "wall", "loft", "floor"))):
                         continue
                     lx0, ly0, lx1, ly1 = lb
                     gap = iy0 - ly1
@@ -2046,9 +2106,9 @@ async def run_import_job(job_id: str):
             if dtype in ("Assessment", "Technical Survey") and ext == "pdf" and data and not page_images_b64:
                 page_images_b64 = [_img_b64(b) for b in (await asyncio.to_thread(_rasterize_pdf, data, 3))]
 
-            if ext == "pdf" and data and dtype in PHOTO_DOC_TYPES and len(photos) < 8:
-                for pm in (await asyncio.to_thread(extract_tagged_photos, data, 8)):
-                    if len(photos) >= 8:
+            if ext == "pdf" and data and dtype in PHOTO_DOC_TYPES and len(photos) < 20:
+                for pm in (await asyncio.to_thread(extract_tagged_photos, data, 20)):
+                    if len(photos) >= 20:
                         break
                     iext = pm["ext"] if pm["ext"] in ("jpg", "jpeg", "png", "webp") else "jpg"
                     mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
