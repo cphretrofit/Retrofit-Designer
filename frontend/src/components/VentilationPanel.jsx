@@ -1,16 +1,33 @@
-import { useState } from "react";
-import { updateVentilation } from "@/lib/api";
+import { useState, useRef } from "react";
+import { updateVentilation, uploadVentilationWorkbook } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Loader2 } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Upload } from "lucide-react";
 
 export function VentilationPanel({ projectId, initial, onChange }) {
   const [v, setV] = useState(initial || { strategy: "", wholeDwelling: "", background: "", rooms: [], notes: [] });
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef(null);
   const rooms = v.rooms || [];
   const set = (k, val) => setV((s) => ({ ...s, [k]: val }));
   const setRoom = (i, k, val) => set("rooms", rooms.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const addRoom = () => set("rooms", [...rooms, { room: "", system: "", rate: "", note: "" }]);
   const removeRoom = (i) => set("rooms", rooms.filter((_, j) => j !== i));
+
+  const onUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (fileRef.current) fileRef.current.value = "";
+    if (!file) return;
+    setUploading(true);
+    try {
+      const r = await uploadVentilationWorkbook(projectId, file);
+      setV(r.ventilation);
+      onChange?.(r.ventilation);
+      toast.success(`Ventilation strategy imported — ${(r.ventilation.rooms || []).length} wet room(s)`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Could not read that spreadsheet");
+    } finally { setUploading(false); }
+  };
 
   const save = async () => {
     setBusy(true);
@@ -32,10 +49,17 @@ export function VentilationPanel({ projectId, initial, onChange }) {
         <div className="text-[12px] text-muted-foreground">
           Ventilation requirements &amp; strategy (ADF1 Annex C). This appears as a mandatory section in every design pack.
         </div>
-        <button onClick={save} disabled={busy} data-testid="ventilation-save"
-          className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50 shrink-0">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" strokeWidth={1.75} />} Save
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <input ref={fileRef} type="file" accept=".xlsx,.xlsm" onChange={onUpload} className="hidden" data-testid="ventilation-upload-input" />
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} data-testid="ventilation-upload-btn"
+            className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50">
+            {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />} Import strategy (.xlsx)
+          </button>
+          <button onClick={save} disabled={busy} data-testid="ventilation-save"
+            className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50">
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" strokeWidth={1.75} />} Save
+          </button>
+        </div>
       </div>
 
       <div className="border border-border rounded-sm bg-card p-4 space-y-3">

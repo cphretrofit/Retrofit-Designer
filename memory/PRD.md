@@ -40,11 +40,23 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   space, e.g. stored `RG80TU` → `RG8 0TU`) before hitting postcodes.io, which was 404-ing on the unspaced
   form. Restores geocoding → solar lookup → cover/page-2 aerial inset.
 
-## OPEN BACKLOG (remaining — next dedicated pass)
+## OPEN BACKLOG (remaining)
 - **Ventilation Requirements & Strategy** page layout/alignment TLC.
-- **QR on page 02 → public PDF** of the design (needs a shareable/tokenised pack URL; current link is auth-gated).
-- **Ventilation Strategy uploader**: dedicated import parsing the Air Tightness Strategy xlsx + ADF1 Table D1 Ventilation Checklist xlsx → populate the Ventilation section + a dedicated pack section.
-- **Comprehensive duplication audit**: many spec sub-pages per measure; junction content appears on several — audit for genuine duplicates and consolidate after confirming.
+- **Dedup audit — candidates to CONFIRM before removing** (per user's "ask before taking stuff out"):
+  1. `commissioning_page` ("Commissioning & Handover", 04.3) vs `compliance_pages` page 3 ("Handover Requirements & Ventilation Compliance") — overlapping handover content.
+  2. `standards_page` ("Standards & Compliance", 04.1) vs per-measure "Design Compliance Checklist" + "Evidence & Compliance" spec sub-pages — some standards restated.
+  3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
+  4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
+
+## DONE — QR public link + dedup TOC fix (Jun 2026)
+- QR on page 02 now encodes `{origin}/api/public/pack/{token}.pdf` (label "SCAN · DESIGN PACK"). New un-guarded `public_router` serves the finished pack by per-project `shareToken` — no login. Verified: public 200 PDF, guarded route 401, bad token 404.
+- Fixed stale Table of Contents: the Scope→Sequence merge left "Scope of Works" + "Sequence of Installation" listed separately; TOC now shows a single "Sequence of Work".
+
+## DONE — Ventilation Uploader (Jun 2026)
+- `backend/ventilation_parser.py` — tailored parser for the ecmk/CoreLogic Ventilation & Air Tightness Strategy + ADF1 Table D1 checklist xlsx. Extracts wet-room extract systems, ADF1 minimum rates (Kitchen 30, Bathroom 15, WC 6, Utility 30 l/s), extract system name, measures, and APT/airtightness results.
+- `POST /api/projects/{id}/ventilation/upload` (multipart xlsx) → parses, merges into `project.ventilation`, stores the source file as a "Ventilation Strategy" document. Verified on the real 4 Beeson Close workbook.
+- Frontend: "Import strategy (.xlsx)" button in `VentilationPanel` populates the section live.
+- Pack: `p.ventilation` already renders in the mandatory "Ventilation Requirements & Strategy" section (rooms table, whole-dwelling, background, notes).
 
 ## DONE — Jun 2026 batch 3
 - Removed PDF progress/status markers: Measures Schedule "In progress %" column, junction "pending" column, directory Status column. (Frontend drawer keeps completion% as an internal tool.)

@@ -51,6 +51,7 @@ from deps import (
 
 app = FastAPI(title="Retrofit Design Platform API")
 api_router = APIRouter(prefix="/api")
+public_router = APIRouter(prefix="/api")  # NOT auth-guarded — used for shareable QR links
 
 from auth import build_auth
 auth_router, admin_router, require_user, require_admin, seed_admins = build_auth(db)
@@ -850,6 +851,43 @@ class VentilationIn(BaseModel):
     ventilation: dict = {}
 
 
+@api_router.post("/projects/{project_id}/ventilation/upload")
+async def upload_ventilation_workbook(project_id: str, file: UploadFile = File(...)):
+    from ventilation_parser import parse_ventilation_workbook
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fn = (file.filename or "").lower()
+    if not (fn.endswith(".xlsx") or fn.endswith(".xlsm")):
+        raise HTTPException(status_code=422, detail="Upload the Ventilation / Air Tightness Strategy as an .xlsx file")
+    data = await file.read()
+    try:
+        parsed = await asyncio.to_thread(parse_ventilation_workbook, data)
+    except Exception as e:
+        logger.exception("ventilation parse failed")
+        raise HTTPException(status_code=422, detail=f"Could not read that spreadsheet: {e}")
+    vent = parsed["ventilation"]
+    # merge onto any existing ventilation, preferring parsed content
+    existing = p.get("ventilation") or {}
+    merged = {**existing, **{k: v for k, v in vent.items() if v}}
+    if not merged.get("rooms"):
+        merged["rooms"] = existing.get("rooms") or []
+    await db.projects.update_one({"id": project_id}, {"$set": {"ventilation": merged}})
+    # keep the source file as a document
+    ext = fn.rsplit(".", 1)[-1]
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{pid}.{ext}"
+    try:
+        stored = (await asyncio.to_thread(put_object, path, data, file.content_type or "application/octet-stream"))["path"]
+    except Exception:
+        stored = None
+    await db.documents.insert_one({"_id": pid, "id": pid, "project_id": project_id, "storage_path": stored,
+        "original_filename": file.filename, "content_type": file.content_type or "application/octet-stream",
+        "doc_type": "Ventilation Strategy", "size": len(data), "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat()})
+    return {"ventilation": merged, "meta": parsed.get("meta")}
+
+
 @api_router.put("/projects/{project_id}/ventilation")
 async def update_ventilation(project_id: str, payload: VentilationIn):
     p = await db.projects.find_one({"id": project_id})
@@ -1567,6 +1605,26 @@ async def preview_pack_html(project_id: str, origin: Optional[str] = Query(None)
     return Response(content=html, media_type="text/html")
 
 
+@public_router.get("/public/pack/{token}.pdf")
+async def public_pack_pdf(token: str, request: Request):
+    """Serve the finished design pack via a shareable token (QR on page 02) — no login."""
+    proj = await db.projects.find_one({"shareToken": token}, {"id": 1})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Design pack not found")
+    origin = str(request.base_url).rstrip("/")
+    p, html = await _render_pack_html(proj["id"], origin)
+    from weasyprint import HTML
+    pdf, docs = await asyncio.gather(
+        asyncio.to_thread(lambda: HTML(string=html).write_pdf()),
+        _collect_source_docs(proj["id"]),
+    )
+    if docs:
+        pdf = await asyncio.to_thread(_merge_appendix, pdf, docs)
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref', 'design')}-{p.get('name', 'pack')}")
+    return Response(content=pdf, media_type="application/pdf",
+                    headers={"Content-Disposition": f'inline; filename="{safe}.pdf"'})
+
+
 # ---------------- Template library ----------------
 
 
@@ -1602,6 +1660,7 @@ async def template_analyze(tid: str):
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(api_router, dependencies=[Depends(require_user)])
+app.include_router(public_router)
 
 app.add_middleware(
     CORSMiddleware,

@@ -85,6 +85,7 @@ export const updateSection = (id, sid, s) => api.put(`/projects/${id}/sections/$
 export const deleteSection = (id, sid) => api.delete(`/projects/${id}/sections/${sid}`).then((r) => r.data);
 
 export const updateVentilation = (id, ventilation) => api.put(`/projects/${id}/ventilation`, { ventilation }).then((r) => r.data);
+export const uploadVentilationWorkbook = (id, file) => { const fd = new FormData(); fd.append("file", file); return api.post(`/projects/${id}/ventilation/upload`, fd).then((r) => r.data); };
 export const uploadFloorPlan = (id, file) => {
   const fd = new FormData();
   fd.append("file", file);

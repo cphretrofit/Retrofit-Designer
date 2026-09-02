@@ -1784,7 +1784,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         f'<div style="display:inline-block; vertical-align:top; margin-right:34px;"><div class="faint upper" style="font-size:9px;">{_esc(k)}</div>'
         f'<div style="font-size:12px; margin-top:5px; color:#262626;">{_esc(v or "—")}</div></div>' for k, v in signoff)
     qr_block = (f'<div style="position:absolute; right:0; top:-6px; text-align:center;"><img src="{qr_uri}" style="width:68px; height:68px;">'
-                f'<div class="faint mono" style="font-size:7.5px; margin-top:3px; letter-spacing:0.05em;">SCAN · LIVE PROJECT</div></div>' if qr_uri else "")
+                f'<div class="faint mono" style="font-size:7.5px; margin-top:3px; letter-spacing:0.05em;">SCAN · DESIGN PACK</div></div>' if qr_uri else "")
     cover = f'''
       {hero_full}
       <div style="position:absolute; left:18mm; right:18mm; top:174mm;">
@@ -1949,7 +1949,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     for s in (p.get("customSections") or []):
         sec01.append(("+", (s.get("title") or "Section")[:44], "sub"))
     _ins_after("01", sec01)
-    _ins_after("02", [("02.1", "Scope of Works", "sub"), ("02.2", "Sequence of Installation", "sub"), ("02.3", "Measures Interaction Matrix", "sub")])
+    _ins_after("02", [("02.1", "Sequence of Work", "sub"), ("02.2", "Measures Interaction Matrix", "sub")])
     _ins_after("04", [("04.1", "Standards &amp; Compliance", "sub"), ("04.2", "Exclusions", "sub"), ("04.3", "Commissioning &amp; Handover", "sub")])
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
@@ -2699,7 +2699,12 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                     await _apply_pv_autofill(project_id, p, _s)
                 except Exception:
                     pass
-    link = f"{origin.rstrip('/')}/project/{project_id}" if origin else None
+    token = p.get("shareToken")
+    if not token:
+        token = uuid.uuid4().hex[:20]
+        await db.projects.update_one({"id": project_id}, {"$set": {"shareToken": token}})
+        p["shareToken"] = token
+    link = f"{origin.rstrip('/')}/api/public/pack/{token}.pdf" if origin else None
     qr_uri = await asyncio.to_thread(_qr_data_uri, link) if link else None
     fp = p.get("floorPlan") or {}
     if fp.get("imageUrl"):
