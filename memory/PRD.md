@@ -48,6 +48,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — 10 Emmens re-issue + public pack caching (Jun 2026)
+- Re-issued the 10 Emmens Close pack (project `993ad5b3-...`, ref 60884094) with current code: QR + merged "Sequence of Work" baked in. 273 pages, 18.3 MB.
+- Added per-project pack cache: `_build_pack_job` now stamps `packPath`/`packFilename`/`packBuiltAt` on the project on success. `public_pack_pdf` serves the cached PDF instantly (falls back to on-demand render if no cache). Public QR link now 0.7s (was ~31s and intermittently 502'ing at the gateway). Build via `POST /pack/generate?origin=<backend-url>` so the QR encodes the correct public URL.
+
 ## DONE — QR public link + dedup TOC fix (Jun 2026)
 - QR on page 02 now encodes `{origin}/api/public/pack/{token}.pdf` (label "SCAN · DESIGN PACK"). New un-guarded `public_router` serves the finished pack by per-project `shareToken` — no login. Verified: public 200 PDF, guarded route 401, bad token 404.
 - Fixed stale Table of Contents: the Scope→Sequence merge left "Scope of Works" + "Sequence of Installation" listed separately; TOC now shows a single "Sequence of Work".

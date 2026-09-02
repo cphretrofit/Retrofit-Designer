@@ -1562,6 +1562,10 @@ async def _build_pack_job(project_id, origin, job_id):
         path = f"{APP_NAME}/packs/{job_id}.pdf"
         await asyncio.to_thread(put_object, path, pdf, "application/pdf")
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
+        # Cache the latest built pack on the project so the public QR link serves instantly.
+        await db.projects.update_one({"id": project_id}, {"$set": {
+            "packPath": path, "packFilename": f"{safe}.pdf",
+            "packBuiltAt": datetime.now(timezone.utc).isoformat()}})
         await _pack_progress(job_id, 100, "Ready", status="done", path=path, filename=f"{safe}.pdf")
     except Exception as e:
         await db.pack_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)[:300]}})
@@ -1608,9 +1612,18 @@ async def preview_pack_html(project_id: str, origin: Optional[str] = Query(None)
 @public_router.get("/public/pack/{token}.pdf")
 async def public_pack_pdf(token: str, request: Request):
     """Serve the finished design pack via a shareable token (QR on page 02) — no login."""
-    proj = await db.projects.find_one({"shareToken": token}, {"id": 1})
+    proj = await db.projects.find_one({"shareToken": token}, {"id": 1, "packPath": 1, "packFilename": 1})
     if not proj:
         raise HTTPException(status_code=404, detail="Design pack not found")
+    # Serve the cached pack instantly if a build has been issued.
+    if proj.get("packPath"):
+        try:
+            data, _ = await asyncio.to_thread(get_object, proj["packPath"])
+            fname = proj.get("packFilename") or "design-pack.pdf"
+            return Response(content=data, media_type="application/pdf",
+                            headers={"Content-Disposition": f'inline; filename="{fname}"'})
+        except Exception as e:
+            logger.warning("cached pack fetch failed, re-rendering: %s", e)
     origin = str(request.base_url).rstrip("/")
     p, html = await _render_pack_html(proj["id"], origin)
     from weasyprint import HTML
