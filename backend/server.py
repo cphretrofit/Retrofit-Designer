@@ -631,8 +631,18 @@ async def list_projects():
     return sorted(projects, key=lambda x: x.get("updatedAt", ""), reverse=True)
 
 
+def _public_origin(request):
+    """Reliable public base URL from the browser (request.base_url is the internal cluster host behind the proxy)."""
+    from urllib.parse import urlparse
+    for h in (request.headers.get("origin"), request.headers.get("referer")):
+        if h and h.startswith("https://"):
+            u = urlparse(h)
+            return f"{u.scheme}://{u.netloc}"
+    return None
+
+
 @api_router.get("/projects/{project_id}")
-async def get_project(project_id: str):
+async def get_project(project_id: str, request: Request):
     doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -647,6 +657,8 @@ async def get_project(project_id: str):
     if doc.get("templateName"):
         doc["templateName"] = display_template_name(
             doc["templateName"], [m.get("code") for m in (doc.get("measures") or [])])
+    # Keep the public QR pack current: if this project was issued and its data changed, rebuild in the background.
+    asyncio.create_task(_maybe_refresh_pack(project_id, _public_origin(request)))
     return doc
 
 
@@ -1546,6 +1558,66 @@ async def _pack_progress(job_id, progress, stage, **extra):
     await db.pack_jobs.update_one({"id": job_id}, {"$set": {"progress": progress, "stage": stage, **extra}})
 
 
+_PACK_HASH_KEYS = ("name", "ref", "jobRef", "revision", "client", "designer", "coordinator",
+                   "designStage", "templateName", "town", "address", "measures", "defects",
+                   "property", "ventilation", "solar", "heritage", "floorPlan", "designPack",
+                   "customSections", "designConsiderations", "datasheetProducts",
+                   "siteConditionsFromDocs", "itemsBeforeIssue")
+
+
+def _pack_content_hash(p: dict) -> str:
+    import hashlib
+    payload = {k: p.get(k) for k in _PACK_HASH_KEYS}
+    try:
+        blob = json.dumps(payload, sort_keys=True, default=str)
+    except Exception:
+        blob = str(payload)
+    return hashlib.sha256(blob.encode("utf-8", "ignore")).hexdigest()
+
+
+async def _auto_rebuild_pack(project_id, origin):
+    """Silently regenerate the cached pack so the public QR link stays current."""
+    try:
+        p, html = await _render_pack_html(project_id, origin)
+        from weasyprint import HTML
+        pdf, docs = await asyncio.gather(
+            asyncio.to_thread(lambda: HTML(string=html).write_pdf()),
+            _collect_source_docs(project_id))
+        if docs:
+            pdf = await asyncio.to_thread(_merge_appendix, pdf, docs)
+        path = f"{APP_NAME}/packs/auto-{project_id}.pdf"
+        await asyncio.to_thread(put_object, path, pdf, "application/pdf")
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
+        fresh = await db.projects.find_one({"id": project_id}, {"_id": 0})
+        await db.projects.update_one({"id": project_id}, {"$set": {
+            "packPath": path, "packFilename": f"{safe}.pdf",
+            "packBuiltAt": datetime.now(timezone.utc).isoformat(),
+            "packHash": _pack_content_hash(fresh or {}), "packOrigin": origin,
+            "packBuilding": False}})
+        logger.info("auto re-issued pack for project %s", project_id)
+    except Exception as e:
+        await db.projects.update_one({"id": project_id}, {"$set": {"packBuilding": False}})
+        logger.warning("auto rebuild failed for %s: %s", project_id, e)
+
+
+async def _maybe_refresh_pack(project_id, origin=None):
+    """If a project has already been issued and its content has changed, rebuild the cached pack in the background."""
+    try:
+        p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+        if not p or not p.get("packPath") or p.get("packBuilding"):
+            return
+        if _pack_content_hash(p) == p.get("packHash"):
+            return
+        claimed = await db.projects.find_one_and_update(
+            {"id": project_id, "packBuilding": {"$ne": True}},
+            {"$set": {"packBuilding": True}})
+        if not claimed:
+            return
+        asyncio.create_task(_auto_rebuild_pack(project_id, origin or p.get("packOrigin")))
+    except Exception as e:
+        logger.warning("maybe refresh pack failed for %s: %s", project_id, e)
+
+
 async def _build_pack_job(project_id, origin, job_id):
     try:
         await _pack_progress(job_id, 8, "Reading project", status="running")
@@ -1563,9 +1635,12 @@ async def _build_pack_job(project_id, origin, job_id):
         await asyncio.to_thread(put_object, path, pdf, "application/pdf")
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
         # Cache the latest built pack on the project so the public QR link serves instantly.
+        fresh = await db.projects.find_one({"id": project_id}, {"_id": 0})
         await db.projects.update_one({"id": project_id}, {"$set": {
             "packPath": path, "packFilename": f"{safe}.pdf",
-            "packBuiltAt": datetime.now(timezone.utc).isoformat()}})
+            "packBuiltAt": datetime.now(timezone.utc).isoformat(),
+            "packHash": _pack_content_hash(fresh or {}), "packOrigin": origin,
+            "packBuilding": False}})
         await _pack_progress(job_id, 100, "Ready", status="done", path=path, filename=f"{safe}.pdf")
     except Exception as e:
         await db.pack_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)[:300]}})
@@ -1620,6 +1695,8 @@ async def public_pack_pdf(token: str, request: Request):
         try:
             data, _ = await asyncio.to_thread(get_object, proj["packPath"])
             fname = proj.get("packFilename") or "design-pack.pdf"
+            # Safety net: refresh the cache in the background if the project changed since it was built.
+            asyncio.create_task(_maybe_refresh_pack(proj["id"], _public_origin(request)))
             return Response(content=data, media_type="application/pdf",
                             headers={"Content-Disposition": f'inline; filename="{fname}"'})
         except Exception as e:

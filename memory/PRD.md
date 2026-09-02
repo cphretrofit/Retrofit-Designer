@@ -48,6 +48,14 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — Auto Re-issue: QR pack stays current (Jun 2026)
+- Once a project has been issued (has `packPath`), its cached pack auto-rebuilds in the background whenever the project's pack-relevant data changes. Detected via a `packHash` (sha256 over content keys) compared on every workspace `GET /api/projects/{id}` and on every public QR scan; a `packBuilding` flag (atomic `find_one_and_update` guard) prevents concurrent/duplicate rebuilds.
+- The public QR link keeps serving the current cached PDF instantly (~1s) and swaps to the freshly-rebuilt one once ready. Verified end-to-end: edited `designer` → public pack reflected the change (273pp, QR intact) → reverted → rebuilt back.
+- `packOrigin` fix: `request.base_url` is the internal cluster host behind the proxy, so the QR URL must come from the browser's `Origin`/`Referer` header (`_public_origin`) or the stored `packOrigin` from a manual export. QR now decodes to `https://retrofit-pro-2.preview.emergentagent.com/api/public/pack/{token}.pdf` (verified by decoding the embedded QR image).
+
+## NOTE — "QR pack has extra pages" explained (Jun 2026)
+- The QR/public PDF and the in-app Download are byte-identical (same md5). Both = 67-page core design pack + **Appendix B "Bound Source Documents"** (~206 pages of the merged assessment PDFs, datasheets, photopacks). The on-screen PREVIEW/Print shows only the 67 core pages (HTML preview does not merge source PDFs) — that is the perceived difference. Option (not yet built): serve a core-only version on the public QR link.
+
 ## DONE — 10 Emmens re-issue + public pack caching (Jun 2026)
 - Re-issued the 10 Emmens Close pack (project `993ad5b3-...`, ref 60884094) with current code: QR + merged "Sequence of Work" baked in. 273 pages, 18.3 MB.
 - Added per-project pack cache: `_build_pack_job` now stamps `packPath`/`packFilename`/`packBuiltAt` on the project on success. `public_pack_pdf` serves the cached PDF instantly (falls back to on-demand render if no cache). Public QR link now 0.7s (was ~31s and intermittently 502'ing at the gateway). Build via `POST /pack/generate?origin=<backend-url>` so the QR encodes the correct public URL.
