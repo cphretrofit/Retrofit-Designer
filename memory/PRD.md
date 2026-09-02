@@ -235,3 +235,16 @@ Remaining from client audit: **#12 auto-generate CAD-quality drawings** + **#11 
 - **Loft insulation coverage** (user chose option a): when the plan notes mention loft insulation (or `d.loftCoverage` is set), the whole top-floor footprint is filled with a 45° diagonal hatch (orange #B45309) plus a legend entry "Loft insulation — full ceiling coverage (Nmm)". IMPORTANT: implemented as explicit `<line>` segments clipped per-room (`_hatch_rect`), NOT an SVG `<pattern>` — pymupdf and WeasyPrint render patterns as solid black, so patterns must be avoided in pack SVGs.
 - Re-rendered the two existing projects that had a cadSvg (81 St Nicholas Road, 54 Greenmere) from their stored `floorPlan.cadData`; other projects pick up the new rendering on next auto-detect. Verified visually via pymupdf raster.
 
+
+### Phase 52 — Symbol spacing, multi-floor sheets, loft-on-measure, condition zoom (2026-06)
+- Symbol spacing (`_nudge_sym_y`): radiator/vent/cylinder symbols nudged out of each room's name/area label band.
+- Multi-floor: `build_cad_floorplan_svg` wraps `_render_single`; a top-level `floors` array renders one labelled sheet per floor stacked vertically. Prompt + detect updated. Applies on Auto-detect.
+- Loft on re-detect: detect reads project measures and sets `loftCoverage` (top floor only for multi-floor).
+- Condition photo zoom: SiteConditionsPanel evidence photos open a full-screen lightbox.
+
+### Phase 53 — Per-floor loft roof-type, measures key, symbol legibility, from-notes badge (2026-06)
+- Per-floor loft: loft hatch legend now states cold roof vs warm roof (RIR = warm roof); detect sets the coverage type from the measure.
+- Measures key box: detect builds `measuresKey` from project measures; rendered as an on-sheet "Measures on this design" list (shared across floor sheets).
+- Symbol legibility: `_fit` auto-shrinks circle/cylinder/lofthatch/radiator labels to fit their box/circle.
+- From-notes badge: DefectsPanel + SiteConditionsPanel show a small "From site notes" pill on auto-added defects (`source==='sitenote'` / `photoFromSiteNote`) and site-note evidence (`source` contains "site notes").
+

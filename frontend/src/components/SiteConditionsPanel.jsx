@@ -93,7 +93,11 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-medium">{e.label}</span>
+                    <span className="text-[13px] font-medium flex items-center gap-2">{e.label}
+                      {String(e.source || "").toLowerCase().includes("site note") && (
+                        <span className="text-[9.5px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-sm bg-secondary text-muted-foreground border border-border" data-testid={`site-note-badge-${e.key}`} title="Evidence photo pulled from the surveyor's site notes">From site notes</span>
+                      )}
+                    </span>
                     {e.key === "floor_type" ? (
                       <input value={e.value || ""} onChange={(ev) => updateEv(i, { value: ev.target.value })} data-testid={`site-value-${e.key}`}
                         className="h-7 px-2 bg-background border border-border rounded-sm text-[12px] w-44 outline-none focus:border-foreground/40" placeholder="floor type" />

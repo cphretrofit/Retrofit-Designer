@@ -226,6 +226,9 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-2 w-2 rounded-full shrink-0" style={{ background: (SEV[d.severity] || SEV.medium).c }} />
                       <span className="text-[13px] font-medium truncate">{d.element || "Property"}</span>
+                      {(d.source === "sitenote" || d.photoFromSiteNote) && (
+                        <span className="text-[9.5px] font-medium uppercase tracking-wide shrink-0 px-1.5 py-0.5 rounded-sm bg-secondary text-muted-foreground border border-border" data-testid={`defect-sitenote-badge-${d.id}`} title="Pulled automatically from the surveyor's site notes">From site notes</span>
+                      )}
                       <span className="text-[10px] font-mono uppercase shrink-0" style={{ color: (SEV[d.severity] || SEV.medium).c }}>{(SEV[d.severity] || SEV.medium).l}</span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">

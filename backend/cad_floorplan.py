@@ -103,9 +103,15 @@ def _dim_v(y1, y2, x, text):
     )
 
 
+def _fit(txt, box_w, base=12, minf=7):
+    n = max(1, len(str(txt or "")))
+    return max(minf, min(base, box_w * 1.7 / n))
+
+
 def _circle_label(cx, cy, txt, r=12):
+    fs = _fit(txt, r * 1.9, base=12)
     return (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" fill="#fff" stroke="#111" stroke-width="1.2"/>'
-            f'<text x="{cx:.1f}" y="{cy+4:.1f}" font-size="12" text-anchor="middle" fill="#111" font-family="Georgia,serif">{_esc(txt)}</text>')
+            f'<text x="{cx:.1f}" y="{cy+fs*0.35:.1f}" font-size="{fs:.0f}" text-anchor="middle" fill="#111" font-family="Georgia,serif">{_esc(txt)}</text>')
 
 
 def _north():
@@ -210,7 +216,9 @@ def _render_single(d: dict):
         for r in rooms:
             rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
             parts.append(_hatch_rect(mx(rx), my(ry), rw * S, rh * S))
-        legend.append(f"Loft insulation \u2014 full ceiling coverage{_loft_depth}")
+        _txt = " ".join(str(x) for x in (d.get("loftCoverage"), loft_note) if x).lower()
+        _roof = "warm roof" if ("warm" in _txt or "room" in _txt or "rir" in _txt) else "cold roof"
+        legend.append(f"Loft insulation \u2014 full ceiling coverage{_loft_depth} ({_roof})")
     # interior walls
     for (x1, y1, x2, y2, ext) in wall_segs:
         if ext:
@@ -297,16 +305,16 @@ def _render_single(d: dict):
             for i in range(1, 7):
                 lx = x - 22 + i * 44 / 7
                 parts.append(f'<line x1="{lx:.1f}" y1="{y-6:.1f}" x2="{lx:.1f}" y2="{y+6:.1f}" stroke="#111" stroke-width="0.7"/>')
-            parts.append(f'<text x="{x:.1f}" y="{y-10:.1f}" font-size="11" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
+            parts.append(f'<text x="{x:.1f}" y="{y-10:.1f}" font-size="{_fit(lbl,52,base=11):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
         elif t == "cylinder":
             parts.append(f'<rect x="{x-9:.1f}" y="{y-9:.1f}" width="18" height="18" fill="none" stroke="#111" stroke-width="1"/>')
             if len(lbl) > 2:
-                parts.append(f'<text x="{x:.1f}" y="{y+22:.1f}" font-size="11" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
+                parts.append(f'<text x="{x:.1f}" y="{y+22:.1f}" font-size="{_fit(lbl,64,base=11):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
             else:
-                parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "C")}</text>')
+                parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="{_fit(lbl or "C",18,base=12):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "C")}</text>')
         elif t == "lofthatch":
             parts.append(f'<rect x="{x-16:.1f}" y="{y-11:.1f}" width="32" height="22" fill="#fff" stroke="#111" stroke-width="1.2"/>')
-            parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "LH")}</text>')
+            parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="{_fit(lbl or "LH",30,base=12):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "LH")}</text>')
 
     # front door label — below the bottom dimension line, clear of the wall
     fd = d.get("frontDoor") or {}
@@ -381,6 +389,17 @@ def _render_single(d: dict):
                 parts.append(f'<text x="{RCX}" y="{ry}" font-size="14.5" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
                 ry += 22
 
+    mk = d.get("measuresKey") or []
+    if mk:
+        ry += 16
+        parts.append(f'<text x="{RCX}" y="{ry}" font-size="14" font-weight="bold" font-family="Georgia,serif">Measures on this design</text>')
+        parts.append(f'<line x1="{RCX}" y1="{ry+6}" x2="{RCX+160}" y2="{ry+6}" stroke="#111" stroke-width="0.8"/>')
+        ry += 24
+        for mm in mk:
+            for wl in _wrap(f"\u2022 {mm}", 30):
+                parts.append(f'<text x="{RCX}" y="{ry}" font-size="13.5" font-family="Georgia,serif">{_esc(wl)}</text>')
+                ry += 20
+
     # --- bottom title block: sits directly under the PLAN (left of the divider),
     #     independent of the right-column height, to avoid a large empty band ---
     by = Y0 + ph + 114
@@ -406,7 +425,7 @@ def build_cad_floorplan_svg(d: dict) -> str:
     VB_W = 1040
     floors = d.get("floors")
     if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
-        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "loftCoverage") if d.get(k)}
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "loftCoverage", "measuresKey") if d.get(k)}
         groups, total = [], 0.0
         for fl in floors:
             inner, h = _render_single({**shared, **fl})
