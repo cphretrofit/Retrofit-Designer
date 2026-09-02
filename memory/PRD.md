@@ -1,53 +1,56 @@
 # Orthograph — PAS 2035 Retrofit Design Platform (PRD)
 
 ## Problem statement
-Premium, state-of-the-art PAS 2035 retrofit design platform that produces audit-ready,
-site-specific design PDF packs. Key capabilities: AI-driven document import (PDF/DOCX/XLSX),
-WeasyPrint PDF export, site-condition vision detection, editable floor-plan placements,
-ventilation strategies, Google Solar API, AI-vision defect matching, deep PAS 2035
-compliance checklists.
+Premium PAS 2035 retrofit design platform producing audit-ready, site-specific design PDF packs.
+AI document import (PDF/DOCX/XLSX), WeasyPrint PDF export, site-condition vision detection,
+editable floor plans, ventilation strategies, Google Solar API, AI defect matching, PAS 2035 checklists.
 
 ## Stack
-- Frontend: React + TailwindCSS (routes use `/project/:id`, `/project/:id/design/:section`).
-- Backend: FastAPI + async MongoDB (Motor). JWT httpOnly-cookie auth; `/api/admin/*` = role admin.
-- PDF/SVG: WeasyPrint, PyMuPDF, programmatic inline SVG (`cad_floorplan.py`).
-- AI: Claude 4.6 via Emergent LLM key. Google Solar API (user key).
-- Long jobs (import, PDF pack) run as async background/polling jobs to survive ingress ~120s timeout.
+- Frontend: React + Tailwind. Routes: `/project/:id`, `/project/:id/design/:section`.
+- Backend: FastAPI + async MongoDB (Motor). JWT httpOnly-cookie auth.
+- PDF/SVG: WeasyPrint + PyMuPDF (1.28) + inline SVG (`cad_floorplan.py`). Claude 4.6 via Emergent key. Google Solar API.
+- Pack + import run as async background/polling jobs.
 
 ## Key files
-- `backend/cad_floorplan.py` — SVG floor-plan engine. `_resolve_overlaps` splits overlapping
-  rooms; **`_normalize_geometry`** (NEW) clamps rooms to envelope, snaps near-equal edges to
-  shared grid lines, and grows boundary rooms to close dead-space gaps → clean tiled footprint.
-- `backend/ai_extractor.py` — Claude extraction, template seed/match. **`display_template_name`**
-  (NEW) strips template-name codes (B#/C#/ASHP/SOLAR) not present in the project's own measures
-  (via MEASURE_TO_TAGS). Applied at import (`_t_template`) and used on read.
-- `backend/server.py` — routes; `get_project` re-applies `display_template_name` on read.
-- Frontend: `ProjectOverview.jsx` (template badge), `DesignWorkspace.jsx` + `FloorPlanPanel.jsx`,
-  `DefectsPanel.jsx`, `SiteConditionsPanel.jsx`, `DesignPack.jsx`.
+- `backend/cad_floorplan.py` — SVG floor-plan; `_normalize_geometry` cleans room tiling.
+- `backend/ai_extractor.py` — extraction/templates. Defect + site-condition photo attach; floor-plan detection.
+- `backend/pdf_builder.py` — pack HTML/PDF, `_merge_appendix` (now recompresses images).
+- `backend/deps.py` — measure builders / design checks.
+- `backend/server.py` — routes, pack jobs.
 
-## Data model (projects)
-`{id, floorPlan:{cadSvg, cadData:{overall{w,h}, rooms[{name,x,y,w,h}], windows, doors, symbols, ...}},
- measures:[{code}], templateId, templateName, defects[...], siteConditions{...}}`
-MEASURE_TO_TAGS: EWI→B2, IWI→B4/B2, SWI→B2, LOFT→B9, RIR→B10, UFI→B5, WIN/DOORS→B3,
-ASHP→ASHP, SOLAR→SOLAR, VENT→C5/C1.
+## Implemented — Jun 2026 (this session)
+- **Floor-plan overlap fix** + **C5 template label** (earlier).
+- **PDF pack speed & size**: `_merge_appendix` now runs `rewrite_images(dpi_threshold=150, dpi_target=110, q=62)`.
+  10 Emmens pack: 55.6 MB → **17.5 MB**, total build ~**21s** (was risking timeout). Target <60s met.
+- **Defect photo matching**: site-note "Defects" section segments on `Defect type:` (was `Defect N` only,
+  which lumped all photos onto the first defect). 10 Emmens now: WC→6, Bedroom 2 (br2)→3, Bathroom→galleries.
+  `_sn_loc_tokens` already maps `br2`→bedroom 2.
+- **Site-condition loft photos**: `_attach_sitenote_condition_photos` now (a) treats RdSAP "Loft insulation:"
+  photos as authoritative for `loft_storage` (overrides wrong vision FIG), (b) collects a deduped gallery (cap 12),
+  (c) sets loft_storage present when found. Multiple photos per condition render in the pack (gallery strip).
+- **Multiple images per measure**: `_photos_for_measure` cap raised 2→8.
+- **Floor-plan last-page detection**: `_fp_rank` ranks RdSAP/site-note docs first, photo-packs last; per-doc
+  image-candidate cap (5) so a 216-page photo pack can't hog slots; keyword pages prioritised. 10 Emmens plan
+  (last page) now extracted.
+- **Design checks**: removed "Commissioning evidence uploaded"; "Target U-value achieved" → shows the target
+  number ("Target U-value 0.15 W/m²K", neutral status) instead of achieved/not.
+- **Scope page**: Ventilation listed first and renamed to "Ventilation".
+- **Footer on every page**: full address + reference number ("<address> · Ref <ref> · Rev <rev>").
+- **Solar/aerial postcode bug FIXED**: `_heritage_lookup_sync` now normalises UK postcodes (inserts the
+  space, e.g. stored `RG80TU` → `RG8 0TU`) before hitting postcodes.io, which was 404-ing on the unspaced
+  form. Restores geocoding → solar lookup → cover/page-2 aerial inset.
 
-## Implemented (latest — Jun 2026)
-- **Floor-plan overlap fix**: `_normalize_geometry` eliminates stepped/doubled walls, protruding
-  room columns and dead corners. Verified by rendering stored plans to PNG + live UI. Re-rendered
-  `cadSvg` for the 2 existing projects that had `cadData`.
-- **C5 template-label fix**: template badge no longer lists measure codes (e.g. C5) that the
-  project's measures don't include. Verified live: RTF-2026-0151 (no VENT) → "ASHP, SOLAR";
-  8af609d2 (has VENT) → "B9, C5, SOLAR".
-- Prior session: parallel import & PDF gen (async), Heritage AONB, deep 40-page site-note
-  extraction, defect galleries + auto-add, evidence lightbox, multi-floor CAD sheets, per-floor
-  loft hatching + measures key box, provenance badges, re-extract button.
-
-## Backlog
-- P1: Advanced site-specific CAD junction details traced from assessment docs (Phase 3 v3).
-- P2: Per-drawing revision & sign-off toggle (drawn/checked/approved).
-- P2: Slimmer/async PDF compression for large packs.
-- P2: Batch re-render — DONE for existing projects with cadData (2); future imports auto-use fix.
-- Minor: tiny rooms (e.g. a 0.4 m² Wet Room) can still crowd their label; low priority.
+## OPEN BACKLOG (latest user batch — next dedicated pass)
+P0/P1:
+- **Aerial/top-down image on page 2** — verify it now renders after the postcode fix; if the user still wants
+  it larger/separate from the cover inset, add a dedicated block.
+- **QR on page 02 → PDF** of the design, not the app login. Needs a public/shareable pack URL
+  (object-storage public link); current link is auth-gated `/project/:id`.
+- **Specifications page** layout/margins/alignment TLC (see user screenshot — heading overlaps body text).
+- **Ventilation requirements & strategy** section layout/alignment TLC.
+- **Rename "Scope of Works" → "Sequence of Work"** and **merge** with "Sequence of Installation" into one section.
+- **Comprehensive duplication audit**: find duplicate sections/pages (from prior tinkering), then a content-logic
+  second pass — for each: is it here twice? is it needed? Remove only after confirming.
 
 ## Test credentials
-See `/app/memory/test_credentials.md`. Primary admin: it@cphretrofit.co.uk.
+`/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.

@@ -165,7 +165,7 @@ def _photos_for_measure(code, photos, used):
         if any(k in text for k in kws):
             out.append(ph)
             used.add(fig)
-            if len(out) >= 2:
+            if len(out) >= 8:
                 break
     return out
 
@@ -271,9 +271,11 @@ def _heritage_map_svg(h):
 
 
 def _heritage_lookup_sync(postcode):
-    pc = (postcode or "").strip().upper()
+    pc = re.sub(r"\s+", "", (postcode or "")).upper()
     if not pc:
         return None
+    if len(pc) >= 5:  # UK postcodes need a space before the 3-char inward code (e.g. RG80TU -> RG8 0TU)
+        pc = pc[:-3] + " " + pc[-3:]
     try:
         geo = requests.get(f"https://api.postcodes.io/postcodes/{requests.utils.quote(pc)}", timeout=(3.05, 15))
         if geo.status_code != 200:
@@ -850,13 +852,16 @@ def _preliminaries_html(p):
 
 def _scope_html(p, measures):
     groups = ""
-    for m in measures:
+    # Ventilation is always the first order of installation — list it first here too.
+    ms = sorted(measures, key=lambda m: 0 if _mfam(m.get("code"), m.get("name")) == "VENT" else 1)
+    for m in ms:
         fam = _mfam(m.get("code"), m.get("name"))
         col = MEASURE_COLORS[fam]
         items = SCOPE_WORKS.get(fam, SCOPE_WORKS["GEN"])
+        disp = "Ventilation" if fam == "VENT" else (m.get("name") or "")
         lis = "".join(f'<div style="font-size:11px; color:#333; padding:3px 0;"><span style="color:#a3a3a3; margin-right:8px;">&#8250;</span>{_esc(x)}</div>' for x in items)
         groups += (f'<div style="margin-bottom:14px; border-left:2px solid {col}; padding-left:12px;">'
-                   f'<div style="font-size:12.5px; font-weight:500; color:#262626;">{_esc(m.get("name"))} <span class="mono faint" style="font-size:9px;">PAS {_esc(m.get("pas") or m.get("code") or "")}</span></div>'
+                   f'<div style="font-size:12.5px; font-weight:500; color:#262626;">{_esc(disp)} <span class="mono faint" style="font-size:9px;">PAS {_esc(m.get("pas") or m.get("code") or "")}</span></div>'
                    f'<div style="margin-top:4px;">{lis}</div></div>')
     intro = "The works below deliver the proposed whole-house retrofit. Quantities and product references are confirmed in each measure's technical specification. Any defects listed in the Property Condition section are to be rectified before or concurrent with these works."
     return [_np("Retrofit Strategy &middot; Scope of Works", "Scope of Works", groups or '<div class="muted" style="font-size:12px;">Measures to be confirmed.</div>', intro)]
@@ -2430,6 +2435,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 meta += f'<span class="mono" style="font-size:8px; color:#999; margin-left:6px;">{_esc(conf)} confidence</span>'
             if e.get("source") and not fig:
                 meta += f'<span class="mono" style="font-size:8px; color:#0055FF; margin-left:6px;">Source &middot; {_esc(e.get("source"))}</span>'
+            _extra = e.get("_photos_data") or []
+            gallery_html = ""
+            if len(_extra) > 1:
+                thumbs = "".join(f'<div style="width:108px; height:80px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{d}" style="width:100%; height:100%; object-fit:cover;"></div>' for d in _extra[1:10])
+                gallery_html = f'<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">{thumbs}</div>'
             card_list.append(f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img}'
                              f'<div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
                              f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(e.get("label"))}</span>'
@@ -2437,6 +2447,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                              + (f'<div class="muted" style="font-size:11px; margin-top:4px; line-height:1.45;">{_esc(e.get("detail"))}</div>' if e.get("detail") else "")
                              + (f'<div style="font-size:10.5px; color:#666; margin-top:5px; line-height:1.4;"><span class="faint upper" style="font-size:8px; margin-right:6px;">Evidence</span>{_esc(e.get("reasoning"))}</div>' if e.get("reasoning") else "")
                              + (f'<div style="margin-top:5px;">{meta}</div>' if meta else "")
+                             + gallery_html
                              + '</div></div>')
         _si = 'Determined from the survey photographs, floor plan and the assessment documents. Each condition is supported by the referenced evidence and informs the PAS 2035 design compliance checklist. Confirm on site prior to installation.'
         for ci, chunk in enumerate(_chunk(card_list, 4)):
@@ -2609,8 +2620,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), *defects_pages, *items_pages]
     pages = [x for x in pages if x]
     total = len(pages)
-    foot = f"{ref}  ·  {name}  ·  Rev {rev}"
-    body = f'<div class="docref">{_esc(foot)}</div>' + "".join(f'<div class="page">{inner}</div>' for inner in pages)
+    foot = f"{_esc(p.get('address') or name)}  ·  Ref {ref}  ·  Rev {rev}"
+    body = f'<div class="docref">{foot}</div>' + "".join(f'<div class="page">{inner}</div>' for inner in pages)
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{PACK_CSS}</style></head><body>{body}</body></html>'
 
 
@@ -2695,12 +2706,19 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             except Exception:
                 d["_photo_data"] = None
     for e in (((p.get("property") or {}).get("siteConditions") or {}).get("evidence") or []):
-        u = e.get("url") or ""
-        if u:
+        gal = [ph.get("url") for ph in (e.get("photos") or []) if ph.get("url")]
+        if not gal and e.get("url"):
+            gal = [e["url"]]
+        datas = []
+        for u in gal[:12]:
             try:
-                e["_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
+                d = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
             except Exception:
-                e["_data"] = None
+                d = None
+            if d:
+                datas.append(d)
+        e["_photos_data"] = datas
+        e["_data"] = datas[0] if datas else None
     try:
         _dsd = await db.documents.find({"project_id": project_id, "is_deleted": False,
                                         "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Scope of Works", "Job Card", "Assessment"]}}, {"_id": 0}).to_list(80)
@@ -2828,6 +2846,13 @@ def _merge_appendix(pdf_bytes, docs):
                     link_page.insert_link({"kind": pymupdf.LINK_GOTO, "from": rect, "page": tp, "to": pymupdf.Point(0, 0)})
                 except Exception:
                     pass
+        # Downsample oversized embedded images (bound photo packs / datasheets are the
+        # bulk of the file) so the pack downloads fast — typically ~75% smaller.
+        try:
+            main.rewrite_images(dpi_threshold=150, dpi_target=110, quality=62,
+                                lossy=True, lossless=False)
+        except Exception as e:
+            logger.warning("appendix image recompress skipped: %s", e)
         return main.tobytes(deflate=True, deflate_images=True, deflate_fonts=True, garbage=3)
     except Exception as e:
         logger.warning("merge appendix failed: %s", e)

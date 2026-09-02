@@ -4,6 +4,7 @@ import uuid
 import json
 import base64
 import re
+import hashlib
 import asyncio
 import logging
 import requests
@@ -176,7 +177,7 @@ async def _ai_match_defect_photos(defects, photos, max_photos: int = 24):
     return changed
 
 
-_SN_DEFECT_HEAD = re.compile(r"^Defect\s+\d+\s*$", re.I)
+_SN_DEFECT_HEAD = re.compile(r"^(Defect\s+\d+|Defect type:)\s*$", re.I)
 
 
 def _sn_field(text, label):
@@ -232,7 +233,7 @@ def extract_sitenote_defect_photos(pdf_bytes, max_per_defect: int = 6):
                     if cur is not None:
                         cur["_text"] = "\n".join(buf)
                         blocks.append(cur)
-                    cur, buf = {"xrefs": []}, []
+                    cur, buf = {"xrefs": []}, [payload]  # keep head line so field labels survive
                 elif cur is not None:
                     buf.append(payload)
             elif kind == "img" and cur is not None:
@@ -462,9 +463,14 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         if k == "floor_type":
             return bool(e.get("value") or sc.get("floor_type"))
         return e.get("present") is True or sc.get(k) is True
-    need = [e for e in ev if not e.get("url") and _positive(e)]
+    # Loft photos in the RdSAP site notes are authoritative — override any vision FIG
+    # (which often mis-picks an external elevation) and always prefer the site-note set.
+    AUTH = {"loft_storage"}
+    need = [e for e in ev if (e.get("key") in AUTH and e.get("source") != "Site notes")
+            or (_positive(e) and not e.get("url"))]
     if not need:
         return 0
+    need.sort(key=lambda e: 0 if e.get("key") in AUTH else 1)  # fill loft first
     if doc_sources is None:
         recs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True},
                 "doc_type": {"$in": ["Assessment", "Technical Survey", "Survey", "Scope of Works", "Site Notes"]}}, {"_id": 0}).to_list(30)
@@ -487,19 +493,35 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         kws = _COND_KEYWORDS.get(e.get("key")) or ()
         if not kws:
             continue
+        gallery, seen_hashes = [], set()
         for i, lb in enumerate(labels):
             if i in used:
                 continue
             if any(k in (lb.get("label") or "").lower() for k in kws):
                 data, ext = lb["image"]
+                h = hashlib.md5(data).hexdigest()
+                if h in seen_hashes:
+                    used.add(i)
+                    continue
+                seen_hashes.add(h)
                 url = await _store_defect_image(project_id, data, ext)
                 if url:
-                    e["url"] = url
-                    e["source"] = e.get("source") or "Site notes"
-                    e["caption"] = (lb.get("label") or "").strip(": ").strip() or e.get("label")
+                    gallery.append({"url": url,
+                                    "caption": (lb.get("label") or "").strip(": ").strip() or e.get("label")})
                     used.add(i)
-                    changed += 1
-                break
+                if len(gallery) >= 12:
+                    break
+        if gallery:
+            e["url"] = gallery[0]["url"]
+            e["photos"] = gallery
+            e["caption"] = gallery[0]["caption"]
+            e["source"] = "Site notes"
+            e.pop("fig", None)
+            if e.get("key") == "loft_storage" and e.get("present") is not True:
+                e["present"] = True
+                e["detail"] = e.get("detail") or "Stored items / boarding present in the loft (see site-note photographs)."
+                e["reasoning"] = e.get("reasoning") or "Confirmed from the RdSAP site-note loft photographs."
+            changed += 1
     if changed:
         sc["evidence"] = ev
         proj.setdefault("property", {})["siteConditions"] = sc
@@ -1164,8 +1186,7 @@ def ai_to_measure(m: dict) -> dict:
     if code in SERVICE_CODES:
         comp = int(m.get("completion") or 70)
         return mk_service(code, name, pas, system, comp, IMG["ashp"],
-                          [{"label": "System assessed against survey", "status": "pass"},
-                           {"label": "Commissioning evidence uploaded", "status": "warn"}],
+                          [{"label": "System assessed against survey", "status": "pass"}],
                           rates=m.get("rates") or [])
     target = m.get("targetU")
     existing = m.get("existingU")
@@ -1448,12 +1469,23 @@ _FP_DOC_ORDER = {"Floor Plan": 0, "Assessment": 1, "Technical Survey": 2, "Surve
                  "ASHP Survey": 3, "Scope of Works": 4}
 
 
+def _fp_rank(d):
+    """Order docs so the survey floor plan is found first: RdSAP / site-note PDFs
+    usually carry it; bulk photo packs almost never do, so scan them last."""
+    fn = (d.get("original_filename") or d.get("filename") or "").lower()
+    if "photopack" in fn or "photo pack" in fn or "par photo" in fn:
+        return 8
+    if "rdsap" in fn or "sitenote" in fn or "site note" in fn:
+        return 0
+    return _FP_DOC_ORDER.get(d.get("doc_type"), 5)
+
+
 async def detect_and_extract_floorplan(docs: list, project_id: str):
     """Scan a project's PDF documents, find the page that is a genuine floor plan
     (vision-confirmed), extract it at native resolution, store it and return the
     floorPlan dict. Returns None when no floor plan is found."""
-    candidates = []  # {bytes, b64, label}
-    for d in sorted(docs, key=lambda x: _FP_DOC_ORDER.get(x.get("doc_type"), 9)):
+    kw_cands, img_cands = [], []  # keyword-plan pages (e.g. 'NOT TO SCALE') take priority
+    for d in sorted(docs, key=_fp_rank):
         if d.get("is_deleted"):
             continue
         sp = d.get("storage_path")
@@ -1466,6 +1498,7 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
         except Exception:
             continue
         try:
+            img_in_doc = 0
             for pno in range(doc.page_count):
                 pg = doc[pno]
                 parea = max(1.0, pg.rect.width * pg.rect.height)
@@ -1500,15 +1533,21 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
                         ib = pg.get_pixmap(dpi=180).tobytes("png")
                     except Exception:
                         continue
-                candidates.append({"bytes": ib, "b64": _img_b64(ib, max_px=920, quality=72),
-                                   "label": f'{d.get("doc_type") or "Document"} — page {pno + 1}'})
-                if len(candidates) >= 8:
+                _cand = {"bytes": ib, "b64": _img_b64(ib, max_px=920, quality=72),
+                         "label": f'{d.get("doc_type") or "Document"} — page {pno + 1}'}
+                if kw:
+                    kw_cands.append(_cand)
+                elif img_in_doc < 5:  # don't let one bulk photo pack hog every filler slot
+                    img_cands.append(_cand)
+                    img_in_doc += 1
+                if len(kw_cands) >= 6 and len(img_cands) >= 8:
                     break
         finally:
             doc.close()
-        if len(candidates) >= 8:
+        if len(kw_cands) >= 6 and len(img_cands) >= 8:
             break
 
+    candidates = (kw_cands + img_cands)[:10]
     if not candidates:
         return None
 

@@ -72,7 +72,7 @@ def mk_fabric(code, name, pas, system, target, existing, calc, comp, img, buildu
         "checks": [
             {"label": "Construction confirmed", "status": "pass"},
             {"label": "Product/system selected", "status": "pass" if comp >= 40 else "pending"},
-            {"label": "Target U-value achieved", "status": "pass" if calc and target and calc <= target else "warn"},
+            {"label": (f"Target U-value {target:.2f} W/m\u00b2K" if target else "Target U-value \u2014 to confirm"), "status": "info"},
             {"label": "Junction details resolved", "status": "pass" if not outstanding else "warn"},
             {"label": "Condensation risk (BS 5250) assessed", "status": "pass" if comp >= 60 else "pending"},
         ],
