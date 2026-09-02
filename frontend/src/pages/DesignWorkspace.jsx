@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map, Satellite, FileEdit,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map, Satellite, FileEdit, Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
@@ -18,6 +18,7 @@ import { CustomSectionsPanel } from "@/components/CustomSectionsPanel";
 import { VentilationPanel } from "@/components/VentilationPanel";
 import { FloorPlanPanel } from "@/components/FloorPlanPanel";
 import { SolarPanel } from "@/components/SolarPanel";
+import { HeritagePanel } from "@/components/HeritagePanel";
 import { NarrativePanel } from "@/components/NarrativePanel";
 import { MeasureEvidence } from "@/components/MeasureEvidence";
 
@@ -302,6 +303,8 @@ export default function DesignWorkspace() {
         return <FloorPlanPanel projectId={id} initial={p.floorPlan} project={p} onChange={(fp) => setP((prev) => ({ ...prev, floorPlan: fp }))} />;
       case "solar":
         return <SolarPanel projectId={id} initial={p.solar} onChange={(v) => setP((prev) => ({ ...prev, solar: v }))} />;
+      case "heritage":
+        return <HeritagePanel projectId={id} initial={p.heritage} postcode={(p.property || {}).postcode || p.postcode} onChange={(v) => setP((prev) => ({ ...prev, heritage: v }))} />;
       case "narrative":
         return <NarrativePanel projectId={id} initial={p.sectionOverrides} onChange={(v) => setP((prev) => ({ ...prev, sectionOverrides: v }))} />;
       case "drawings":
@@ -334,7 +337,7 @@ export default function DesignWorkspace() {
             <div className="border border-border rounded-sm bg-card p-5">
               <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-3">All Design Checks</div>
               <div className="grid sm:grid-cols-2 gap-x-6 gap-y-2.5">
-                {p.measures.flatMap((m) => m.checks).map((c, i) => { const Icon = MARK_ICON[c.status] || Circle; return (
+                {p.measures.flatMap((m) => (m.checks || []).filter((c) => !/commissioning evidence/i.test(c.label || "")).map((c) => /target u-value/i.test(c.label || "") ? { label: m.targetU != null ? `Target U-value ${m.targetU.toFixed(2)} W/m\u00b2K` : "Target U-value \u2014 to confirm", status: "info" } : c)).map((c, i) => { const Icon = MARK_ICON[c.status] || Circle; return (
                   <div key={i} className="flex items-start gap-2.5 text-[12.5px]"><Icon className="h-4 w-4 mt-0.5 shrink-0" style={{ color: MARK_COLOR[c.status] }} strokeWidth={1.75} /><span>{c.label}</span></div>
                 ); })}
               </div>
@@ -369,7 +372,7 @@ export default function DesignWorkspace() {
   const sectionTitle = activeMeasure ? activeMeasure.name : {
     overview: "Overview", "existing-construction": "Existing Construction", survey: "Survey", photos: "Survey Photos",
     specifications: "Specifications", junctions: "Junctions", calculations: "Calculations", risks: "Risks",
-    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections", details: "Project Details", ventilation: "Ventilation", floorplan: "Floor Plan", solar: "Aerial & Solar", narrative: "Narrative Sections",
+    drawings: "Drawings", evidence: "Evidence", "design-pack": "Design Pack", "design-review": "Design Review", outstanding: "Outstanding Items", defects: "Defects", conditions: "Site Conditions", sections: "Sections", details: "Project Details", ventilation: "Ventilation", floorplan: "Floor Plan", solar: "Aerial & Solar", heritage: "Heritage", narrative: "Narrative Sections",
   }[section] || "Overview";
 
   return (
@@ -401,6 +404,7 @@ export default function DesignWorkspace() {
               <NavItem icon={Wind} label="Ventilation" section="ventilation" active={section} onClick={() => setSection("ventilation")} />
               <NavItem icon={Map} label="Floor Plan" section="floorplan" active={section} onClick={() => setSection("floorplan")} badge={(p.floorPlan?.markers?.length) || null} />
               <NavItem icon={Satellite} label="Aerial & Solar" section="solar" active={section} onClick={() => setSection("solar")} />
+              <NavItem icon={Landmark} label="Heritage" section="heritage" active={section} onClick={() => setSection("heritage")} badge={(p.heritage?.designations?.length) || null} />
               <NavItem icon={FileEdit} label="Narrative" section="narrative" active={section} onClick={() => setSection("narrative")} badge={Object.keys(p.sectionOverrides || {}).length || null} />
             </NavGroup>
             <NavGroup title="Measures">

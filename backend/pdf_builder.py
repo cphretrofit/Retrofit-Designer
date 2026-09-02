@@ -108,6 +108,11 @@ def _esc(s):
     return (str(s) if s is not None else "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _thk(v):
+    s = re.sub(r"\s*mm\s*$", "", str(v or ""), flags=re.I).strip()
+    return f"{s} mm" if s else ""
+
+
 def _chunk(lst, n):
     return [lst[i:i + n] for i in range(0, len(lst), n)]
 
@@ -863,8 +868,28 @@ def _scope_html(p, measures):
         groups += (f'<div style="margin-bottom:14px; border-left:2px solid {col}; padding-left:12px;">'
                    f'<div style="font-size:12.5px; font-weight:500; color:#262626;">{_esc(disp)} <span class="mono faint" style="font-size:9px;">PAS {_esc(m.get("pas") or m.get("code") or "")}</span></div>'
                    f'<div style="margin-top:4px;">{lis}</div></div>')
-    intro = "The works below deliver the proposed whole-house retrofit. Quantities and product references are confirmed in each measure's technical specification. Any defects listed in the Property Condition section are to be rectified before or concurrent with these works."
-    return [_np("Retrofit Strategy &middot; Scope of Works", "Scope of Works", groups or '<div class="muted" style="font-size:12px;">Measures to be confirmed.</div>', intro)]
+    intro = "This section sets out the works that deliver the proposed whole-house retrofit and the order in which they are installed. Quantities and product references are confirmed in each measure's technical specification. Any defects listed in the Property Condition section are to be rectified before or concurrent with these works."
+    # Installation sequence (merged in from the former standalone Sequence of Installation page)
+    fams = [_mfam(m.get("code"), m.get("name")) for m in measures]
+    steps = ["Pre-install: complete the Pre-Issue Register, confirm access, isolate services as required and rectify any recorded defects."]
+    labelmap = {"VENT": "Install ventilation provision (extract and background) ahead of fabric tightening.",
+                "WALL": "Install wall insulation with all junction and fire-barrier details.",
+                "WIN": "Install windows and external doors with trickle ventilators and airtight perimeter seals.",
+                "LOFT": "Install loft insulation, hatch and eaves ventilation.",
+                "FLOOR": "Install floor insulation maintaining sub-floor ventilation.",
+                "ASHP": "Install and commission the heat pump, cylinder, emitters and controls.",
+                "SOLAR": "Install, test and register the solar PV system."}
+    for f in ["VENT", "WALL", "WIN", "LOFT", "FLOOR", "ASHP", "SOLAR"]:
+        if f in fams and labelmap.get(f):
+            steps.append(labelmap[f])
+    steps.append("Commissioning & handover: commission all systems, complete certificates and provide the tenant handover pack and guidance.")
+    seq_block = ('<div class="faint upper" style="font-size:9.5px; margin-top:28px; margin-bottom:8px;">Installation Sequence</div>'
+                 '<div class="muted" style="font-size:11px; margin-bottom:10px;">Indicative sequence to co-ordinate trades and manage measure interactions; ventilation is installed first. Confirm the final programme with the Retrofit Coordinator.</div>'
+                 f'<div>{_spec_list(steps, True)}</div>')
+    body = ('<div class="faint upper" style="font-size:9.5px; margin-bottom:10px;">Works by Measure</div>'
+            + (groups or '<div class="muted" style="font-size:12px;">Measures to be confirmed.</div>')
+            + seq_block)
+    return [_np("Retrofit Strategy &middot; Sequence of Work", "Sequence of Work", body, intro)]
 
 
 def _sequence_html(p, measures):
@@ -1103,15 +1128,13 @@ def _design_summary_html(p, measures):
         fam = _mfam(m.get("code"), m.get("name"))
         col = MEASURE_COLORS[fam]
         pas = m.get("pas") or m.get("code") or "—"
-        st = (m.get("status") or "").replace("_", " ").title() or "Designed"
         m_rows += (f'<tr><td class="mono faint" style="width:7%; padding-top:9px; vertical-align:top;">{str(i).zfill(2)}</td>'
                    f'<td style="padding-top:9px; vertical-align:top;"><span style="display:inline-block; width:8px; height:8px; background:{col}; margin-right:9px; vertical-align:middle;"></span>'
                    f'<span style="color:#262626;">{_esc(m.get("name"))}</span></td>'
-                   f'<td class="mono" style="width:20%; color:#525252; padding-top:9px; vertical-align:top;">PAS {_esc(pas)}</td>'
-                   f'<td style="width:20%; font-size:10.5px; color:#525252; text-align:right; padding-top:9px; vertical-align:top;">{_esc(st)}</td></tr>')
-    m_rows = m_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Measures to be confirmed.</td></tr>'
+                   f'<td class="mono" style="width:24%; color:#525252; text-align:right; padding-top:9px; vertical-align:top;">PAS {_esc(pas)}</td></tr>')
+    m_rows = m_rows or '<tr><td colspan="3" class="muted" style="font-size:12px;">Measures to be confirmed.</td></tr>'
     meas_table = ('<div class="faint upper" style="font-size:9.5px; margin-top:26px; margin-bottom:6px;">Measures Schedule</div>'
-                  '<table><thead><tr><th style="width:7%;">#</th><th>Measure</th><th style="width:20%;">PAS 2030:2023</th><th style="width:20%; text-align:right;">Status</th></tr></thead>'
+                  '<table><thead><tr><th style="width:7%;">#</th><th>Measure</th><th style="width:24%; text-align:right;">PAS 2030:2023</th></tr></thead>'
                   f'<tbody>{m_rows}</tbody></table>')
 
     # Outstanding items summary (by severity, then top items)
@@ -2110,28 +2133,20 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("mitigation"))}</div>')
 
     # ---- Measures schedule ----
-    MST = {"designed": "#16A34A", "in_progress": "#B45309", "outstanding": "#B45309", "not_started": "#a3a3a3", "retained": "#525252"}
-    MST_LBL = {"designed": "Designed", "in_progress": "In progress", "outstanding": "Outstanding", "not_started": "Not started", "retained": "Retained"}
     ms_rows = ""
     for m in measures:
         eu, cu = m.get("existingU"), m.get("calculatedU")
         uval = f"{eu:.2f} &#8594; {cu:.2f}" if (eu is not None and cu is not None) else '<span class="faint">n/a</span>'
-        st = m.get("status") or "not_started"
-        stc = MST.get(st, "#a3a3a3")
         code = _esc(("PAS " + m["pas"]) if m.get("pas") else (m.get("code") or ""))
-        comp = m.get("completion")
-        comp_s = f"{comp}%" if comp is not None else "—"
         ms_rows += (f'<tr><td class="mono faint" style="width:12%; font-size:10px;">{code}</td>'
-                    f'<td style="width:26%; color:#262626;">{_esc(m.get("name"))}</td>'
+                    f'<td style="width:28%; color:#262626;">{_esc(m.get("name"))}</td>'
                     f'<td class="muted" style="font-size:10px;">{_esc(m.get("system"))}</td>'
-                    f'<td class="mono" style="width:15%; text-align:right; font-size:10px;">{uval}</td>'
-                    f'<td style="width:16%; text-align:right;"><span style="display:inline-block; width:7px; height:7px; border-radius:50%; background:{stc}; margin-right:6px; vertical-align:middle;"></span>'
-                    f'<span style="font-size:10px; color:{stc};">{MST_LBL.get(st, st)}</span> <span class="mono faint" style="font-size:9px;">{comp_s}</span></td></tr>')
+                    f'<td class="mono" style="width:16%; text-align:right; font-size:10px;">{uval}</td></tr>')
     measures_schedule_page = (
         '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 03 · Retrofit Measures</div>'
         '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Measures Schedule</div>'
         f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(p.get("measureSummary") or "")}</div>'
-        '<table style="margin-top:18px;"><thead><tr><th style="width:12%;">Ref</th><th style="width:26%;">Measure</th><th>Specification</th><th style="text-align:right;">U-value</th><th style="text-align:right;">Status</th></tr></thead>'
+        '<table style="margin-top:18px;"><thead><tr><th style="width:12%;">Ref</th><th style="width:28%;">Measure</th><th>Specification</th><th style="text-align:right;">U-value</th></tr></thead>'
         f'<tbody>{ms_rows}</tbody></table>')
 
     # ---- Per-measure technical specification pages (rich, paginated) ----
@@ -2159,9 +2174,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         def _head(sub):
             return (f'<div style="display:flex; align-items:center; gap:8px;"><span style="width:9px; height:9px; border-radius:2px; background:{col}; display:inline-block;"></span>'
                     f'<span class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 05.{idx} &middot; {sub}</span></div>'
-                    f'<div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:6px; border-bottom:2px solid {col}; padding-bottom:8px;">'
-                    f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em;">{icon}{title}</div>'
-                    f'<span class="chip" style="margin:0; border-color:{col}; color:{col};">PAS {pas}</span></div>')
+                    f'<div style="display:flex; justify-content:space-between; align-items:baseline; gap:16px; margin-top:6px; border-bottom:2px solid {col}; padding-bottom:8px;">'
+                    f'<div style="flex:1; min-width:0; font-weight:400; font-size:22px; line-height:1.15; letter-spacing:-0.01em;">{icon}{title}</div>'
+                    f'<span class="chip" style="margin:0; flex-shrink:0; white-space:nowrap; border-color:{col}; color:{col};">PAS {pas}</span></div>')
 
         system_html = f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
         _mp = _photos_for_measure(m.get("code"), photo_uris or [], used_figs)
@@ -2261,7 +2276,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         if bu:
             rows = "".join(
                 f'<tr><td class="mono faint" style="width:10%;">{_esc(l.get("no"))}</td><td style="color:#262626;">{_esc(l.get("material"))}</td>'
-                f'<td class="mono" style="text-align:right; width:20%;">{_esc(l.get("thickness"))} mm</td><td class="mono muted" style="text-align:right; width:18%;">{_esc(l.get("lambda"))}</td></tr>'
+                f'<td class="mono" style="text-align:right; width:20%;">{_esc(_thk(l.get("thickness")))}</td><td class="mono muted" style="text-align:right; width:18%;">{_esc(l.get("lambda"))}</td></tr>'
                 for l in bu)
             bu_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Construction Build-up</div>'
                        '<table><thead><tr><th style="width:10%;">Layer</th><th>Material</th><th style="text-align:right;">Thickness</th><th style="text-align:right;">&#955; (W/mK)</th></tr></thead>'
@@ -2289,12 +2304,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         if jns:
             jr = ""
             for j in jns[:8]:
-                js = j.get("status") or "not_started"
-                jc = JST.get(js, "#a3a3a3")
                 jr += (f'<tr><td style="width:14%; padding:6px 0;">{_junction_svg(j.get("name"))}</td>'
-                       f'<td style="width:19%; color:#262626;">{_esc(j.get("name"))}</td>'
-                       f'<td style="width:7%;"><span style="color:{jc}; font-size:12px;">{JSY.get(js, "&#8211;")}</span></td>'
-                       f'<td class="mono faint" style="width:20%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
+                       f'<td style="width:22%; color:#262626;">{_esc(j.get("name"))}</td>'
+                       f'<td class="mono faint" style="width:22%; font-size:9.5px;">{_esc(j.get("detail"))}</td>'
                        f'<td class="muted" style="font-size:10px;">{_esc(j.get("note"))}</td></tr>')
             _ins = None
             _best_th = -1.0
@@ -2328,7 +2340,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           + f'<div class="faint mono" style="font-size:7.5px; margin-top:5px; letter-spacing:0.04em;">SCALE NTS &middot; fRsi &gt; 0.75 &middot; BRE IP1/06</div>'
                           f'</div></div>')
             jn_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Junction Schedule</div>'
-                       '<table><thead><tr><th style="width:14%;">Detail</th><th style="width:19%;">Junction</th><th style="width:7%;"></th><th style="width:20%;">Detail Ref</th><th>Note</th></tr></thead>'
+                       '<table><thead><tr><th style="width:14%;">Detail</th><th style="width:22%;">Junction</th><th style="width:22%;">Detail Ref</th><th>Note</th></tr></thead>'
                        f'<tbody>{jr}</tbody></table>'
                        '<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:8px;">Construction Details &mdash; Auto-generated</div>'
                        f'<div>{cards}</div>')
@@ -2599,7 +2611,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     preliminaries_page = _ov_page(p, "preliminaries") or _preliminaries_html(p)
     overheating_page = _ov_page(p, "overheating") or _overheating_html(p, measures)
     scope_pages = ([_ov_page(p, "scope")] if _ov_page(p, "scope") else _scope_html(p, measures))
-    sequence_page = _ov_page(p, "sequence") or _sequence_html(p, measures)
     matrix_page = _ov_page(p, "matrix") or _interaction_matrix_html(measures)
     standards_page = _ov_page(p, "standards") or _standards_html(p, measures)
     exclusions_page = _ov_page(p, "exclusions") or _exclusions_html(p, measures)
@@ -2614,7 +2625,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              ventilation_page, *([floorplan_page] if floorplan_page else []),
              preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
-             *scope_pages, sequence_page, matrix_page,
+             *scope_pages, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
              *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), *defects_pages, *items_pages]

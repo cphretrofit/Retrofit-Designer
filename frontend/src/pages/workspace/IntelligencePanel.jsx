@@ -4,7 +4,18 @@ import { MARK_ICON, MARK_COLOR } from "./constants";
 
 export function IntelligencePanel({ p, measure }) {
   const checks = (() => {
-    const raw = measure ? measure.checks : p.measures.flatMap((m) => m.checks);
+    const src = measure ? [measure] : p.measures;
+    const raw = [];
+    for (const m of src) {
+      for (const c of (m.checks || [])) {
+        if (/commissioning evidence/i.test(c.label || "")) continue;
+        if (/target u-value/i.test(c.label || "")) {
+          raw.push({ label: m.targetU != null ? `Target U-value ${m.targetU.toFixed(2)} W/m\u00b2K` : "Target U-value \u2014 to confirm", status: "info" });
+        } else {
+          raw.push({ label: c.label, status: c.status });
+        }
+      }
+    }
     const seen = new Set();
     const out = [];
     for (const c of raw) { if (!seen.has(c.label)) { seen.add(c.label); out.push(c); } }

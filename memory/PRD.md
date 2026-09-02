@@ -40,17 +40,19 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   space, e.g. stored `RG80TU` → `RG8 0TU`) before hitting postcodes.io, which was 404-ing on the unspaced
   form. Restores geocoding → solar lookup → cover/page-2 aerial inset.
 
-## OPEN BACKLOG (latest user batch — next dedicated pass)
-P0/P1:
-- **Aerial/top-down image on page 2** — verify it now renders after the postcode fix; if the user still wants
-  it larger/separate from the cover inset, add a dedicated block.
-- **QR on page 02 → PDF** of the design, not the app login. Needs a public/shareable pack URL
-  (object-storage public link); current link is auth-gated `/project/:id`.
-- **Specifications page** layout/margins/alignment TLC (see user screenshot — heading overlaps body text).
-- **Ventilation requirements & strategy** section layout/alignment TLC.
-- **Rename "Scope of Works" → "Sequence of Work"** and **merge** with "Sequence of Installation" into one section.
-- **Comprehensive duplication audit**: find duplicate sections/pages (from prior tinkering), then a content-logic
-  second pass — for each: is it here twice? is it needed? Remove only after confirming.
+## OPEN BACKLOG (remaining — next dedicated pass)
+- **Ventilation Requirements & Strategy** page layout/alignment TLC.
+- **QR on page 02 → public PDF** of the design (needs a shareable/tokenised pack URL; current link is auth-gated).
+- **Ventilation Strategy uploader**: dedicated import parsing the Air Tightness Strategy xlsx + ADF1 Table D1 Ventilation Checklist xlsx → populate the Ventilation section + a dedicated pack section.
+- **Comprehensive duplication audit**: many spec sub-pages per measure; junction content appears on several — audit for genuine duplicates and consolidate after confirming.
+
+## DONE — Jun 2026 batch 3
+- Removed PDF progress/status markers: Measures Schedule "In progress %" column, junction "pending" column, directory Status column. (Frontend drawer keeps completion% as an internal tool.)
+- Merged Scope of Works + Sequence of Installation → single **"Sequence of Work"** page (works-by-measure, ventilation first, then installation sequence).
+- **Heritage** section added to workspace (`HeritagePanel.jsx`, nav, route) — designations, assessment, mitigation, re-run; already in PDF.
+- Drawer + Outstanding view: removed "Commissioning evidence uploaded"; "Target U-value achieved" → shows target number (neutral `info`).
+- Specifications pages: fixed title/PAS-chip collision and duplicated "mm mm" in build-up table (`_thk`).
+- Aerial page-2/postcode fixed earlier (RG80TU→RG8 0TU normalisation).
 
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
