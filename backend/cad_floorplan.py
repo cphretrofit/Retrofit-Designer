@@ -1,6 +1,7 @@
 """Render a hand-drawn survey floor plan (AI-reconstructed geometry) as a clean
 professional CAD-style floor plan, as inline SVG."""
 import html
+import re
 
 
 def _esc(s):
@@ -12,6 +13,67 @@ def _num(v, d=0.0):
         return float(v)
     except Exception:
         return d
+
+
+def _wrap(text, maxchars):
+    words = str(text or "").split()
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > maxchars:
+            lines.append(cur); cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def _resolve_overlaps(rooms):
+    """Split rooms that the AI traced on top of each other (e.g. two bedrooms in one
+    rectangle) so every room occupies its own space and labels never collide."""
+    rooms = [dict(r) for r in (rooms or [])]
+    n = len(rooms)
+    if n < 2:
+        return rooms
+
+    def R(r):
+        return (_num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h")))
+
+    def ov(a, b):
+        ax, ay, aw, ah = R(a); bx, by, bw, bh = R(b)
+        return max(0.0, min(ax + aw, bx + bw) - max(ax, bx)) * max(0.0, min(ay + ah, by + bh) - max(ay, by))
+
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            amin = min(_num(rooms[i].get("w")) * _num(rooms[i].get("h")),
+                       _num(rooms[j].get("w")) * _num(rooms[j].get("h")))
+            if amin > 0 and ov(rooms[i], rooms[j]) / amin > 0.35:
+                parent[find(i)] = find(j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    for idxs in groups.values():
+        if len(idxs) < 2:
+            continue
+        ux = min(_num(rooms[i].get("x")) for i in idxs)
+        uy = min(_num(rooms[i].get("y")) for i in idxs)
+        uw = max(_num(rooms[i].get("x")) + _num(rooms[i].get("w")) for i in idxs) - ux
+        uh = max(_num(rooms[i].get("y")) + _num(rooms[i].get("h")) for i in idxs) - uy
+        k = len(idxs)
+        if uw >= uh:
+            for c, i in enumerate(sorted(idxs, key=lambda i: _num(rooms[i].get("x")))):
+                rooms[i]["x"], rooms[i]["y"], rooms[i]["w"], rooms[i]["h"] = ux + uw * c / k, uy, uw / k, uh
+        else:
+            for c, i in enumerate(sorted(idxs, key=lambda i: _num(rooms[i].get("y")))):
+                rooms[i]["x"], rooms[i]["y"], rooms[i]["w"], rooms[i]["h"] = ux, uy + uh * c / k, uw, uh / k
+    return rooms
 
 
 def _dim_h(x1, x2, y, text, above=True):
@@ -58,11 +120,25 @@ def _north():
             '</g>')
 
 
+def _hatch_rect(x, y, w, h, gap=15, color="#B45309", sw=1.0, opacity=0.5):
+    """45-degree diagonal hatch clipped to a rectangle, as explicit <line>s
+    (SVG <pattern> is not reliably supported by WeasyPrint / PyMuPDF)."""
+    segs = []
+    c = y - (x + w)
+    cmax = y + h - x
+    while c <= cmax:
+        xlo = max(x, y - c); xhi = min(x + w, y + h - c)
+        if xhi > xlo:
+            segs.append(f'<line x1="{xlo:.1f}" y1="{xlo+c:.1f}" x2="{xhi:.1f}" y2="{xhi+c:.1f}" stroke="{color}" stroke-width="{sw}" opacity="{opacity}"/>')
+        c += gap
+    return "".join(segs)
+
+
 def build_cad_floorplan_svg(d: dict) -> str:
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
     H = _num(ov.get("h"), 6.0) or 6.0
-    rooms = d.get("rooms") or []
+    rooms = _resolve_overlaps(d.get("rooms") or [])
 
     VB_W = 1040
     col_x = 745                      # right column divider
@@ -94,8 +170,8 @@ def build_cad_floorplan_svg(d: dict) -> str:
                  '<text x="510" y="46" font-size="14" font-family="Georgia,serif">100% solid/timber/system</text>')
     parts.append('<text x="1010" y="40" font-size="12" text-anchor="end" font-family="Georgia,serif" fill="#333">July 2021 Version 3.5</text>')
 
-    # floor label
-    parts.append(f'<text x="{X0-70:.0f}" y="{Y0-8:.0f}" font-size="20" font-style="italic" font-family="Georgia,serif">{_esc(d.get("title") or "GF")}</text>')
+    # floor label — placed in the left margin above the left dimension (clear of walls)
+    parts.append(f'<text x="44" y="{Y0-18:.0f}" font-size="19" font-style="italic" font-family="Georgia,serif">{_esc(d.get("title") or "GF")}</text>')
 
     # --- walls: classify each room edge exterior/interior by sampling just outside ---
     eps = 0.06
@@ -124,6 +200,17 @@ def build_cad_floorplan_svg(d: dict) -> str:
     for r in rooms:
         rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
         parts.append(f'<rect x="{mx(rx):.1f}" y="{my(ry):.1f}" width="{rw*S:.1f}" height="{rh*S:.1f}" fill="#f6f5f2" stroke="#e4e1da" stroke-width="0.6"/>')
+    # loft insulation — hatch the whole top-floor footprint (covers every ceiling)
+    loft_note = next((n for n in (d.get("notes") or []) if "loft insul" in str(n).lower()), None)
+    loft_on = bool(d.get("loftCoverage")) or bool(loft_note)
+    _m = re.search(r"(\d+\s?mm)", str(d.get("loftCoverage") or loft_note or ""))
+    _loft_depth = f" ({_m.group(1)})" if _m else ""
+    legend = list(d.get("legend") or [])
+    if loft_on:
+        for r in rooms:
+            rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            parts.append(_hatch_rect(mx(rx), my(ry), rw * S, rh * S))
+        legend.append(f"Loft insulation \u2014 full ceiling coverage{_loft_depth}")
     # interior walls
     for (x1, y1, x2, y2, ext) in wall_segs:
         if ext:
@@ -199,17 +286,19 @@ def build_cad_floorplan_svg(d: dict) -> str:
             parts.append(f'<text x="{x:.1f}" y="{y-10:.1f}" font-size="11" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
         elif t == "cylinder":
             parts.append(f'<rect x="{x-9:.1f}" y="{y-9:.1f}" width="18" height="18" fill="none" stroke="#111" stroke-width="1"/>')
-            parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "C")}</text>')
+            if len(lbl) > 2:
+                parts.append(f'<text x="{x:.1f}" y="{y+22:.1f}" font-size="11" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
+            else:
+                parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "C")}</text>')
         elif t == "lofthatch":
             parts.append(f'<rect x="{x-16:.1f}" y="{y-11:.1f}" width="32" height="22" fill="#fff" stroke="#111" stroke-width="1.2"/>')
             parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "LH")}</text>')
 
-    # front door label
+    # front door label — below the bottom dimension line, clear of the wall
     fd = d.get("frontDoor") or {}
     if fd:
-        x, y = mx(_num(fd.get("x"))), my(_num(fd.get("y", H)))
-        parts.append(f'<text x="{x:.1f}" y="{y+22:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">Front</text>')
-        parts.append(f'<text x="{x:.1f}" y="{y+36:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">Door</text>')
+        x = mx(_num(fd.get("x")))
+        parts.append(f'<text x="{x:.1f}" y="{Y0+ph+82:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">Front Door</text>')
 
     # --- dimension chains ---
     def chain_h(dims, yline, above, fit_px, normalize=True):
@@ -238,36 +327,52 @@ def build_cad_floorplan_svg(d: dict) -> str:
     chain_v(d.get("leftDims"), X0 - 44, ph)
     chain_v(d.get("rightDims"), X0 + pw + 44, ph)
 
-    # --- right column ---
+    # --- right column (all text wrapped to the column width) ---
     ry = 70
+    RCX = col_x + 22
     for line in (d.get("address") or []):
-        parts.append(f'<text x="{col_x+22}" y="{ry}" font-size="19" font-style="italic" font-family="Georgia,serif">{_esc(line)}</text>')
-        ry += 26
+        for wl in _wrap(line, 26):
+            parts.append(f'<text x="{RCX}" y="{ry}" font-size="18" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+            ry += 25
     # north arrow
     parts.append(f'<g transform="translate({col_x+120},{ry+20})">{_north()}</g>')
     ry += 150
     db = d.get("dataBox") or {}
     if db:
-        parts.append(f'<text x="{col_x+120}" y="{ry}" font-size="26" font-style="italic" text-anchor="middle" font-family="Georgia,serif">{_esc(db.get("title") or "Main GF")}</text>')
-        parts.append(f'<line x1="{col_x+55}" y1="{ry+6}" x2="{col_x+185}" y2="{ry+6}" stroke="#111" stroke-width="1"/>')
-        ry += 40
+        for tl in _wrap(db.get("title") or "Main GF", 22):
+            parts.append(f'<text x="{col_x+120}" y="{ry}" font-size="20" font-style="italic" text-anchor="middle" font-family="Georgia,serif">{_esc(tl)}</text>')
+            ry += 26
+        parts.append(f'<line x1="{col_x+55}" y1="{ry-16}" x2="{col_x+185}" y2="{ry-16}" stroke="#111" stroke-width="1"/>')
+        ry += 10
         for row in (db.get("rows") or []):
             if isinstance(row, (list, tuple)) and len(row) == 2:
-                parts.append(f'<text x="{col_x+22}" y="{ry}" font-size="18" font-style="italic" font-family="Georgia,serif">{_esc(row[0])} = {_esc(row[1])}</text>')
-                ry += 30
-    ry += 30
+                for wl in _wrap(f"{row[0]} = {row[1]}", 28):
+                    parts.append(f'<text x="{RCX}" y="{ry}" font-size="17" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+                    ry += 27
+    ry += 22
     for note in (d.get("notes") or []):
-        parts.append(f'<text x="{col_x+22}" y="{ry}" font-size="16" font-style="italic" font-family="Georgia,serif">{_esc(note)}</text>')
-        ry += 26
-    ry += 12
-    for lg in (d.get("legend") or []):
-        parts.append(f'<text x="{col_x+22}" y="{ry}" font-size="15" font-style="italic" font-family="Georgia,serif">{_esc(lg)}</text>')
-        ry += 24
+        for wl in _wrap(note, 32):
+            parts.append(f'<text x="{RCX}" y="{ry}" font-size="15" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+            ry += 23
+    ry += 10
+    for lg in legend:
+        if "loft insulation" in str(lg).lower():
+            parts.append(f'<rect x="{RCX}" y="{ry-11:.0f}" width="16" height="12" fill="#fff" stroke="#B45309" stroke-width="0.8"/>')
+            parts.append(_hatch_rect(RCX, ry - 11, 16, 12, gap=5))
+            for k, wl in enumerate(_wrap(lg, 27)):
+                parts.append(f'<text x="{RCX+22}" y="{ry}" font-size="14" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+                ry += 22
+        else:
+            for wl in _wrap(lg, 32):
+                parts.append(f'<text x="{RCX}" y="{ry}" font-size="14.5" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+                ry += 22
 
-    # --- bottom title block (placed just below the tallest column) ---
-    content_bottom = max(Y0 + ph + 112, ry + 8)
-    parts.append(f'<line x1="{col_x}" y1="24" x2="{col_x}" y2="{content_bottom:.0f}" stroke="#111" stroke-width="1"/>')
-    by = content_bottom + 26
+    # --- bottom title block: sits directly under the PLAN (left of the divider),
+    #     independent of the right-column height, to avoid a large empty band ---
+    by = Y0 + ph + 114
+    sig_bottom = by + 110
+    col_bottom = max(sig_bottom + 6, ry + 6)
+    parts.append(f'<line x1="{col_x}" y1="24" x2="{col_x}" y2="{col_bottom:.0f}" stroke="#111" stroke-width="1"/>')
     parts.append(f'<rect x="40" y="{by:.0f}" width="{col_x-70}" height="110" fill="none" stroke="#111" stroke-width="1"/>')
     parts.append(f'<text x="58" y="{by+34:.0f}" font-size="14" font-family="Georgia,serif">I confirm that, to the best of my knowledge, the information provided on this form has been</text>')
     parts.append(f'<text x="58" y="{by+56:.0f}" font-size="14" font-family="Georgia,serif">recorded on site and is accurate.</text>')
@@ -275,9 +380,9 @@ def build_cad_floorplan_svg(d: dict) -> str:
     parts.append(f'<text x="58" y="{by+98:.0f}" font-size="14" font-family="Georgia,serif">Assessor/Operative signature:</text>')
     dt = d.get("date") or ""
     parts.append(f'<text x="{col_x-60}" y="{by+98:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">Date: {_esc(dt)}</text>')
-    parts.append(f'<text x="1010" y="{by+108:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">7</text>')
+    parts.append(f'<text x="1010" y="{col_bottom-8:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">7</text>')
 
-    VB_H = by + 150
+    VB_H = col_bottom + 28
     head = (f'<svg viewBox="0 0 {VB_W} {VB_H:.0f}" xmlns="http://www.w3.org/2000/svg" '
             f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
             f'<rect x="0" y="0" width="{VB_W}" height="{VB_H:.0f}" fill="#fff"/>')
