@@ -46,6 +46,8 @@ export const uploadDefectPhoto = (id, did, file, caption = "") => {
   return api.post(`/projects/${id}/defects/${did}/photo`, fd).then((r) => r.data);
 };
 export const autoMatchDefectPhotos = (id) => api.post(`/projects/${id}/defects/auto-match-photos`).then((r) => r.data);
+export const startPackJob = (id, origin) => api.post(`/projects/${id}/pack/generate`, null, { params: { origin } }).then((r) => r.data);
+export const packJobStatus = (id, jobId) => api.get(`/projects/${id}/pack/jobs/${jobId}`).then((r) => r.data);
 export const attachDefectSurveyPhoto = (id, did, url, fig, caption) =>
   api.post(`/projects/${id}/defects/${did}/attach-survey-photo`, { url, fig, caption }).then((r) => r.data);
 

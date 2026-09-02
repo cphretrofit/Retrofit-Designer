@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images } from "lucide-react";
+import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images, ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 
 const SEV = {
   high: { c: "var(--c-critical)", l: "High" },
@@ -71,6 +71,31 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
       await updateField(projectId, { path: `defects.${idx}.photo`, value: g.url });
       sync(defects.map((x) => (x.id === d.id ? { ...x, photo: g.url, photoCaption: g.caption || x.photoCaption } : x)));
     } catch { toast.error("Could not update photo"); }
+  };
+
+  const [zoom, setZoom] = useState(null);
+  const galleryOf = (d) => (Array.isArray(d.photos) && d.photos.length ? d.photos : (d.photo ? [{ url: d.photo, caption: d.photoCaption || "" }] : []));
+  const openZoom = (d, url) => { const list = galleryOf(d); if (!list.length) return; const idx = Math.max(0, list.findIndex((g) => g.url === url)); setZoom({ id: d.id, index: idx }); };
+  const saveGalleryCaption = async (d, gi, value) => {
+    const idx = defects.findIndex((x) => x.id === d.id);
+    if (idx < 0) return;
+    const hasArr = Array.isArray(d.photos) && d.photos.length;
+    const cur = hasArr ? (d.photos[gi]?.caption || "") : (d.photoCaption || "");
+    if (value === cur) return;
+    const isPrimary = hasArr ? d.photos[gi]?.url === d.photo : true;
+    try {
+      const ops = [];
+      if (hasArr) ops.push(updateField(projectId, { path: `defects.${idx}.photos.${gi}.caption`, value }));
+      if (isPrimary) ops.push(updateField(projectId, { path: `defects.${idx}.photoCaption`, value }));
+      await Promise.all(ops);
+      sync(defects.map((x) => {
+        if (x.id !== d.id) return x;
+        const nx = { ...x };
+        if (hasArr) { const ph = structuredClone(x.photos); ph[gi] = { ...ph[gi], caption: value }; nx.photos = ph; }
+        if (isPrimary) nx.photoCaption = value;
+        return nx;
+      }));
+    } catch { toast.error("Could not save caption"); }
   };
 
   const applySeverity = async (d) => {
@@ -155,7 +180,10 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
               <div className="flex gap-4 p-4">
                 <div className="w-28 shrink-0 space-y-1.5">
                   {d.photo ? (
-                    <img src={mediaUrl(d.photo)} alt="defect" className="w-28 h-20 object-cover border border-border rounded-sm" data-testid={`defect-photo-${d.id}`} />
+                    <button onClick={() => openZoom(d, d.photo)} className="block w-28 h-20 rounded-sm overflow-hidden border border-border relative group" data-testid={`defect-photo-${d.id}`}>
+                      <img src={mediaUrl(d.photo)} alt="defect" className="w-full h-full object-cover" />
+                      <span className="absolute bottom-1 right-1 bg-background/80 rounded-sm p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="h-3 w-3" strokeWidth={2} /></span>
+                    </button>
                   ) : (
                     <button onClick={() => fileRefs.current[d.id]?.click()} disabled={photoBusy === d.id} data-testid={`defect-attach-${d.id}`}
                       className="w-28 h-20 border border-dashed border-border rounded-sm flex flex-col items-center justify-center gap-1 text-muted-foreground hover:bg-secondary text-[10.5px]">
@@ -177,7 +205,7 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
                   {Array.isArray(d.photos) && d.photos.length > 1 && (
                     <div className="flex flex-wrap gap-1 w-28" data-testid={`defect-gallery-strip-${d.id}`}>
                       {d.photos.map((g, gi) => (
-                        <button key={gi} onClick={() => setPrimaryPhoto(d, g)} title="Set as main photo"
+                        <button key={gi} onClick={() => openZoom(d, g.url)} title="View / caption"
                           data-testid={`defect-thumb-${d.id}-${gi}`}
                           className={`w-[34px] h-[26px] rounded-sm overflow-hidden border transition-opacity ${d.photo === g.url ? "border-foreground" : "border-border opacity-60 hover:opacity-100"}`}>
                           <img src={mediaUrl(g.url)} alt="" className="w-full h-full object-cover" />
@@ -234,6 +262,38 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
           </div>
         </div>
       )}
+
+      {zoom && (() => {
+        const d = defects.find((x) => x.id === zoom.id);
+        if (!d) return null;
+        const list = galleryOf(d);
+        if (!list.length) return null;
+        const gi = Math.min(zoom.index, list.length - 1);
+        const g = list[gi];
+        const isPrimary = g.url === d.photo;
+        return (
+          <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="defect-lightbox" onClick={() => setZoom(null)}>
+            <div className="flex-1 min-h-0 flex items-center justify-center gap-2" onClick={(e) => e.stopPropagation()}>
+              {list.length > 1 && (
+                <button onClick={() => setZoom({ id: d.id, index: (gi - 1 + list.length) % list.length })} data-testid="lightbox-prev" className="p-2 text-muted-foreground hover:text-foreground shrink-0"><ChevronLeft className="h-7 w-7" strokeWidth={1.5} /></button>
+              )}
+              <img src={mediaUrl(g.url)} alt={g.caption || "defect"} className="max-h-[72vh] max-w-[78vw] object-contain rounded-sm border border-border" data-testid="lightbox-image" />
+              {list.length > 1 && (
+                <button onClick={() => setZoom({ id: d.id, index: (gi + 1) % list.length })} data-testid="lightbox-next" className="p-2 text-muted-foreground hover:text-foreground shrink-0"><ChevronRight className="h-7 w-7" strokeWidth={1.5} /></button>
+              )}
+            </div>
+            <div className="shrink-0 max-w-2xl w-full mx-auto mt-4 flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
+              <span className="text-[12px] font-medium text-muted-foreground shrink-0">{d.element || "Defect"}</span>
+              <input key={g.url} defaultValue={g.caption || ""} placeholder="Photo caption…" data-testid="lightbox-caption"
+                onBlur={(e) => saveGalleryCaption(d, gi, e.target.value)}
+                className="flex-1 h-9 px-3 bg-card border border-border rounded-sm text-[12.5px] outline-none focus:border-foreground/40" />
+              {!isPrimary && <button onClick={() => setPrimaryPhoto(d, g)} data-testid="lightbox-setmain" className="h-9 px-3 border border-border rounded-sm text-[12px] hover:bg-secondary whitespace-nowrap">Set as main</button>}
+              <span className="text-[11px] font-mono text-muted-foreground shrink-0">{gi + 1}/{list.length}</span>
+              <button onClick={() => setZoom(null)} data-testid="lightbox-close" className="h-9 px-3 text-[12px] text-muted-foreground hover:text-foreground shrink-0">Close</button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

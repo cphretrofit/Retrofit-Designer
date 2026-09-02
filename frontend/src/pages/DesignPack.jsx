@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, API } from "@/lib/api";
+import { getProject, API, startPackJob, packJobStatus } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ArrowLeft, Download, Printer, Loader2 } from "lucide-react";
@@ -53,6 +53,8 @@ export default function DesignPack() {
   const navigate = useNavigate();
   const [p, setP] = useState(null);
   const [dl, setDl] = useState(false);
+  const [prog, setProg] = useState(0);
+  const [stage, setStage] = useState("");
   const [loading, setLoading] = useState(true);
   const [thumbs, setThumbs] = useState([]);
   const [css, setCss] = useState("");
@@ -96,23 +98,35 @@ export default function DesignPack() {
 
   const exportPdf = async () => {
     try {
-      setDl(true);
-      const res = await fetch(`${API}/projects/${id}/pack.pdf?origin=${encodeURIComponent(window.location.origin)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("export failed");
-      const blob = await res.blob();
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = `${p.ref}-${p.name}-Rev${p.revision}.pdf`.replace(/[^A-Za-z0-9._-]+/g, "_");
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(href);
-      toast.success("Design Pack exported", { description: "Your PDF has been downloaded." });
+      setDl(true); setProg(2); setStage("Starting…");
+      const { job_id } = await startPackJob(id, window.location.origin);
+      let done = false;
+      for (let i = 0; i < 150 && !done; i++) {
+        await new Promise((r) => setTimeout(r, i < 6 ? 1500 : 2500));
+        const s = await packJobStatus(id, job_id);
+        setProg(s.progress || 0); setStage(s.stage || "");
+        if (s.status === "error") throw new Error(s.error || "failed");
+        if (s.ready) {
+          done = true;
+          const res = await fetch(`${API}/projects/${id}/pack/jobs/${job_id}/download`, { credentials: "include" });
+          if (!res.ok) throw new Error("download failed");
+          const blob = await res.blob();
+          const href = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = href;
+          a.download = s.filename || `${p.ref}-${p.name}-Rev${p.revision}.pdf`.replace(/[^A-Za-z0-9._-]+/g, "_");
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(href);
+          toast.success("Design Pack exported", { description: "Your PDF has been downloaded." });
+        }
+      }
+      if (!done) throw new Error("timeout");
     } catch {
       toast.error("Could not export PDF", { description: "Please try again in a moment." });
     } finally {
-      setDl(false);
+      setDl(false); setProg(0); setStage("");
     }
   };
 
@@ -134,6 +148,15 @@ export default function DesignPack() {
           <button onClick={exportPdf} disabled={dl} className="flex items-center gap-2 h-8 px-3.5 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60" data-testid="pack-download">{dl ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : <Download className="h-3.5 w-3.5" strokeWidth={1.75} />} {dl ? "Exporting…" : "Export PDF"}</button>
         </div>
       </header>
+
+      {dl && (
+        <div className="h-8 shrink-0 border-b border-border bg-background flex items-center gap-3 px-5" data-testid="pack-progress">
+          <div className="flex-1 h-1.5 bg-secondary rounded-full overflow-hidden">
+            <div className="h-full bg-primary transition-all duration-500" style={{ width: `${prog}%` }} />
+          </div>
+          <span className="text-[11px] text-muted-foreground whitespace-nowrap" data-testid="pack-progress-label">{stage || "Working…"} · {prog}%</span>
+        </div>
+      )}
 
       <div className="flex-1 flex overflow-hidden">
         {/* Thumbnail rail */}

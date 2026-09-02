@@ -62,6 +62,7 @@ from ai_extractor import (
     _match_defect_photos,
     _ai_match_defect_photos,
     _attach_sitenote_defect_photos,
+    _attach_sitenote_condition_photos,
     _photo_bytes_from_url,
     _GENERIC_CAP,
     _needs_vision,
@@ -1237,6 +1238,13 @@ async def detect_site_conditions_endpoint(project_id: str):
         except Exception:
             extra = []
     sc = await detect_site_conditions(vps, extra, (p.get("property") or {}).get("type") or "")
+    sc = _merge_doc_site_facts(sc, p.get("siteConditionsFromDocs"))
+    tmp = {"property": {**(p.get("property") or {}), "siteConditions": sc}}
+    try:
+        if await _attach_sitenote_condition_photos(project_id, tmp):
+            sc = tmp["property"]["siteConditions"]
+    except Exception:
+        pass
     await db.projects.update_one({"id": project_id}, {"$set": {"property.siteConditions": sc}})
     return sc or {}
 
@@ -1490,6 +1498,63 @@ async def export_pack_pdf(project_id: str, origin: Optional[str] = Query(None)):
     safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
     return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{safe}.pdf"'})
+
+
+async def _pack_progress(job_id, progress, stage, **extra):
+    await db.pack_jobs.update_one({"id": job_id}, {"$set": {"progress": progress, "stage": stage, **extra}})
+
+
+async def _build_pack_job(project_id, origin, job_id):
+    try:
+        await _pack_progress(job_id, 8, "Reading project", status="running")
+        p, html = await _render_pack_html(project_id, origin)
+        await _pack_progress(job_id, 45, "Typesetting document")
+        from weasyprint import HTML
+        pdf, docs = await asyncio.gather(
+            asyncio.to_thread(lambda: HTML(string=html).write_pdf()),
+            _collect_source_docs(project_id))
+        await _pack_progress(job_id, 75, "Merging appendices")
+        if docs:
+            pdf = await asyncio.to_thread(_merge_appendix, pdf, docs)
+        await _pack_progress(job_id, 92, "Finalising")
+        path = f"{APP_NAME}/packs/{job_id}.pdf"
+        await asyncio.to_thread(put_object, path, pdf, "application/pdf")
+        safe = re.sub(r"[^A-Za-z0-9._-]+", "_", f"{p.get('ref','design')}-{p.get('name','pack')}-Rev{p.get('revision','')}")
+        await _pack_progress(job_id, 100, "Ready", status="done", path=path, filename=f"{safe}.pdf")
+    except Exception as e:
+        await db.pack_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)[:300]}})
+
+
+@api_router.post("/projects/{project_id}/pack/generate")
+async def start_pack_job(project_id: str, origin: Optional[str] = Query(None)):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0, "id": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    job_id = str(uuid.uuid4())
+    await db.pack_jobs.insert_one({"id": job_id, "_id": job_id, "project_id": project_id,
+        "status": "queued", "progress": 0, "stage": "Queued", "path": None, "filename": None,
+        "error": None, "created_at": datetime.now(timezone.utc).isoformat()})
+    asyncio.create_task(_build_pack_job(project_id, origin, job_id))
+    return {"job_id": job_id}
+
+
+@api_router.get("/projects/{project_id}/pack/jobs/{job_id}")
+async def pack_job_status(project_id: str, job_id: str):
+    j = await db.pack_jobs.find_one({"id": job_id, "project_id": project_id}, {"_id": 0})
+    if not j:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"status": j.get("status"), "progress": j.get("progress", 0), "stage": j.get("stage"),
+            "error": j.get("error"), "filename": j.get("filename"), "ready": j.get("status") == "done"}
+
+
+@api_router.get("/projects/{project_id}/pack/jobs/{job_id}/download")
+async def pack_job_download(project_id: str, job_id: str):
+    j = await db.pack_jobs.find_one({"id": job_id, "project_id": project_id}, {"_id": 0})
+    if not j or j.get("status") != "done" or not j.get("path"):
+        raise HTTPException(status_code=404, detail="Pack not ready")
+    data, _ = await asyncio.to_thread(get_object, j["path"])
+    return Response(content=data, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{j.get("filename") or "design-pack.pdf"}"'})
 
 
 @api_router.get("/projects/{project_id}/pack.html")

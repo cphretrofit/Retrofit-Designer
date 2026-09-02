@@ -398,6 +398,114 @@ async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
     return changed
 
 
+_COND_KEYWORDS = {
+    "electric_shower": ("shower",),
+    "downlights": ("downlight", "spotlight", "recessed", "spot light"),
+    "loft_storage": ("loft", "attic", "roof space", "roof void"),
+    "loft_crossflow": ("eaves", "loft", "roof space", "roof void"),
+    "floor_type": ("floor",),
+    "bathroom_upstairs": ("bathroom", "en suite", "ensuite"),
+}
+
+
+def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
+    """Return [{label, image:(bytes,ext)}] for every embedded photo in a site-note PDF,
+    labelled with the nearest preceding text line (e.g. 'Photo of shower:')."""
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return []
+    try:
+        out, last_label, seen = [], "", set()
+        for pno in range(doc.page_count):
+            pg = doc[pno]
+            items = []
+            for b in pg.get_text("dict").get("blocks", []):
+                if b.get("type") != 0:
+                    continue
+                for l in b.get("lines", []):
+                    txt = "".join(s.get("text", "") for s in l.get("spans", [])).strip()
+                    if txt:
+                        items.append((l["bbox"][1], "text", txt))
+            for info in pg.get_image_info(xrefs=True):
+                xref = info.get("xref") or 0
+                bb = info["bbox"]
+                if not xref or (bb[2] - bb[0]) * (bb[3] - bb[1]) < 8000:
+                    continue
+                items.append((bb[1], "img", xref))
+            items.sort(key=lambda x: x[0])
+            for _, kind, payload in items:
+                if kind == "text":
+                    last_label = payload
+                elif payload not in seen:
+                    seen.add(payload)
+                    try:
+                        ex = doc.extract_image(payload)
+                    except Exception:
+                        continue
+                    if ex and ex.get("width", 0) >= 150 and ex.get("height", 0) >= 150:
+                        out.append({"label": last_label, "image": (ex["image"], ex.get("ext", "jpg"))})
+            if len(out) >= max_imgs:
+                break
+        return out
+    finally:
+        doc.close()
+
+
+async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
+    """Give each DETECTED site condition an evidence photo pulled from the surveyor's
+    site notes (e.g. 'Photo of shower:' -> electric shower) when the vision sweep found none."""
+    sc = (proj.get("property") or {}).get("siteConditions") or {}
+    ev = sc.get("evidence") or []
+    def _positive(e):
+        k = e.get("key")
+        if k == "floor_type":
+            return bool(e.get("value") or sc.get("floor_type"))
+        return e.get("present") is True or sc.get(k) is True
+    need = [e for e in ev if not e.get("url") and _positive(e)]
+    if not need:
+        return 0
+    if doc_sources is None:
+        recs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True},
+                "doc_type": {"$in": ["Assessment", "Technical Survey", "Survey", "Scope of Works", "Site Notes"]}}, {"_id": 0}).to_list(30)
+        doc_sources = [{"storage_path": d.get("storage_path"), "original_filename": d.get("original_filename")} for d in recs]
+    labels = []
+    for d in doc_sources:
+        sp = d.get("storage_path")
+        fn = (d.get("original_filename") or "").lower()
+        if not sp or not fn.endswith(".pdf"):
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, sp)
+        except Exception:
+            continue
+        labels.extend(await asyncio.to_thread(extract_sitenote_photo_labels, data))
+    if not labels:
+        return 0
+    changed, used = 0, set()
+    for e in need:
+        kws = _COND_KEYWORDS.get(e.get("key")) or ()
+        if not kws:
+            continue
+        for i, lb in enumerate(labels):
+            if i in used:
+                continue
+            if any(k in (lb.get("label") or "").lower() for k in kws):
+                data, ext = lb["image"]
+                url = await _store_defect_image(project_id, data, ext)
+                if url:
+                    e["url"] = url
+                    e["source"] = e.get("source") or "Site notes"
+                    e["caption"] = (lb.get("label") or "").strip(": ").strip() or e.get("label")
+                    used.add(i)
+                    changed += 1
+                break
+    if changed:
+        sc["evidence"] = ev
+        proj.setdefault("property", {})["siteConditions"] = sc
+    return changed
+
+
 
 
 async def _photo_bytes_from_url(url):
@@ -1607,6 +1715,10 @@ async def run_import_job(job_id: str):
             await _ai_match_defect_photos(_defs, _photos)
         except Exception as e:
             logger.warning("defect photo auto-match failed: %s", e)
+        try:
+            await _attach_sitenote_condition_photos(project["id"], project, doc_sources=_snsrc)
+        except Exception as e:
+            logger.warning("site-condition evidence photos failed: %s", e)
 
         doc = dict(project)
         doc["_id"] = project["id"]
@@ -1658,6 +1770,9 @@ async def reextract_project_fields(project_id):
         sc = _merge_doc_site_facts(sc, updates.get("siteConditionsFromDocs") or proj.get("siteConditionsFromDocs"))
         if sc:
             updates["property"] = {**(proj.get("property") or {}), "siteConditions": sc}
+            tmp = {"property": updates["property"]}
+            if await _attach_sitenote_condition_photos(project_id, tmp):
+                updates["property"] = tmp["property"]
     except Exception as e:
         logger.warning("reextract site conditions failed: %s", e)
     try:
