@@ -221,13 +221,43 @@ def _hatch_rect(x, y, w, h, gap=15, color="#B45309", sw=1.0, opacity=0.5):
     return "".join(segs)
 
 
+_WET_ROOMS = ("bath", "wc", "toilet", "shower", "en-suite", "ensuite", "cloak", "utility")
+_CIRC_ROOMS = ("hall", "hallway", "landing", "corridor", "lobby", "entrance", "porch", "stair")
+
+
+def _label_unnamed(rooms, upper):
+    """Give empty/circulation spaces a sensible name so the plan reads correctly."""
+    fill = "Landing" if upper else "Hall"
+    for r in rooms:
+        nm = (r.get("name") or "").strip()
+        if not nm or nm.lower() in ("room", "space", "-", "unknown", "n/a", "?"):
+            r["name"] = fill
+
+
+def _route_front_door(rooms, fd_x):
+    """Keep the front door opening into a circulation space (Hall/Landing), never a wet room."""
+    if fd_x is None or not rooms:
+        return fd_x
+    circ = [r for r in rooms if any(w in (r.get("name") or "").lower() for w in _CIRC_ROOMS)]
+    cur = next((r for r in rooms if _num(r.get("x")) <= fd_x <= _num(r.get("x")) + _num(r.get("w"))), None)
+    cur_wet = bool(cur) and any(w in (cur.get("name") or "").lower() for w in _WET_ROOMS)
+    if circ and (cur is None or cur_wet):
+        tgt = min(circ, key=lambda r: abs((_num(r.get("x")) + _num(r.get("w")) / 2) - fd_x))
+        return _num(tgt.get("x")) + _num(tgt.get("w")) / 2
+    return fd_x
+
+
 def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
     H = _num(ov.get("h"), 6.0) or 6.0
     rooms, W, H = _normalize_geometry(d.get("rooms") or [], W, H)
+    _title_l = (d.get("title") or "").lower()
+    _upper = any(k in _title_l for k in ("first", "second", "third", "upper", "1st", "2nd", " f.", "landing"))
+    _label_unnamed(rooms, _upper)
+    _fd = d.get("frontDoor") or {}
+    fd_x = _route_front_door(rooms, _num(_fd.get("x"))) if _fd else None
 
-    VB_W = 1040
     col_x = 745                      # right column divider
     X0 = 150                         # plan origin x (left dims to the left)
     plan_right = 690
@@ -397,11 +427,13 @@ def _render_single(d: dict):
             parts.append(f'<rect x="{x-16:.1f}" y="{y-11:.1f}" width="32" height="22" fill="#fff" stroke="#111" stroke-width="1.2"/>')
             parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="{_fit(lbl or "LH",30,base=12):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "LH")}</text>')
 
-    # front door label — below the bottom dimension line, clear of the wall
-    fd = d.get("frontDoor") or {}
-    if fd:
-        x = mx(_num(fd.get("x")))
-        parts.append(f'<text x="{x:.1f}" y="{Y0+ph+82:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">Front Door</text>')
+    # front door — a marked opening on the front wall (routed to a circulation space) + label
+    if _fd and fd_x is not None:
+        x = mx(fd_x)
+        ybot = Y0 + ph
+        parts.append(f'<rect x="{x-22:.1f}" y="{ybot-5:.1f}" width="44" height="10" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+        parts.append(f'<path d="M{x-22:.1f},{ybot:.1f} l0,-30 a30,30 0 0 1 30,30" fill="none" stroke="#111" stroke-width="1.1"/>')
+        parts.append(f'<text x="{x:.1f}" y="{ybot+82:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">Front Door</text>')
 
     # --- dimension chains ---
     def chain_h(dims, yline, above, fit_px, normalize=True):

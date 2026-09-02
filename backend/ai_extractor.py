@@ -519,6 +519,7 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
             e.pop("fig", None)
             if e.get("key") == "loft_storage" and e.get("present") is not True:
                 e["present"] = True
+                sc["loft_storage"] = True
                 e["detail"] = e.get("detail") or "Stored items / boarding present in the loft (see site-note photographs)."
                 e["reasoning"] = e.get("reasoning") or "Confirmed from the RdSAP site-note loft photographs."
             changed += 1
@@ -1463,6 +1464,7 @@ Return ONLY JSON:
 }
 MULTI-FLOOR: if the survey shows more than one storey (e.g. Ground + First), return a top-level "floors" ARRAY with ONE COMPLETE ENTRY PER FLOOR — each with its own "title" ("Ground Floor" / "First Floor"), "overall", "rooms", dimension chains, "windows", "doors", "symbols", "frontDoor" and "dataBox". Each floor occupies the FULL building footprint (do NOT place ground- and first-floor rooms in one shared plan). Put shared fields (address, wallType, date, legend) at the TOP LEVEL, not inside each floor. For a single-storey dwelling, return "rooms" at the top level as shown above (no "floors").
 Rules: read EVERY room name and its window-circle code (e.g. E1..E7) exactly as written; if a circle shows a plain letter with no number keep it as-is. Read all dimension numbers exactly (windows chain 'wall' must be top|bottom|left|right, position in metres along that wall). Keep rectangles consistent so shared walls align (snap coordinates to a sensible grid so topDims sum to overall.w and leftDims sum to overall.h). Do not invent rooms. If a value is unreadable use "".
+CIRCULATION & FRONT DOOR: dwellings almost always have a circulation space (entrance hall / hallway on the ground floor, landing upstairs) linking the front door to the rooms. If the plan shows such a space — even if it is unlabelled or just a gap between rooms — include it as a room named "Hall" (ground floor) or "Landing" (upper floor). Place "frontDoor" on the external wall of the entrance hall / circulation space; the front door must NOT open directly into a bathroom, WC, kitchen or bedroom. If no separate circulation space is drawn, place the front door on the external wall of the main living room.
 """
 
 _FP_DOC_ORDER = {"Floor Plan": 0, "Assessment": 1, "Technical Survey": 2, "Survey": 2,

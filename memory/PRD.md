@@ -48,6 +48,12 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — Checklist autofill + floor-plan circulation/front-door (Jun 2026)
+- Loft & Fabric Checklist now prefills from AI detection: UI falls back to the detected evidence verdict when no explicit flat flag is set, and Save persists the effective values so the PDF reflects them. Site-note loft-storage override now also sets the flat `loft_storage` key.
+- Floor plan (`cad_floorplan.py`): unnamed/blank rooms are labelled "Hall" (ground) / "Landing" (upper); the front door is routed to a circulation space and never a wet room, and is drawn as a marked wall opening + swing. Added `_label_unnamed` / `_route_front_door`.
+- CAD generation prompt (`ai_extractor.py`) now instructs the model to include the entrance hall / circulation space and place the front door on its external wall (never into a bathroom/WC/kitchen/bedroom). NOTE: existing stored plans (e.g. 10 Emmens, traced with no hall) need a floor-plan re-detect to pick up the hall; the render-time routing only helps when a circulation room exists in the data.
+- Bound source-document appendix is retained (per user — keep it).
+
 ## DONE — Client-facing pack refinements batch (Jun 2026)
 - Ventilation first everywhere: Proposed Retrofit Strategy (design-summary measures table), Scope of the Design, and the Measures Interaction Matrix now sort VENT to position 1. Verified: matrix legend reads "1 Extract Ventilation".
 - Removed the internal Design Readiness page (not client-facing).

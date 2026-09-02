@@ -48,9 +48,20 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
 
   const setFlag = (key, val) => setSc((s) => ({ ...s, [key]: val }));
 
+  // Prefill the checklist from AI detection: use the explicit flat flag, else the detected evidence verdict.
+  const effFlag = (key) => {
+    if (typeof sc[key] === "boolean") return sc[key];
+    const ev = (sc.evidence || []).find((e) => e.key === key);
+    return ev && typeof ev.present === "boolean" ? ev.present : null;
+  };
+
   const save = async () => {
     setSaving(true);
-    try { const data = await saveSiteConditions(projectId, sc); setSc(data); onChange?.(data); toast.success("Site conditions saved"); }
+    try {
+      const merged = { ...sc };
+      LOFT_CHECKS.forEach((c) => { const v = effFlag(c.key); if (v !== null) merged[c.key] = v; });
+      const data = await saveSiteConditions(projectId, merged); setSc(data); onChange?.(data); toast.success("Site conditions saved");
+    }
     catch { toast.error("Could not save"); } finally { setSaving(false); }
   };
 
@@ -78,7 +89,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
         <div className="text-[13px] font-medium">Loft &amp; Fabric Checklist</div>
         <div className="text-[11.5px] text-muted-foreground mt-0.5 mb-2">Manual answers override photo detection and drive the compliance notes &amp; F-Cap construction detail.</div>
         {LOFT_CHECKS.map((c) => {
-          const v = sc[c.key];
+          const v = effFlag(c.key);
           const pv = v === true ? "true" : v === false ? "false" : "null";
           return (
             <div key={c.key} className="flex items-center justify-between gap-3 py-2 border-t border-border/60 first:border-t-0">
