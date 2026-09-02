@@ -183,10 +183,15 @@ def _measure_compliance(m, p):
     e_shower = sc.get("electric_shower")
     bath_up = sc.get("bathroom_upstairs")
     downlights = sc.get("downlights")
+    esh_over = sc.get("esh_cable_over_insulation")
     items = []
     if code in ("LOFT", "RIR"):
         items.append(("Fire Safety", "Recessed downlights present — fit maintenance-free fire-rated loft caps over every fitting before insulating; do not cover transformers/drivers (Approved Document B)." if downlights in (True, None) else "No recessed downlights reported; confirm on site before insulating."))
-        if e_shower and (is_bungalow or bath_up):
+        if esh_over is True:
+            items.append(("Electrical", "Electric-shower cable confirmed running over the top of the loft insulation — survey it, clip it above the insulation or re-route / derate to BS 7671. DO NOT bury it under deep insulation."))
+        elif esh_over is False:
+            items.append(("Electrical", "Confirmed: no electric-shower cable runs over the loft insulation. Survey all remaining loft cabling; any cable covered by insulation must be derated or re-routed per BS 7671."))
+        elif e_shower and (is_bungalow or bath_up):
             items.append(("Electrical", "Electric shower present with a likely high-current cable routed through the loft (bungalow / first-floor bathroom) — survey the cable, clip it above the insulation or derate/re-route to BS 7671. DO NOT bury it under deep insulation."))
         else:
             items.append(("Electrical", "Survey all loft cabling; any cable covered by insulation must be derated or re-routed per BS 7671. Confirm whether a high-current electric-shower supply runs through the loft."))
@@ -496,6 +501,11 @@ def _junction_svg(name, size=46):
         feat = '<rect x="18" y="26" width="26" height="4" fill="#bcbcbc" stroke="#171717" stroke-width="0.5"/><rect x="24" y="30" width="14" height="9" fill="none" stroke="#171717" stroke-width="0.7" stroke-dasharray="2 1"/>'
     elif "tank" in n:
         feat = '<rect x="20" y="18" width="22" height="15" rx="2" fill="none" stroke="#171717" stroke-width="0.9"/><line x1="18" y1="33" x2="44" y2="33" stroke="#171717" stroke-width="0.6"/>'
+    elif "downlight" in n or "spotlight" in n or "f-cap" in n or "fcap" in n:
+        feat = ('<line x1="8" y1="20" x2="52" y2="20" stroke="#171717" stroke-width="1"/>'
+                '<path d="M26 20 a6 6 0 0 1 12 0 z" fill="#bcbcbc" stroke="#171717" stroke-width="0.6"/>'
+                '<path d="M22 20 q10 13 20 0" fill="none" stroke="#c9302c" stroke-width="1.3"/>'
+                '<line x1="32" y1="26" x2="32" y2="36" stroke="#c9a94a" stroke-width="1.6"/>')
     elif "vent" in n:
         feat = '<circle cx="40" cy="30" r="5" fill="none" stroke="#0055ff" stroke-width="1"/><line x1="36" y1="30" x2="24" y2="30" stroke="#171717" stroke-width="0.8"/>'
     else:
@@ -954,7 +964,7 @@ def _interaction(a, b):
 
 
 def _interaction_matrix_html(measures):
-    ms = measures[:10]
+    ms = sorted(measures, key=lambda m: 0 if _mfam(m.get("code"), m.get("name")) == "VENT" else 1)[:10]
     IC = {"green": "#16A34A", "amber": "#EAB308", "orange": "#EA580C", "red": "#DC2626"}
     ICL = {"green": "Do not interact", "amber": "Interact \u2014 construction detail required",
            "orange": "Interact \u2014 specific application / upgrade", "red": "Not appropriate together"}
@@ -968,7 +978,6 @@ def _interaction_matrix_html(measures):
                    _para("A single measure is proposed; a full measures interaction matrix is not applicable. Interactions with the existing fabric and services are addressed within the measure specification.") + key)
     n = len(ms)
     names = [m.get("name") or "" for m in ms]
-    labels = [(m.get("pas") or m.get("code") or _mfam(m.get("code"), m.get("name"))) for m in ms]
     cell = 30
     header = ('<td style="border:0; width:56mm;"></td>'
               + "".join(f'<td style="border:0; text-align:center; width:{cell}px;">'
@@ -1124,9 +1133,10 @@ def _design_summary_html(p, measures):
             f'<td style="border:0; padding:0 0 0 6px; width:25%; vertical-align:top;">{out_kpi}</td>'
             '</tr></table>')
 
-    # Measures table
+    # Measures table (ventilation always listed first)
     m_rows = ""
-    for i, m in enumerate(measures, 1):
+    _ms_ord = sorted(measures, key=lambda m: 0 if _mfam(m.get("code"), m.get("name")) == "VENT" else 1)
+    for i, m in enumerate(_ms_ord, 1):
         fam = _mfam(m.get("code"), m.get("name"))
         col = MEASURE_COLORS[fam]
         pas = m.get("pas") or m.get("code") or "—"
@@ -1354,6 +1364,24 @@ def _realistic_max_panels(solar, prop):
     return ceiling
 
 
+def _subject_highlight(img_uri, zoom=1.5, label="SUBJECT PROPERTY"):
+    """Wrap a centred aerial/solar image so the single subject property is unambiguous:
+    zoom into the centre, dim the surroundings and mark the property."""
+    return (
+        '<div style="position:relative; overflow:hidden; border:1px solid #e5e5e5; line-height:0;">'
+        f'<img src="{img_uri}" style="width:100%; display:block; transform:scale({zoom}); transform-origin:50% 50%;">'
+        '<div style="position:absolute; top:0; left:0; right:0; bottom:0; '
+        'background:radial-gradient(circle at 50% 50%, rgba(0,0,0,0) 20%, rgba(0,0,0,0.05) 38%, rgba(0,0,0,0.42) 80%);"></div>'
+        '<div style="position:absolute; top:50%; left:50%; width:15%; height:15%; '
+        'transform:translate(-50%,-50%); border:2.5px solid #0055FF; border-radius:3px; '
+        'box-shadow:0 0 0 2px rgba(255,255,255,0.95);"></div>'
+        '<div style="position:absolute; top:50%; left:50%; '
+        "transform:translate(-50%,-165%); background:#0055FF; color:#fff; "
+        "font-family:'JetBrains Mono',monospace; font-size:7px; letter-spacing:0.1em; "
+        f'padding:2px 6px; white-space:nowrap;">{label}</div>'
+        '</div>')
+
+
 def _solar_html(p):
     s = p.get("solar") or {}
     if not s.get("aerialImage") and not s.get("maxArrayPanelsCount"):
@@ -1370,10 +1398,10 @@ def _solar_html(p):
             img = ('<table style="width:100%; margin-top:6px;"><tr>'
                    '<td style="border:0; padding:0 5px 0 0; width:50%; vertical-align:top;">'
                    '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">AERIAL VIEW</div>'
-                   f'<div style="border:1px solid #e5e5e5; overflow:hidden;"><img src="{s["aerialImage"]}" style="width:100%; display:block;"></div></td>'
+                   f'<div>{_subject_highlight(s["aerialImage"])}</div></td>'
                    '<td style="border:0; padding:0 0 0 5px; width:50%; vertical-align:top;">'
                    '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">ANNUAL SOLAR FLUX</div>'
-                   f'<div style="border:1px solid #e5e5e5; overflow:hidden;"><img src="{s["fluxImage"]}" style="width:100%; display:block;"></div></td>'
+                   f'<div>{_subject_highlight(s["fluxImage"], label="DETECTED ROOF")}</div></td>'
                    '</tr></table>'
                    '<table style="width:118mm; margin-top:7px;"><tr>'
                    '<td style="border:0; padding:0; width:34px;"><span class="faint mono" style="font-size:8px;">LOW</span></td>'
@@ -1381,9 +1409,9 @@ def _solar_html(p):
                    '<td style="border:0; padding:0 0 0 8px; width:70px; text-align:right;"><span class="faint mono" style="font-size:8px;">HIGH kWh/yr</span></td></tr></table>'
                    f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Aerial &amp; modelled annual solar flux {cap} &middot; flux shown on detected roof only</div>')
         else:
-            img = ('<div style="width:100%; max-width:118mm; border:1px solid #e5e5e5; overflow:hidden; margin-top:6px;">'
-                   f'<img src="{s["aerialImage"]}" style="width:100%; display:block;"></div>'
-                   f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Aerial roof imagery {cap}</div>')
+            img = ('<div style="width:100%; max-width:118mm; margin-top:6px;">'
+                   f'{_subject_highlight(s["aerialImage"])}</div>'
+                   f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Aerial roof imagery {cap} &middot; subject property centred &amp; highlighted</div>')
 
     def _stat(label, val, unit=""):
         return (f'<div style="border:1px solid #e5e5e5; padding:12px 13px; min-height:74px;">'
@@ -1732,6 +1760,16 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     els = (p.get("property") or {}).get("elements") or []
     dp = p.get("designPack") or {}
     drawings = dp.get("drawings") or []
+    # F-Cap detail: when recessed downlights are present, ensure the loft measure carries a fire-rated cap junction.
+    _scq = (p.get("property") or {}).get("siteConditions") or {}
+    if _scq.get("downlights") is True:
+        for _m in measures:
+            if _mfam(_m.get("code"), _m.get("name")) == "LOFT":
+                _jl = list(_m.get("junctions") or _default_junctions("LOFT"))
+                if not any(("f-cap" in (j.get("name") or "").lower()) or ("downlight" in (j.get("name") or "").lower()) for j in _jl):
+                    _jl.append({"name": "Recessed Downlight (F-Cap)", "detail": "D-L07", "status": "pending",
+                                "note": "Fit a maintenance-free fire-rated loft cap (F-Cap) over every recessed downlight before insulating; maintain clearance to transformers/drivers per Approved Document B."})
+                    _m["junctions"] = _jl
 
     # Cover
     meta = [("Reference", p.get("jobRef") or p.get("ref")), ("Client", p.get("client")), ("Design Stage", p.get("designStage")), ("Revision", p.get("revision"))]
@@ -2028,7 +2066,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     # ---- Project directory & dwelling ----
     prop = p.get("property") or {}
     ec = prop.get("existingConstruction") or {}
-    readiness = (p.get("readiness") or {}).get("breakdown") or []
 
     def _cell(k, v, w="32%"):
         return (f'<div style="display:inline-block; width:{w}; vertical-align:top; margin-bottom:16px;">'
@@ -2052,14 +2089,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 f'<div class="faint mono" style="font-size:8px; margin-top:4px;">SAP · EXISTING TO PROPOSED</div></div>')
     ec_rows = ("".join(f'<tr><td class="muted" style="width:38%;">{_esc(k)}</td><td style="color:#262626;">{_esc(v)}</td></tr>' for k, v in ec.items())
                or '<tr><td colspan="2" class="muted" style="font-size:12px;">Existing construction to be confirmed on site.</td></tr>')
-    read_html = ""
-    for r in readiness:
-        val = r.get("value", 0)
-        bc = "#16A34A" if val >= 80 else ("#B45309" if val >= 40 else "#DC2626")
-        read_html += (f'<div style="display:inline-block; width:33%; vertical-align:top; padding-right:18px; margin-bottom:12px;">'
-                      f'<div style="display:flex; justify-content:space-between;"><span class="muted" style="font-size:10.5px;">{_esc(r.get("label"))}</span>'
-                      f'<span class="mono" style="font-size:10.5px; color:#262626;">{val}%</span></div>'
-                      f'<div style="height:3px; background:#eee; margin-top:4px;"><div style="height:3px; width:{val}%; background:{bc};"></div></div></div>')
     _dir1 = (
         '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 · Project Information</div>'
         '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Project Directory &amp; Dwelling</div>'
@@ -2071,12 +2100,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         '<div class="faint upper" style="font-size:10px; margin-top:8px; margin-bottom:6px;">Existing Construction</div>'
         f'<table>{ec_rows}</table>')
     directory_pages = [_dir1]
-    if read_html:
-        directory_pages.append(
-            '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 · Project Information (cont.)</div>'
-            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Readiness</div>'
-            '<div class="muted" style="font-size:11px; margin-top:8px;">PAS 2035 design-readiness assessment across the key work areas.</div>'
-            f'<div style="margin-top:18px;">{read_html}</div>')
 
     # ---- Heritage & planning context ----
     h = p.get("heritage") or {}
@@ -2109,14 +2132,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             if h.get("_map_data"):
                 cells += ('<td style="border:0; padding:0 5px 0 0; width:50%; vertical-align:top;">'
                           '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">STREET MAP</div>'
-                          '<div style="border:1px solid #e5e5e5; overflow:hidden;">'
-                          f'<img src="{h["_map_data"]}" style="width:100%; display:block;"></div>'
+                          f'{_subject_highlight(h["_map_data"], zoom=1.35)}'
                           '<div class="mono faint" style="font-size:7.5px; margin-top:4px;">map data &copy; OpenStreetMap contributors</div></td>')
             if h.get("_aerial_data"):
                 cells += ('<td style="border:0; padding:0 0 0 5px; width:50%; vertical-align:top;">'
                           '<div class="faint mono" style="font-size:8px; margin-bottom:4px; letter-spacing:0.08em;">AERIAL VIEW</div>'
-                          '<div style="border:1px solid #e5e5e5; overflow:hidden;">'
-                          f'<img src="{h["_aerial_data"]}" style="width:100%; display:block;"></div>'
+                          f'{_subject_highlight(h["_aerial_data"])}'
                           '<div class="mono faint" style="font-size:7.5px; margin-top:4px;">imagery &copy; Esri, Maxar, Earthstar Geographics</div></td>')
             map_img = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Location</div>'
                        f'<table style="width:100%;"><tr>{cells}</tr></table>'
@@ -2132,7 +2153,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Assessment of Significance</div>'
             f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("summary"))}</div>'
             '<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:6px;">Design Mitigation</div>'
-            f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("mitigation"))}</div>')
+            f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("mitigation"))}</div>'
+            '<div style="margin-top:22px; border:1px solid #171717; background:#fafafa; padding:12px 14px;">'
+            '<div class="faint upper" style="font-size:9px; letter-spacing:0.14em; margin-bottom:5px;">Legal Note &middot; Planning Constraints</div>'
+            '<div style="font-size:10.5px; line-height:1.55; color:#333;">This Heritage Impact Statement is based on the national planning dataset (planning.data.gov.uk, England-only and subject to change) and does not constitute a formal planning determination. Before any works commence, the client / installer must confirm with the Local Planning Authority whether planning permission, Listed Building Consent, Conservation Area consent, an Article 4 Direction, Area of Outstanding Natural Beauty / National Landscape or National Park constraints, or any other statutory permission applies, and must obtain all necessary consents. No works that require such permission shall be started until the relevant consents are in place. CPH Retrofit accepts no liability for works undertaken without the required planning permissions or statutory consents.</div></div>')
 
     # ---- Measures schedule ----
     ms_rows = ""
@@ -2433,7 +2457,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             verdict = _esc(val) if val else ("Present" if present is True else ("Not present" if present is False else "Not visible — confirm on site"))
             flag = present is True and e.get("key") in ("electric_shower", "downlights", "loft_storage")
             vcol = "#DC2626" if flag else ("#16A34A" if present is False else "#262626")
-            if e.get("_data"):
+            _loftkey = e.get("key") in ("loft_storage", "loft_crossflow")
+            _trust_photo = (not _loftkey) or str(e.get("source") or "").lower().startswith("site") or (e.get("confidence") or "").lower() == "high"
+            if e.get("_data") and _trust_photo:
                 img = f'<div style="width:130px; height:92px; border:1px solid #e5e5e5; overflow:hidden; flex-shrink:0;"><img src="{e["_data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
             elif e.get("source"):
                 img = ('<div style="width:130px; height:92px; border:1px solid #e5e5e5; background:#f7f8fa; flex-shrink:0; display:flex; align-items:center; justify-content:center; text-align:center;">'
@@ -2450,16 +2476,25 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             if e.get("source") and not fig:
                 meta += f'<span class="mono" style="font-size:8px; color:#0055FF; margin-left:6px;">Source &middot; {_esc(e.get("source"))}</span>'
             _extra = e.get("_photos_data") or []
+            if _loftkey and not _trust_photo:
+                _extra = []
             gallery_html = ""
             if len(_extra) > 1:
                 thumbs = "".join(f'<div style="width:108px; height:80px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{d}" style="width:100%; height:100%; object-fit:cover;"></div>' for d in _extra[1:10])
                 gallery_html = f'<div style="display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;">{thumbs}</div>'
+            _detail = e.get("detail") or ""
+            _reason = e.get("reasoning") or ""
+            if e.get("key") == "loft_storage" and present is True:
+                _detail = "Stored items present in the loft. Any item that is not loft insulation, walkboards or the hot-water cylinder is classed as a stored item and must be removed before works commence."
+                _reason = ""
+            if _reason and _detail and (_reason.strip().lower() in _detail.strip().lower() or _detail.strip().lower() in _reason.strip().lower()):
+                _reason = ""
             card_list.append(f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img}'
                              f'<div style="flex:1;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
                              f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(e.get("label"))}</span>'
                              f'<span class="mono" style="font-size:11px; color:{vcol};">{verdict}</span></div>'
-                             + (f'<div class="muted" style="font-size:11px; margin-top:4px; line-height:1.45;">{_esc(e.get("detail"))}</div>' if e.get("detail") else "")
-                             + (f'<div style="font-size:10.5px; color:#666; margin-top:5px; line-height:1.4;"><span class="faint upper" style="font-size:8px; margin-right:6px;">Evidence</span>{_esc(e.get("reasoning"))}</div>' if e.get("reasoning") else "")
+                             + (f'<div class="muted" style="font-size:11px; margin-top:4px; line-height:1.45;">{_esc(_detail)}</div>' if _detail else "")
+                             + (f'<div style="font-size:10.5px; color:#666; margin-top:5px; line-height:1.4;"><span class="faint upper" style="font-size:8px; margin-right:6px;">Evidence</span>{_esc(_reason)}</div>' if _reason else "")
                              + (f'<div style="margin-top:5px;">{meta}</div>' if meta else "")
                              + gallery_html
                              + '</div></div>')
@@ -2471,23 +2506,69 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                               f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>{intro}'
                               f'<div style="margin-top:14px;">{"".join(chunk)}</div>')
 
-    # Design considerations (site-specific narrative)
-    considerations_page = None
+    # Loft & Fabric Checklist (manual answers — source of truth)
+    _lc_defs = [
+        ("loft_storage", "Stored items in loft (beyond insulation, walkboards, cylinder)",
+         "Any such item is classed as a stored item and must be removed before works commence."),
+        ("esh_cable_over_insulation", "Electric-shower cable running over the loft insulation",
+         "If present, survey and clip above / re-route or derate to BS 7671 — never bury under insulation."),
+        ("downlights", "Recessed spotlights / downlights fitted",
+         "If present, fit maintenance-free fire-rated F-Caps over every fitting before insulating (Approved Document B) — see detail D-L07."),
+        ("loft_crossflow", "Loft felt has lapvents for cross-flow ventilation",
+         "If absent, install eaves / over-fascia ventilators to BS 5250 before insulating."),
+    ]
+    if any(_sc.get(_k) is not None for _k, _, _ in _lc_defs):
+        _lc_rows = ""
+        for _k, _label, _note in _lc_defs:
+            _v = _sc.get(_k)
+            _ans = "Yes" if _v is True else ("No" if _v is False else "Confirm on site")
+            _bad = (_v is True and _k in ("loft_storage", "esh_cable_over_insulation", "downlights")) or (_v is False and _k == "loft_crossflow")
+            _acol = "#DC2626" if _bad else ("#16A34A" if _v is not None else "#666")
+            _lc_rows += (f'<tr><td style="color:#262626; width:40%;">{_esc(_label)}</td>'
+                         f'<td class="mono" style="width:16%; color:{_acol};">{_ans}</td>'
+                         f'<td class="muted" style="font-size:10px;">{_esc(_note)}</td></tr>')
+        site_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Site Conditions</div>'
+                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Loft &amp; Fabric Checklist</div>'
+                          '<div class="muted" style="font-size:11px; margin-top:8px;">Manually verified loft and fabric conditions. These answers are the source of truth for this design and drive the compliance notes and construction details.</div>'
+                          f'<table style="margin-top:14px;"><thead><tr><th>Item</th><th>Answer</th><th>Action / standard</th></tr></thead><tbody>{_lc_rows}</tbody></table>')
+
+    # Design considerations (site-specific narrative) — each linked to its evidence photo
+    _ev_imgs = []
+    for _e in _sc_evidence:
+        if not _e.get("_data"):
+            continue
+        if _e.get("key") in ("loft_storage", "loft_crossflow") and not (str(_e.get("source") or "").lower().startswith("site") or (_e.get("confidence") or "").lower() == "high"):
+            continue
+        _ev_imgs.append((((_e.get("label") or "") + " " + (_e.get("key") or "")).lower(), _e["_data"]))
+
+    def _dc_img(topic):
+        t = (topic or "").lower()
+        toks = [w for w in re.findall(r"[a-z]+", t) if len(w) > 3 and w not in ("with", "from", "this", "that", "site", "design", "where", "each", "prior", "into")]
+        for lbl, data in _ev_imgs:
+            if any(tok in lbl for tok in toks):
+                return data
+        return None
+
+    considerations_pages = []
     if _dc:
-        rows = ""
+        cards = []
         for c in _dc:
             pres = (c.get("present") or "").strip()
             pl = pres.lower()
             pcol = "#DC2626" if pl in ("yes", "present") else ("#16A34A" if pl in ("no", "not present") else "#666")
             badge = f'<span class="mono" style="font-size:10px; color:{pcol};">{_esc(pres)}</span>' if pres else ""
-            rows += (f'<div style="padding:11px 0; border-bottom:1px solid #f0f0f0;">'
-                     f'<div style="display:flex; justify-content:space-between; align-items:baseline;">'
-                     f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(c.get("topic"))}</span>{badge}</div>'
-                     f'<div class="muted" style="font-size:11px; margin-top:5px; line-height:1.55;">{_esc(c.get("narrative"))}</div></div>')
-        considerations_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Considerations</div>'
-                               '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Considerations</div>'
-                               '<div class="muted" style="font-size:11px; margin-top:8px;">Site-specific design considerations for this dwelling, determined from the survey photographs and assessment. Each is to be verified on site prior to installation.</div>'
-                               f'<div style="margin-top:14px;">{rows}</div>')
+            _im = _dc_img(c.get("topic"))
+            img_html = (f'<div style="width:132px; height:96px; border:1px solid #e5e5e5; overflow:hidden; flex-shrink:0;"><img src="{_im}" style="width:100%; height:100%; object-fit:cover;"></div>') if _im else ""
+            cards.append(f'<div style="display:flex; gap:14px; padding:12px 0; border-bottom:1px solid #f0f0f0;">{img_html}'
+                         f'<div style="flex:1; min-width:0;"><div style="display:flex; justify-content:space-between; align-items:baseline;">'
+                         f'<span style="font-size:13px; font-weight:500; color:#262626;">{_esc(c.get("topic"))}</span>{badge}</div>'
+                         f'<div class="muted" style="font-size:11px; margin-top:5px; line-height:1.55;">{_esc(c.get("narrative"))}</div></div></div>')
+        for ci, chunk in enumerate(_chunk(cards, 5)):
+            title = "Design Considerations" if ci == 0 else "Design Considerations (cont.)"
+            intro = ('<div class="muted" style="font-size:11px; margin-top:8px;">Site-specific design considerations for this dwelling, determined from the survey photographs and assessment. Each is shown with its supporting evidence and is to be verified on site prior to installation.</div>' if ci == 0 else "")
+            considerations_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Considerations</div>'
+                                        f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>{intro}'
+                                        f'<div style="margin-top:14px;">{"".join(chunk)}</div>')
 
     # Ventilation Requirements & Strategy (ADF1) — mandatory in every design
     vent = p.get("ventilation") or {}
@@ -2623,14 +2704,15 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
-             *site_pages, *([considerations_page] if considerations_page else []),
+             *site_pages, *considerations_pages,
              ventilation_page, *([floorplan_page] if floorplan_page else []),
              preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
-             *spec_pages, *photo_pages, drawings_page, *([datasheet_page] if datasheet_page else []), *defects_pages, *items_pages]
+             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
+             *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{_esc(p.get('address') or name)}  ·  Ref {ref}  ·  Rev {rev}"

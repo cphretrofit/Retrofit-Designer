@@ -9,6 +9,13 @@ const VERDICT = [
   { v: "null", l: "Not visible / confirm" },
 ];
 
+const LOFT_CHECKS = [
+  { key: "loft_storage", label: "Stored items in loft (beyond insulation, walkboards, cylinder)" },
+  { key: "esh_cable_over_insulation", label: "Electric-shower cable running over the loft insulation" },
+  { key: "downlights", label: "Recessed spotlights / downlights fitted" },
+  { key: "loft_crossflow", label: "Loft felt has lapvents for cross-flow ventilation" },
+];
+
 export function SiteConditionsPanel({ projectId, project, onChange }) {
   const [sc, setSc] = useState((project.property && project.property.siteConditions) || {});
   const [busy, setBusy] = useState(false);
@@ -39,6 +46,8 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
     return next;
   });
 
+  const setFlag = (key, val) => setSc((s) => ({ ...s, [key]: val }));
+
   const save = async () => {
     setSaving(true);
     try { const data = await saveSiteConditions(projectId, sc); setSc(data); onChange?.(data); toast.success("Site conditions saved"); }
@@ -63,6 +72,26 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
             </button>
           )}
         </div>
+      </div>
+
+      <div className="border border-border rounded-sm bg-card p-4" data-testid="loft-checklist">
+        <div className="text-[13px] font-medium">Loft &amp; Fabric Checklist</div>
+        <div className="text-[11.5px] text-muted-foreground mt-0.5 mb-2">Manual answers override photo detection and drive the compliance notes &amp; F-Cap construction detail.</div>
+        {LOFT_CHECKS.map((c) => {
+          const v = sc[c.key];
+          const pv = v === true ? "true" : v === false ? "false" : "null";
+          return (
+            <div key={c.key} className="flex items-center justify-between gap-3 py-2 border-t border-border/60 first:border-t-0">
+              <span className="text-[12.5px]">{c.label}</span>
+              <select value={pv} onChange={(e) => setFlag(c.key, e.target.value === "true" ? true : e.target.value === "false" ? false : null)}
+                data-testid={`loft-check-${c.key}`} className="h-7 px-2 bg-background border border-border rounded-sm text-[12px] shrink-0 outline-none">
+                <option value="true">Yes</option><option value="false">No</option><option value="null">Unknown</option>
+              </select>
+            </div>
+          );
+        })}
+        <button onClick={save} disabled={saving} data-testid="loft-checklist-save"
+          className="mt-3 h-8 px-3 bg-primary text-primary-foreground rounded-sm text-[12px] font-medium disabled:opacity-50">Save checklist</button>
       </div>
 
       {evidence.length === 0 ? (

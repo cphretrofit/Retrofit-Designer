@@ -48,6 +48,20 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — Client-facing pack refinements batch (Jun 2026)
+- Ventilation first everywhere: Proposed Retrofit Strategy (design-summary measures table), Scope of the Design, and the Measures Interaction Matrix now sort VENT to position 1. Verified: matrix legend reads "1 Extract Ventilation".
+- Removed the internal Design Readiness page (not client-facing).
+- Appendix A "Supporting Documents & Datasheets" now renders at the very end (after the Pre-Issue Register, before Appendix B bound source docs). Verified page order.
+- New "Loft & Fabric Checklist" card in SiteConditionsPanel with Yes/No/Unknown toggles → flat siteConditions keys `loft_storage`, `esh_cable_over_insulation`, `downlights`, `loft_crossflow`. Manual answers are the source of truth and drive compliance notes + a dedicated PDF "Loft & Fabric Checklist" page. data-testids: `loft-checklist`, `loft-check-<key>`, `loft-checklist-save`.
+- F-Caps: when downlights=Yes, a "Recessed Downlight (F-Cap)" junction (detail D-L07) is injected into the LOFT measure → appears in the Drawing Register and the measure's junction schedule/cards, plus a new downlight SVG in `_junction_svg`.
+- Electric-shower-cable-over-insulation now a manual flag feeding `_measure_compliance` electrical note.
+- Stored-items evidence text: de-duplicated (reason suppressed when it echoes detail) and, when present, replaced with a clean definition (any non-insulation/walkboard/cylinder item = stored item → remove before works).
+- Design Considerations now render each item beside its matched evidence photo (chunked 5/page).
+- Loft photos: site-condition cards + considerations only show a loft image when it's from site notes or high-confidence (stops external-elevation photos appearing for loft items).
+- Heritage: added a "Legal Note · Planning Constraints" box (confirm/obtain all planning permissions & statutory consents before works; CPH liability disclaimer).
+- Solar + heritage aerial/street images: new `_subject_highlight()` overlay marks the single subject property (blue box "SUBJECT PROPERTY"/"DETECTED ROOF" + dimmed surroundings) so it's unambiguous which dwelling is the subject.
+- NOT DONE (deferred, harder AI/geometry): floor-plan front-door-into-bathroom / label empty circulation spaces — needs cad_floorplan.py work.
+
 ## DONE — Auto Re-issue: QR pack stays current (Jun 2026)
 - Once a project has been issued (has `packPath`), its cached pack auto-rebuilds in the background whenever the project's pack-relevant data changes. Detected via a `packHash` (sha256 over content keys) compared on every workspace `GET /api/projects/{id}` and on every public QR scan; a `packBuilding` flag (atomic `find_one_and_update` guard) prevents concurrent/duplicate rebuilds.
 - The public QR link keeps serving the current cached PDF instantly (~1s) and swaps to the freshly-rebuilt one once ready. Verified end-to-end: edited `designer` → public pack reflected the change (273pp, QR intact) → reverted → rebuilt back.
