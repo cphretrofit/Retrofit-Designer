@@ -118,6 +118,7 @@ from ai_extractor import (
     analyze_template,
     analyze_all_templates,
     match_template,
+    display_template_name,
 )
 
 from pdf_builder import (
@@ -642,6 +643,9 @@ async def get_project(project_id: str):
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
         doc["defects"] = defects
     doc["partner"] = _resolve_partner(doc)
+    if doc.get("templateName"):
+        doc["templateName"] = display_template_name(
+            doc["templateName"], [m.get("code") for m in (doc.get("measures") or [])])
     return doc
 
 

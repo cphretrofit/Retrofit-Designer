@@ -76,6 +76,87 @@ def _resolve_overlaps(rooms):
     return rooms
 
 
+def _normalize_geometry(rooms, W, H):
+    """Turn loosely AI-traced room rectangles into a tidy tiling of the building
+    envelope so the plan reads as one clean polygon. Steps: resolve overlaps,
+    clamp to the envelope, snap near-equal edges to shared grid lines, then grow
+    boundary rooms to close dead-space gaps (removes stepped/doubled walls,
+    protrusions and empty corners)."""
+    rooms = _resolve_overlaps(rooms)
+    if not rooms:
+        return rooms, W, H
+    W = W or 8.0
+    H = H or 6.0
+
+    def R(r):
+        return (_num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h")))
+
+    # 1. clamp every room into the envelope
+    for r in rooms:
+        x, y, w, h = R(r)
+        x1, y1 = max(0.0, min(x, W)), max(0.0, min(y, H))
+        x2, y2 = max(0.0, min(x + w, W)), max(0.0, min(y + h, H))
+        r["x"], r["y"] = x1, y1
+        r["w"], r["h"] = max(0.1, x2 - x1), max(0.1, y2 - y1)
+
+    # 2. snap near-equal edges to shared grid lines
+    tol = max(0.30, 0.06 * max(W, H))
+
+    def cluster(vals):
+        vals = sorted(set(round(v, 3) for v in vals))
+        groups = []
+        for v in vals:
+            if groups and v - groups[-1][-1] <= tol:
+                groups[-1].append(v)
+            else:
+                groups.append([v])
+        m = {}
+        for g in groups:
+            c = round(sum(g) / len(g), 3)
+            for v in g:
+                m[v] = c
+        return m
+
+    xs, ys = [0.0, round(W, 3)], [0.0, round(H, 3)]
+    for r in rooms:
+        x, y, w, h = R(r)
+        xs += [round(x, 3), round(x + w, 3)]
+        ys += [round(y, 3), round(y + h, 3)]
+    mxs, mys = cluster(xs), cluster(ys)
+    for r in rooms:
+        x, y, w, h = R(r)
+        nx1, nx2 = mxs[round(x, 3)], mxs[round(x + w, 3)]
+        ny1, ny2 = mys[round(y, 3)], mys[round(y + h, 3)]
+        r["x"], r["w"] = nx1, max(0.1, nx2 - nx1)
+        r["y"], r["h"] = ny1, max(0.1, ny2 - ny1)
+
+    # 3. grow boundary rooms to close dead-space gaps (up to ~30% of the envelope)
+    def band(a1, a2, b1, b2):
+        return min(a2, b2) - max(a1, b1) > 0.1
+
+    gx, gy = 0.30 * W, 0.30 * H
+    for r in rooms:
+        x, y, w, h = R(r)
+        if not any(R(o)[0] >= x + w - 1e-6 and band(y, y + h, R(o)[1], R(o)[1] + R(o)[3])
+                   for o in rooms if o is not r) and 0 < W - (x + w) <= gx:
+            r["w"] = W - x
+        x, y, w, h = R(r)
+        if not any(R(o)[0] + R(o)[2] <= x + 1e-6 and band(y, y + h, R(o)[1], R(o)[1] + R(o)[3])
+                   for o in rooms if o is not r) and 0 < x <= gx:
+            r["x"], r["w"] = 0.0, w + x
+        x, y, w, h = R(r)
+        if not any(R(o)[1] >= y + h - 1e-6 and band(x, x + w, R(o)[0], R(o)[0] + R(o)[2])
+                   for o in rooms if o is not r) and 0 < H - (y + h) <= gy:
+            r["h"] = H - y
+        x, y, w, h = R(r)
+        if not any(R(o)[1] + R(o)[3] <= y + 1e-6 and band(x, x + w, R(o)[0], R(o)[0] + R(o)[2])
+                   for o in rooms if o is not r) and 0 < y <= gy:
+            r["y"], r["h"] = 0.0, h + y
+    return rooms, W, H
+
+
+
+
 def _dim_h(x1, x2, y, text, above=True):
     """Horizontal dimension segment with arrowheads + centred label."""
     ah = 5
@@ -144,7 +225,7 @@ def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
     H = _num(ov.get("h"), 6.0) or 6.0
-    rooms = _resolve_overlaps(d.get("rooms") or [])
+    rooms, W, H = _normalize_geometry(d.get("rooms") or [], W, H)
 
     VB_W = 1040
     col_x = 745                      # right column divider

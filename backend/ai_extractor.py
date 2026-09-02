@@ -1679,7 +1679,8 @@ async def run_import_job(job_id: str):
             tpl = await match_template([m["code"] for m in project["measures"]])
             if tpl:
                 project["templateId"] = tpl["id"]
-                project["templateName"] = tpl["name"]
+                project["templateName"] = display_template_name(
+                    tpl["name"], [m["code"] for m in project["measures"]])
                 project["templateBlueprint"] = tpl.get("blueprint")
 
         async def _t_site_and_considerations():
@@ -1850,6 +1851,31 @@ def parse_measure_codes(text: str):
         if u not in out:
             out.append(u)
     return out
+
+
+def display_template_name(name, measure_codes):
+    """Strip measure-code tokens from a template name that the project's own
+    measures don't actually include (e.g. don't show 'C5' when there is no
+    ventilation measure on the design)."""
+    name = name or ""
+    tags = set()
+    for c in (measure_codes or []):
+        tags |= set(MEASURE_TO_TAGS.get((c or "").upper(), []))
+
+    def keep(tok):
+        u = tok.strip().upper()
+        if re.fullmatch(r"(B\d+|C\d+|ASHP|SOLAR)", u):
+            return u in tags
+        return True
+
+    if "\u2014" in name:
+        prefix, codes_part = name.split("\u2014", 1)
+        toks = [t.strip() for t in codes_part.split(",")]
+        kept = [t for t in toks if t and keep(t)]
+        return f"{prefix.strip()} \u2014 {', '.join(kept)}" if kept else prefix.strip()
+    return name
+
+
 
 
 def _download(url: str) -> bytes:
