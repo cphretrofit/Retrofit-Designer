@@ -64,6 +64,15 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
     } catch { toast.error("Could not save caption"); }
   };
 
+  const setPrimaryPhoto = async (d, g) => {
+    const idx = defects.findIndex((x) => x.id === d.id);
+    if (idx < 0 || d.photo === g.url) return;
+    try {
+      await updateField(projectId, { path: `defects.${idx}.photo`, value: g.url });
+      sync(defects.map((x) => (x.id === d.id ? { ...x, photo: g.url, photoCaption: g.caption || x.photoCaption } : x)));
+    } catch { toast.error("Could not update photo"); }
+  };
+
   const applySeverity = async (d) => {
     const idx = defects.findIndex((x) => x.id === d.id);
     if (idx < 0) return;
@@ -164,6 +173,17 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
                     <input defaultValue={d.photoCaption || ""} placeholder="Photo caption…" data-testid={`defect-caption-${d.id}`}
                       onBlur={(e) => saveCaption(d, e.target.value)}
                       className="w-28 px-1.5 py-1 text-[10px] bg-background border border-border rounded-sm outline-none focus:border-foreground/40" />
+                  )}
+                  {Array.isArray(d.photos) && d.photos.length > 1 && (
+                    <div className="flex flex-wrap gap-1 w-28" data-testid={`defect-gallery-strip-${d.id}`}>
+                      {d.photos.map((g, gi) => (
+                        <button key={gi} onClick={() => setPrimaryPhoto(d, g)} title="Set as main photo"
+                          data-testid={`defect-thumb-${d.id}-${gi}`}
+                          className={`w-[34px] h-[26px] rounded-sm overflow-hidden border transition-opacity ${d.photo === g.url ? "border-foreground" : "border-border opacity-60 hover:opacity-100"}`}>
+                          <img src={mediaUrl(g.url)} alt="" className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
                   )}
                   {d.severitySuggested && d.severitySuggested !== String(d.severity || "").toLowerCase() && (
                     <button onClick={() => applySeverity(d)} data-testid={`defect-sevsug-${d.id}`}

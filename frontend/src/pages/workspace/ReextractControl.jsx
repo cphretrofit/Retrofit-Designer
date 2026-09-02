@@ -42,7 +42,7 @@ export function ReextractControl({ projectId, onDone, initialBusy = false }) {
         toast.success(`${files.length} document(s) added`);
       }
       await reextractProject(projectId);
-      toast.info("Re-extraction started", { description: "Refreshing ventilation, site conditions & design considerations…" });
+      toast.info("Re-extraction started", { description: "Re-reading full documents — refreshing site conditions, design considerations & pulling site-note defect photos…" });
       startPolling();
     } catch (e) {
       setBusy(false);
@@ -53,7 +53,7 @@ export function ReextractControl({ projectId, onDone, initialBusy = false }) {
   return (
     <div className="mt-4 border border-border rounded-sm p-3 bg-secondary/30" data-testid="reextract-control">
       <div className="text-[11px] uppercase tracking-[0.1em] text-muted-foreground mb-2">Surveys & Re-extraction</div>
-      <p className="text-[12px] text-muted-foreground mb-3">Add extra surveys or site notes, then re-run the AI extraction. Refreshes ventilation, site conditions and design considerations while keeping your manual edits.</p>
+      <p className="text-[12px] text-muted-foreground mb-3">Add extra surveys or site notes, then re-run the AI extraction. Re-reads the full documents to refresh site conditions &amp; design considerations, and pulls in site-note defect photos — all while keeping your manual edits.</p>
       <input
         ref={fileRef}
         type="file"

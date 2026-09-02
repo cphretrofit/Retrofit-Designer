@@ -1086,8 +1086,8 @@ async def auto_match_defect_photos(project_id: str):
     added = await _reextract_project_photos(project_id, proj)
     photos = ((proj.get("designPack") or {}).get("photos") or [])
     tagged = await _vision_tag_photos(project_id, photos)
-    defects = proj.get("defects") or []
     sitenote = await _attach_sitenote_defect_photos(project_id, proj)
+    defects = proj.get("defects") or []
     matched = _match_defect_photos(defects, photos)
     ai_matched = await _ai_match_defect_photos(defects, photos)
     if sitenote or matched or ai_matched:

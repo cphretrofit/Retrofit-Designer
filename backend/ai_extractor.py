@@ -256,7 +256,8 @@ def extract_sitenote_defect_photos(pdf_bytes, max_per_defect: int = 6):
                 continue
             out.append({"location": _sn_field(t, "Defect location:"),
                         "description": _sn_field(t, "Please give a detailed description of the defect:"),
-                        "dtype": _sn_field(t, "Defect type:"), "images": imgs})
+                        "dtype": _sn_field(t, "Defect type:"),
+                        "severity": _sn_field(t, "Defect severity:"), "images": imgs})
         return out
     finally:
         doc.close()
@@ -289,12 +290,32 @@ def _sn_loc_tokens(s):
     return {w for w in re.findall(r"[a-z]+", s) if len(w) >= 2 and w not in _SN_STOP}
 
 
+_SN_SEV = {"low": "low", "minor": "low", "medium": "medium", "moderate": "medium",
+           "high": "high", "major": "high", "urgent": "high", "severe": "high"}
+
+
+def _sn_key(sd):
+    return ((sd.get("location") or "") + "|" + (sd.get("description") or "")[:50]).strip().lower()
+
+
+async def _store_sn_gallery(project_id, sd):
+    out = []
+    cap = (sd.get("location") or "").strip() or "Site-note defect photo"
+    for data, ext in (sd.get("images") or [])[:6]:
+        url = await _store_defect_image(project_id, data, ext)
+        if url:
+            out.append({"url": url, "caption": cap})
+    return out
+
+
 async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
     """Extract the surveyor's site-note defect photos and attach each to the matching
-    project defect by location (authoritative — real defect photos, not RdSAP form shots)."""
+    project defect by location (authoritative — real defect photos, not RdSAP form shots).
+    Keeps ALL photos per defect (gallery) and auto-adds any logged defect that has no
+    matching entry so nothing is lost. Idempotent via a per-defect siteNoteKey."""
     if doc_sources is None:
         recs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True},
-                "doc_type": {"$in": ["Assessment", "Technical Survey", "Survey", "Scope of Works"]}}, {"_id": 0}).to_list(30)
+                "doc_type": {"$in": ["Assessment", "Technical Survey", "Survey", "Scope of Works", "Site Notes"]}}, {"_id": 0}).to_list(30)
         doc_sources = [{"storage_path": d.get("storage_path"), "original_filename": d.get("original_filename")} for d in recs]
     sn = []
     for d in doc_sources:
@@ -310,13 +331,17 @@ async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
     if not sn:
         return 0
     defects = proj.get("defects") or []
+    existing_keys = {d.get("siteNoteKey") for d in defects if d.get("siteNoteKey")}
+    sn = [sd for sd in sn if _sn_key(sd) not in existing_keys]
+    if not sn:
+        return 0
     changed, used = 0, set()
+    # 1) attach to matching existing defects — LOCATION vs ELEMENT (not the full description,
+    #    which can name other rooms e.g. "no extract fan in kitchen or WC"). Strong (>=3 word)
+    #    description overlap is a secondary signal.
     for d in defects:
         if d.get("photoFromSiteNote"):
             continue
-        # Match primarily on LOCATION vs the defect ELEMENT (not its full description, which
-        # can mention other rooms, e.g. "no extract fan in kitchen or WC"). A strong description
-        # overlap (>=3 shared words) is accepted as a secondary signal.
         el = _sn_loc_tokens(d.get("element"))
         dd = _sn_loc_tokens(d.get("description"))
         best, bscore = None, 0
@@ -330,15 +355,46 @@ async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
                 best, bscore = i, score
         if best is not None and bscore > 0:
             sd = sn[best]
-            url = await _store_defect_image(project_id, sd["images"][0][0], sd["images"][0][1])
-            if url:
-                d["photo"] = url
+            gallery = await _store_sn_gallery(project_id, sd)
+            if gallery:
+                d["photo"] = gallery[0]["url"]
+                d["photos"] = gallery
                 d["photoAuto"] = True
                 d["photoFromSiteNote"] = True
                 d.pop("photoFig", None)
-                d["photoCaption"] = (sd.get("location") or "").strip() or "Site-note defect photo"
+                d["photoCaption"] = gallery[0]["caption"]
+                d["siteNoteKey"] = _sn_key(sd)
                 used.add(best)
                 changed += 1
+    # 2) auto-add any logged site-note defect with no matching entry — nothing gets lost.
+    for i, sd in enumerate(sn):
+        if i in used:
+            continue
+        loc = (sd.get("location") or "").strip()
+        desc = (sd.get("description") or "").strip()
+        if not (loc or desc):
+            continue
+        gallery = await _store_sn_gallery(project_id, sd)
+        if not gallery:
+            continue
+        dtype = (sd.get("dtype") or "").strip()
+        element = " — ".join([x for x in [loc.title() if loc else "", dtype] if x]) or (dtype or "Property defect")
+        defects.append({
+            "id": str(uuid.uuid4()),
+            "element": element,
+            "description": desc or f"{dtype} noted in survey site notes.",
+            "action": "",
+            "severity": _SN_SEV.get((sd.get("severity") or "").strip().lower(), "medium"),
+            "photo": gallery[0]["url"],
+            "photos": gallery,
+            "photoAuto": True,
+            "photoFromSiteNote": True,
+            "photoCaption": gallery[0]["caption"],
+            "siteNoteKey": _sn_key(sd),
+            "source": "sitenote",
+        })
+        changed += 1
+    proj["defects"] = defects
     return changed
 
 
@@ -1544,8 +1600,9 @@ async def run_import_job(job_id: str):
             _photos = (project.get("designPack") or {}).get("photos") or []
             _defs = project.get("defects") or []
             _snsrc = [{"storage_path": it.get("storage_path"), "original_filename": it.get("filename")}
-                      for it in inputs if it.get("doc_type") in ("Assessment", "Technical Survey", "Survey", "Scope of Works")]
+                      for it in inputs if it.get("doc_type") in ("Assessment", "Technical Survey", "Survey", "Scope of Works", "Site Notes")]
             await _attach_sitenote_defect_photos(project["id"], project, doc_sources=_snsrc)
+            _defs = project.get("defects") or []
             _match_defect_photos(_defs, _photos)
             await _ai_match_defect_photos(_defs, _photos)
         except Exception as e:
@@ -1609,6 +1666,12 @@ async def reextract_project_fields(project_id):
             updates["designConsiderations"] = dc
     except Exception as e:
         logger.warning("reextract design considerations failed: %s", e)
+    try:
+        proj2 = await db.projects.find_one({"id": project_id})
+        if proj2 is not None and await _attach_sitenote_defect_photos(project_id, proj2):
+            updates["defects"] = proj2.get("defects") or []
+    except Exception as e:
+        logger.warning("reextract site-note defect photos failed: %s", e)
     if updates:
         await db.projects.update_one({"id": project_id}, {"$set": updates})
     return {"refreshed": sorted(updates.keys())}
