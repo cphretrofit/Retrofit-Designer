@@ -60,6 +60,8 @@ from ai_extractor import (
     _dtokens,
     _STRONG_ELEMENTS,
     _match_defect_photos,
+    _ai_match_defect_photos,
+    _attach_sitenote_defect_photos,
     _photo_bytes_from_url,
     _GENERIC_CAP,
     _needs_vision,
@@ -1085,10 +1087,12 @@ async def auto_match_defect_photos(project_id: str):
     photos = ((proj.get("designPack") or {}).get("photos") or [])
     tagged = await _vision_tag_photos(project_id, photos)
     defects = proj.get("defects") or []
+    sitenote = await _attach_sitenote_defect_photos(project_id, proj)
     matched = _match_defect_photos(defects, photos)
-    if matched:
+    ai_matched = await _ai_match_defect_photos(defects, photos)
+    if sitenote or matched or ai_matched:
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
-    return {"defects": defects, "matched": matched, "added": added, "tagged": tagged}
+    return {"defects": defects, "matched": matched, "aiMatched": ai_matched, "siteNote": sitenote, "added": added, "tagged": tagged}
 
 
 class AttachPhotoIn(BaseModel):

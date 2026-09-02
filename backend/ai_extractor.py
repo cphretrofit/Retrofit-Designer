@@ -100,6 +100,250 @@ def _match_defect_photos(defects, photos):
     return matched
 
 
+DEFECT_PHOTO_MATCH_SYSTEM = """You match UK domestic retrofit survey PHOTOGRAPHS to logged property DEFECTS for one property.
+You are given, in order, numbered survey photographs (FIG 01, FIG 02, ...) and a numbered list of defects (each with an element and a description).
+For EACH defect, choose the single FIG whose photograph actually shows that defect, or the specific element/room it concerns, or null when no photo shows it.
+Be strict about the element: a window/glazing photo must NOT be matched to a wall, ceiling, door, floor, loft, chimney, fan or ventilation defect (and vice-versa); an interior room photo must match the room named in the defect. Only assign a photo when it genuinely depicts the defect or its element. Prefer a defect-specific photo (e.g. visible mould, crack, damp, broken fan) over a generic context shot. Do not reuse the same FIG for unrelated defects.
+Return ONLY JSON: {"matches":[{"defect":0,"fig":"07"},{"defect":1,"fig":null}]}"""
+
+
+async def _ai_match_defect_photos(defects, photos, max_photos: int = 24):
+    """Use Claude vision to assign the best survey photo to each defect by reading the
+    actual images — far more accurate than keyword overlap. Only touches defects with no
+    photo or a previous AUTO match (never overrides a manually attached photo), and clears
+    a previous wrong AUTO match when the model finds no matching photo. Returns count changed."""
+    if not EMERGENT_LLM_KEY or not defects or not photos:
+        return 0
+    targets = [i for i, d in enumerate(defects) if (not d.get("photo") or d.get("photoAuto")) and not d.get("photoFromSiteNote")]
+    if not targets:
+        return 0
+    # Defect photos often sit at the BOTTOM of the survey (high FIG numbers), so don't just
+    # take the first N — prioritise photos whose caption relates to the defects, then fill.
+    dtok = set()
+    for i in targets:
+        dtok |= _dtokens(defects[i].get("element")) | _dtokens(defects[i].get("description"))
+    ordered = sorted(photos, key=lambda ph: -len(dtok & (_dtokens(ph.get("caption")) | _dtokens(ph.get("observation")))))
+    cand = []
+    for ph in ordered:
+        b = await _photo_bytes_from_url(ph.get("url"))
+        if not b:
+            continue
+        cand.append({"fig": str(ph.get("fig")), "ph": ph, "b64": _img_b64(b, 820, 66),
+                     "caption": ph.get("caption") or ""})
+        if len(cand) >= max_photos:
+            break
+    if not cand:
+        return 0
+    listing = "\n".join(f'FIG {c["fig"]}: {c["caption"]}' for c in cand)
+    dlist = "\n".join(
+        f'{i}: {(defects[i].get("element") or "").strip()} — {(defects[i].get("description") or "").strip()[:160]}'
+        for i in targets)
+    prompt = (f"The attached images are, in order, these survey photographs:\n{listing}\n\n"
+              f"Defects to match (by index):\n{dlist}\n\n"
+              "Return the best FIG for each defect index, or null when no photo shows it.")
+    try:
+        out = await call_claude_vision_json(DEFECT_PHOTO_MATCH_SYSTEM, prompt, [c["b64"] for c in cand])
+    except Exception as e:
+        logger.warning("ai defect match failed: %s", e)
+        return 0
+    by_fig = {c["fig"]: c for c in cand}
+    changed = 0
+    for m in (out.get("matches") or []):
+        try:
+            di = int(m.get("defect"))
+        except Exception:
+            continue
+        if di not in targets:
+            continue
+        d = defects[di]
+        fig = re.sub(r"(?i)^fig[\s:#]*", "", str(m.get("fig") or "")).strip()
+        if fig.isdigit():
+            fig = fig.zfill(2)
+        c = by_fig.get(fig)
+        if c and c["ph"].get("url"):
+            newurl = c["ph"]["url"]
+            if d.get("photo") != newurl:
+                changed += 1
+            d["photo"] = newurl
+            d["photoAuto"] = True
+            d["photoFig"] = c["ph"].get("fig")
+            d["photoCaption"] = c["ph"].get("caption")
+        elif d.get("photo") and d.get("photoAuto"):
+            d["photo"] = None
+            d.pop("photoFig", None)
+            d.pop("photoCaption", None)
+            changed += 1
+    return changed
+
+
+_SN_DEFECT_HEAD = re.compile(r"^Defect\s+\d+\s*$", re.I)
+
+
+def _sn_field(text, label):
+    lines = [l.strip() for l in (text or "").split("\n")]
+    ll = label.lower().rstrip(":")
+    for i, l in enumerate(lines):
+        if l.lower().rstrip(":") == ll:
+            for j in range(i + 1, min(i + 5, len(lines))):
+                v = lines[j]
+                if v and not v.endswith(":"):
+                    return v
+    return ""
+
+
+def extract_sitenote_defect_photos(pdf_bytes, max_per_defect: int = 6):
+    """Read the structured 'Defects' section of a SMART-EPC / surveyor site-note PDF.
+    Each 'Defect N' block carries a location + description and its own 'Defect photo:' images.
+    Returns [{location, description, dtype, images:[(bytes,ext)]}] in document order."""
+    try:
+        doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
+    except Exception:
+        return []
+    try:
+        stream = []  # global reading-order: ("text", str) | ("img", xref)
+        for pno in range(doc.page_count):
+            pg = doc[pno]
+            items = []
+            for b in pg.get_text("dict").get("blocks", []):
+                if b.get("type") != 0:
+                    continue
+                for l in b.get("lines", []):
+                    txt = "".join(s.get("text", "") for s in l.get("spans", [])).strip()
+                    if txt:
+                        items.append((l["bbox"][1], "text", txt))
+            for info in pg.get_image_info(xrefs=True):
+                xref = info.get("xref") or 0
+                if not xref:
+                    continue
+                bb = info["bbox"]
+                if (bb[2] - bb[0]) * (bb[3] - bb[1]) < 8000:
+                    continue
+                items.append((bb[1], "img", xref))
+            items.sort(key=lambda x: x[0])
+            for _, kind, payload in items:
+                stream.append((kind, payload))
+        joined = "\n".join(p for k, p in stream if k == "text")
+        if "Defect location:" not in joined and "Defect type:" not in joined:
+            return []
+        blocks, cur, buf = [], None, []
+        for kind, payload in stream:
+            if kind == "text":
+                if _SN_DEFECT_HEAD.match(payload):
+                    if cur is not None:
+                        cur["_text"] = "\n".join(buf)
+                        blocks.append(cur)
+                    cur, buf = {"xrefs": []}, []
+                elif cur is not None:
+                    buf.append(payload)
+            elif kind == "img" and cur is not None:
+                if payload not in cur["xrefs"]:
+                    cur["xrefs"].append(payload)
+        if cur is not None:
+            cur["_text"] = "\n".join(buf)
+            blocks.append(cur)
+        out = []
+        for bl in blocks:
+            t = bl["_text"]
+            imgs = []
+            for xref in bl["xrefs"][:max_per_defect]:
+                try:
+                    ex = doc.extract_image(xref)
+                    if ex and ex.get("width", 0) >= 150 and ex.get("height", 0) >= 150:
+                        imgs.append((ex["image"], ex.get("ext", "jpg")))
+                except Exception:
+                    continue
+            if not imgs:
+                continue
+            out.append({"location": _sn_field(t, "Defect location:"),
+                        "description": _sn_field(t, "Please give a detailed description of the defect:"),
+                        "dtype": _sn_field(t, "Defect type:"), "images": imgs})
+        return out
+    finally:
+        doc.close()
+
+
+async def _store_defect_image(project_id, data, ext):
+    iext = ext if ext in ("jpg", "jpeg", "png", "webp") else "jpg"
+    mime = "image/jpeg" if iext in ("jpg", "jpeg") else f"image/{iext}"
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{pid}.{iext}"
+    try:
+        await asyncio.to_thread(put_object, path, data, mime)
+    except Exception:
+        return None
+    await db.documents.insert_one({
+        "id": pid, "project_id": project_id, "storage_path": path,
+        "original_filename": f"defect-{pid[:8]}.{iext}", "content_type": mime,
+        "doc_type": "Defect Photo", "size": len(data), "is_deleted": False,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    return f"/api/documents/{pid}/download"
+
+
+_SN_STOP = {"the", "and", "of", "in", "on", "to", "an", "for", "with", "internal", "external", "area", "all"}
+
+
+def _sn_loc_tokens(s):
+    s = re.sub(r"\bbr\s*0*(\d+)\b", r"bedroom \1", (s or "").lower())
+    s = re.sub(r"\bbed\s*0*(\d+)\b", r"bedroom \1", s)
+    return {w for w in re.findall(r"[a-z]+", s) if len(w) >= 2 and w not in _SN_STOP}
+
+
+async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
+    """Extract the surveyor's site-note defect photos and attach each to the matching
+    project defect by location (authoritative — real defect photos, not RdSAP form shots)."""
+    if doc_sources is None:
+        recs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True},
+                "doc_type": {"$in": ["Assessment", "Technical Survey", "Survey", "Scope of Works"]}}, {"_id": 0}).to_list(30)
+        doc_sources = [{"storage_path": d.get("storage_path"), "original_filename": d.get("original_filename")} for d in recs]
+    sn = []
+    for d in doc_sources:
+        sp = d.get("storage_path")
+        fn = (d.get("original_filename") or "").lower()
+        if not sp or not fn.endswith(".pdf"):
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, sp)
+        except Exception:
+            continue
+        sn.extend(await asyncio.to_thread(extract_sitenote_defect_photos, data))
+    if not sn:
+        return 0
+    defects = proj.get("defects") or []
+    changed, used = 0, set()
+    for d in defects:
+        if d.get("photoFromSiteNote"):
+            continue
+        # Match primarily on LOCATION vs the defect ELEMENT (not its full description, which
+        # can mention other rooms, e.g. "no extract fan in kitchen or WC"). A strong description
+        # overlap (>=3 shared words) is accepted as a secondary signal.
+        el = _sn_loc_tokens(d.get("element"))
+        dd = _sn_loc_tokens(d.get("description"))
+        best, bscore = None, 0
+        for i, sd in enumerate(sn):
+            if i in used:
+                continue
+            loc_score = len(_sn_loc_tokens(sd.get("location")) & el)
+            desc_score = len(_sn_loc_tokens(sd.get("description")) & dd)
+            score = loc_score * 10 + (desc_score if desc_score >= 3 else 0)
+            if score > bscore:
+                best, bscore = i, score
+        if best is not None and bscore > 0:
+            sd = sn[best]
+            url = await _store_defect_image(project_id, sd["images"][0][0], sd["images"][0][1])
+            if url:
+                d["photo"] = url
+                d["photoAuto"] = True
+                d["photoFromSiteNote"] = True
+                d.pop("photoFig", None)
+                d["photoCaption"] = (sd.get("location") or "").strip() or "Site-note defect photo"
+                used.add(best)
+                changed += 1
+    return changed
+
+
+
+
 async def _photo_bytes_from_url(url):
     if not url or "/documents/" not in url:
         return None
@@ -280,7 +524,7 @@ def extract_text_any(data: bytes, ext: str) -> str:
     return ""
 
 
-def extract_pdf_text(data: bytes, max_pages: int = 8) -> str:
+def extract_pdf_text(data: bytes, max_pages: int = 40) -> str:
     text = ""
     try:
         from pypdf import PdfReader
@@ -291,7 +535,7 @@ def extract_pdf_text(data: bytes, max_pages: int = 8) -> str:
     # Scanned / photographed PDFs return little or no embedded text — fall back to OCR.
     if len(text.strip()) >= 200:
         return text
-    ocr = _ocr_pdf(data, max_pages)
+    ocr = _ocr_pdf(data, min(max_pages, 12))
     return ocr if len(ocr.strip()) > len(text.strip()) else text
 
 
@@ -1158,7 +1402,7 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
 
 
 
-TEXT_LIMIT = {"ASHP Survey": 9000, "Datasheet": 3000}
+TEXT_LIMIT = {"ASHP Survey": 20000, "Datasheet": 3000}
 PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey", "Technical Survey")
 
 
@@ -1195,7 +1439,7 @@ async def run_import_job(job_id: str):
                     logger.warning("import input fetch failed: %s", e)
 
             text = (await asyncio.to_thread(extract_text_any, data, ext)) if data else ""
-            limit = TEXT_LIMIT.get(dtype, 11000)
+            limit = TEXT_LIMIT.get(dtype, 24000)
             if text.strip():
                 content_chars += len(text.strip())
                 parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:limit]}")
@@ -1299,7 +1543,11 @@ async def run_import_job(job_id: str):
         try:
             _photos = (project.get("designPack") or {}).get("photos") or []
             _defs = project.get("defects") or []
+            _snsrc = [{"storage_path": it.get("storage_path"), "original_filename": it.get("filename")}
+                      for it in inputs if it.get("doc_type") in ("Assessment", "Technical Survey", "Survey", "Scope of Works")]
+            await _attach_sitenote_defect_photos(project["id"], project, doc_sources=_snsrc)
             _match_defect_photos(_defs, _photos)
+            await _ai_match_defect_photos(_defs, _photos)
         except Exception as e:
             logger.warning("defect photo auto-match failed: %s", e)
 
@@ -1336,7 +1584,7 @@ async def reextract_project_fields(project_id):
             continue
         text = (await asyncio.to_thread(extract_text_any, data, ext)) if data else ""
         if text.strip():
-            parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:TEXT_LIMIT.get(dtype, 11000)]}")
+            parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:TEXT_LIMIT.get(dtype, 24000)]}")
     if not parts:
         return {"error": "No readable source documents on this project"}
     ai = await call_claude("Extract and draft the retrofit design from these documents:\n\n" + "\n\n".join(parts))

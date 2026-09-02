@@ -77,10 +77,14 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
   const autoMatch = async () => {
     setMatching(true);
     try {
-      const { defects: list, matched, added } = await autoMatchDefectPhotos(projectId);
+      const { defects: list, matched, aiMatched = 0, siteNote = 0, added } = await autoMatchDefectPhotos(projectId);
       sync(list);
-      const desc = added ? `Pulled ${added} more photo(s) from the survey documents.` : "Searched the survey documents for matching photos.";
-      toast.success(matched ? `Matched ${matched} photo(s) to defects` : "No matching photos found", { description: desc });
+      const total = (matched || 0) + (aiMatched || 0) + (siteNote || 0);
+      const bits = [];
+      if (siteNote) bits.push(`${siteNote} from site-note defect photos`);
+      if (added) bits.push(`pulled ${added} more from survey documents`);
+      const desc = bits.length ? bits.join("; ") : "Searched the survey documents for matching photos.";
+      toast.success(total ? `Matched ${total} photo(s) to defects` : "No matching photos found", { description: desc });
     } catch { toast.error("Could not auto-match photos"); } finally { setMatching(false); }
   };
 
