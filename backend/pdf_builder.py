@@ -544,6 +544,8 @@ PACK_CSS = """
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
 .page { position: relative; width: 210mm; min-height: 285mm; padding: 18mm 18mm 12mm; page-break-after: always; }
 .docref { position: running(docfoot); font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; }
+.screen-foot { display: none; }
+@media screen { .screen-foot { display: flex; justify-content: space-between; align-items: center; position: absolute; left: 18mm; right: 18mm; bottom: 4mm; padding-top: 4px; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
 .page:last-child { page-break-after: auto; }
 .mono { font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
 .muted { color: #737373; } .faint { color: #a3a3a3; }
@@ -2632,7 +2634,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     pages = [x for x in pages if x]
     total = len(pages)
     foot = f"{_esc(p.get('address') or name)}  ·  Ref {ref}  ·  Rev {rev}"
-    body = f'<div class="docref">{foot}</div>' + "".join(f'<div class="page">{inner}</div>' for inner in pages)
+    page_divs = []
+    for i, inner in enumerate(pages):
+        # Mirror the PDF's @page footer on screen (the cover page carries none, matching @page :first).
+        sf = "" if i == 0 else f'<div class="screen-foot"><span>{foot}</span><span>{i + 1} / {total}</span></div>'
+        page_divs.append(f'<div class="page">{inner}{sf}</div>')
+    body = f'<div class="docref">{foot}</div>' + "".join(page_divs)
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{PACK_CSS}</style></head><body>{body}</body></html>'
 
 

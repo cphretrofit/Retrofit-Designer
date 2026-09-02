@@ -53,6 +53,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - The public QR link keeps serving the current cached PDF instantly (~1s) and swaps to the freshly-rebuilt one once ready. Verified end-to-end: edited `designer` → public pack reflected the change (273pp, QR intact) → reverted → rebuilt back.
 - `packOrigin` fix: `request.base_url` is the internal cluster host behind the proxy, so the QR URL must come from the browser's `Origin`/`Referer` header (`_public_origin`) or the stored `packOrigin` from a manual export. QR now decodes to `https://retrofit-pro-2.preview.emergentagent.com/api/public/pack/{token}.pdf` (verified by decoding the embedded QR image).
 
+## DONE — Footer visible in on-screen preview (Jun 2026)
+- The page footer (`address · Ref · Rev` + `n / total`) is a WeasyPrint `@page` margin box, which browsers don't render on screen — so the live iframe preview looked footer-less while every generated/QR PDF had it. There was only ever one design/render path.
+- Added a screen-only `.screen-foot` strip per content page (`@media screen`, absolute bottom, mirrors the PDF footer; cover excluded). Hidden in WeasyPrint (print media) so the PDF is not double-stamped — verified: page 4 has exactly 1 footer, cover has none.
+
 ## NOTE — "QR pack has extra pages" explained (Jun 2026)
 - The QR/public PDF and the in-app Download are byte-identical (same md5). Both = 67-page core design pack + **Appendix B "Bound Source Documents"** (~206 pages of the merged assessment PDFs, datasheets, photopacks). The on-screen PREVIEW/Print shows only the 67 core pages (HTML preview does not merge source PDFs) — that is the perceived difference. Option (not yet built): serve a core-only version on the public QR link.
 
