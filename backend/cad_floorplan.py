@@ -134,7 +134,7 @@ def _hatch_rect(x, y, w, h, gap=15, color="#B45309", sw=1.0, opacity=0.5):
     return "".join(segs)
 
 
-def build_cad_floorplan_svg(d: dict) -> str:
+def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
     H = _num(ov.get("h"), 6.0) or 6.0
@@ -203,7 +203,7 @@ def build_cad_floorplan_svg(d: dict) -> str:
     # loft insulation — hatch the whole top-floor footprint (covers every ceiling)
     loft_note = next((n for n in (d.get("notes") or []) if "loft insul" in str(n).lower()), None)
     loft_on = bool(d.get("loftCoverage")) or bool(loft_note)
-    _m = re.search(r"(\d+\s?mm)", str(d.get("loftCoverage") or loft_note or ""))
+    _m = re.search(r"(\d+\s?mm)", " ".join(str(x) for x in (d.get("loftCoverage"), loft_note) if x))
     _loft_depth = f" ({_m.group(1)})" if _m else ""
     legend = list(d.get("legend") or [])
     if loft_on:
@@ -273,10 +273,24 @@ def build_cad_floorplan_svg(d: dict) -> str:
         rr = 26
         parts.append(f'<path d="M{x:.1f},{y:.1f} l{rr},0 a{rr},{rr} 0 0 1 -{rr},{rr}" fill="none" stroke="#111" stroke-width="1.2"/>')
 
-    # symbols
+    # symbols — nudged clear of each room's name/area label zone
+    def _nudge_sym_y(sx, syy):
+        for r in rooms:
+            rx, ryy, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            x0, y0, wpx, hpx = mx(rx), my(ryy), rw * S, rh * S
+            if x0 <= sx <= x0 + wpx and y0 <= syy <= y0 + hpx:
+                cy = y0 + hpx / 2
+                bt, bb = cy - hpx * 0.24, cy + hpx * 0.34
+                if bt <= syy <= bb:
+                    cand = y0 + hpx - max(18, hpx * 0.14)
+                    return cand if cand > bb + 6 else max(y0 + 16, bt - 16)
+                return syy
+        return syy
+
     for sy in (d.get("symbols") or []):
         t = (sy.get("type") or "").lower()
-        x, y = mx(_num(sy.get("x"))), my(_num(sy.get("y")))
+        x = mx(_num(sy.get("x")))
+        y = _nudge_sym_y(x, my(_num(sy.get("y"))))
         lbl = sy.get("label") or ""
         if t == "radiator":
             parts.append(f'<rect x="{x-22:.1f}" y="{y-6:.1f}" width="44" height="12" fill="#fff" stroke="#111" stroke-width="1"/>')
@@ -383,7 +397,27 @@ def build_cad_floorplan_svg(d: dict) -> str:
     parts.append(f'<text x="1010" y="{col_bottom-8:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">7</text>')
 
     VB_H = col_bottom + 28
-    head = (f'<svg viewBox="0 0 {VB_W} {VB_H:.0f}" xmlns="http://www.w3.org/2000/svg" '
+    return "".join(parts), VB_H
+
+
+def build_cad_floorplan_svg(d: dict) -> str:
+    """Render one sheet, or — when `d` has a `floors` list — a separate labelled
+    plan per floor stacked vertically (Ground Floor, First Floor, ...)."""
+    VB_W = 1040
+    floors = d.get("floors")
+    if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "loftCoverage") if d.get(k)}
+        groups, total = [], 0.0
+        for fl in floors:
+            inner, h = _render_single({**shared, **fl})
+            groups.append(f'<g transform="translate(0,{total:.0f})">{inner}</g>')
+            total += h + 28
+        head = (f'<svg viewBox="0 0 {VB_W} {total:.0f}" xmlns="http://www.w3.org/2000/svg" '
+                f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
+                f'<rect x="0" y="0" width="{VB_W}" height="{total:.0f}" fill="#fff"/>')
+        return head + "".join(groups) + '</svg>'
+    inner, h = _render_single(d)
+    head = (f'<svg viewBox="0 0 {VB_W} {h:.0f}" xmlns="http://www.w3.org/2000/svg" '
             f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
-            f'<rect x="0" y="0" width="{VB_W}" height="{VB_H:.0f}" fill="#fff"/>')
-    return head + "".join(parts) + '</svg>'
+            f'<rect x="0" y="0" width="{VB_W}" height="{h:.0f}" fill="#fff"/>')
+    return head + inner + '</svg>'

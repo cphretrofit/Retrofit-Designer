@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { detectSiteConditions, saveSiteConditions, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Save } from "lucide-react";
+import { Sparkles, Loader2, Save, Maximize2 } from "lucide-react";
 
 const VERDICT = [
   { v: "true", l: "Present / Yes" },
@@ -13,6 +13,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
   const [sc, setSc] = useState((project.property && project.property.siteConditions) || {});
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [zoom, setZoom] = useState(null);
   const evidence = sc.evidence || [];
   useEffect(() => { setSc((project.property && project.property.siteConditions) || {}); }, [project.property?.siteConditions]);
 
@@ -76,7 +77,11 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
               <div key={i} className="border border-border rounded-sm bg-card p-4 flex gap-4" data-testid={`site-condition-${e.key}`}>
                 <div className="w-32 shrink-0">
                   {e.url ? (
-                    <img src={mediaUrl(e.url)} alt={e.label} className="w-32 h-24 object-cover border border-border rounded-sm" data-testid={`site-evidence-img-${e.key}`} />
+                    <button onClick={() => setZoom({ url: e.url, label: e.label, caption: e.caption || e.detail || "" })}
+                      className="block w-32 h-24 rounded-sm overflow-hidden border border-border relative group" data-testid={`site-evidence-img-${e.key}`}>
+                      <img src={mediaUrl(e.url)} alt={e.label} className="w-full h-full object-cover" />
+                      <span className="absolute bottom-1 right-1 bg-background/80 rounded-sm p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="h-3 w-3" strokeWidth={2} /></span>
+                    </button>
                   ) : (
                     <div className="w-32 h-24 border border-dashed border-border rounded-sm flex items-center justify-center text-[10px] text-muted-foreground text-center px-2">No evidence photo</div>
                   )}
@@ -106,6 +111,19 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {zoom && (
+        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-lightbox" onClick={() => setZoom(null)}>
+          <div className="flex-1 min-h-0 flex items-center justify-center" onClick={(ev) => ev.stopPropagation()}>
+            <img src={mediaUrl(zoom.url)} alt={zoom.label} className="max-h-[74vh] max-w-[82vw] object-contain rounded-sm border border-border" data-testid="site-lightbox-image" />
+          </div>
+          <div className="shrink-0 max-w-2xl w-full mx-auto mt-4 flex items-center gap-3" onClick={(ev) => ev.stopPropagation()}>
+            <span className="text-[13px] font-medium">{zoom.label}</span>
+            {zoom.caption && <span className="text-[12px] text-muted-foreground flex-1 truncate">{zoom.caption}</span>}
+            <button onClick={() => setZoom(null)} data-testid="site-lightbox-close" className="h-9 px-3 text-[12px] text-muted-foreground hover:text-foreground ml-auto">Close</button>
+          </div>
         </div>
       )}
     </div>

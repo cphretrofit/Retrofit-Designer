@@ -1440,6 +1440,7 @@ Return ONLY JSON:
  "legend": ["HSI = Boiler","C = Hot Water Cylinder","LH = Loft Hatch","A-G = Windows","RA01 = Radiator"],
  "date": "29.05.2026"
 }
+MULTI-FLOOR: if the survey shows more than one storey (e.g. Ground + First), return a top-level "floors" ARRAY with ONE COMPLETE ENTRY PER FLOOR — each with its own "title" ("Ground Floor" / "First Floor"), "overall", "rooms", dimension chains, "windows", "doors", "symbols", "frontDoor" and "dataBox". Each floor occupies the FULL building footprint (do NOT place ground- and first-floor rooms in one shared plan). Put shared fields (address, wallType, date, legend) at the TOP LEVEL, not inside each floor. For a single-storey dwelling, return "rooms" at the top level as shown above (no "floors").
 Rules: read EVERY room name and its window-circle code (e.g. E1..E7) exactly as written; if a circle shows a plain letter with no number keep it as-is. Read all dimension numbers exactly (windows chain 'wall' must be top|bottom|left|right, position in metres along that wall). Keep rectangles consistent so shared walls align (snap coordinates to a sensible grid so topDims sum to overall.w and leftDims sum to overall.h). Do not invent rooms. If a value is unreadable use "".
 """
 
@@ -1553,7 +1554,17 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
         geo = await call_claude_vision_json(
             CAD_FLOORPLAN_SYSTEM, "Reconstruct this floor plan as structured JSON.",
             [_img_b64(chosen["bytes"], max_px=1100, quality=80)])
-        if geo and geo.get("rooms"):
+        if geo and (geo.get("rooms") or geo.get("floors")):
+            try:
+                _proj = await db.projects.find_one({"id": project_id}, {"measures": 1})
+                _codes = " ".join(((m.get("code") or "") + " " + (m.get("name") or "")) for m in (_proj or {}).get("measures") or []).lower()
+                if any(k in _codes for k in ("loft insul", "loft ins", "rir", "room in roof", "room-in-roof")):
+                    if isinstance(geo.get("floors"), list) and geo["floors"]:
+                        geo["floors"][-1]["loftCoverage"] = "loft insulation"  # top floor only
+                    else:
+                        geo["loftCoverage"] = "loft insulation"
+            except Exception:
+                pass
             cad_svg = build_cad_floorplan_svg(geo)
             cad_data = geo
     except Exception as e:
