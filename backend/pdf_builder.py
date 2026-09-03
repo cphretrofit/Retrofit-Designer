@@ -2735,9 +2735,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     _has_loft = any(_mfam(m.get("code"), m.get("name")) == "LOFT" for m in measures)
     _has_win = any(_mfam(m.get("code"), m.get("name")) == "WIN" for m in measures)
     _has_solar = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in measures)
+    _has_ashp = any(_mfam(m.get("code"), m.get("name")) == "ASHP" for m in measures)
     loft_detail_pages = _standard_detail_pages("loft_details", "Standard Loft Insulation Details") if _has_loft else []
     glazing_detail_pages = _standard_detail_pages("glazing_details", "Standard Glazing &amp; Door Details") if _has_win else []
     solar_detail_pages = _standard_detail_pages("solar_details", "Standard Solar PV &amp; Battery Details") if _has_solar else []
+    ashp_detail_pages = _standard_detail_pages("ashp_details", "Standard ASHP &amp; Heating Controls Details") if _has_ashp else []
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
@@ -2747,7 +2749,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *scope_pages, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
-             *spec_pages, *photo_pages, drawings_page, *loft_detail_pages, *glazing_detail_pages, *solar_detail_pages, *defects_pages, *items_pages,
+             *spec_pages, *photo_pages, drawings_page, *loft_detail_pages, *glazing_detail_pages, *solar_detail_pages, *ashp_detail_pages, *defects_pages, *items_pages,
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
     total = len(pages)

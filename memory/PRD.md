@@ -118,5 +118,15 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - Specifications pages: fixed title/PAS-chip collision and duplicated "mm mm" in build-up table (`_thk`).
 - Aerial page-2/postcode fixed earlier (RG80TU→RG8 0TU normalisation).
 
+## DONE — ASHP & Controls standard details (Jun 2026)
+- Added 5 standard detail sheets to `backend/assets/ashp_details/` (downscaled ~100-300KB each): `1_ashp_system`, `2_room_thermostat`, `3_programmer`, `4_weather_compensation`, `5_zone_smart_controls`.
+- `pdf_builder.py`: `_has_ashp` flag + `ashp_detail_pages = _standard_detail_pages("ashp_details", "Standard ASHP & Heating Controls Details")`, bound after solar_detail_pages. Auto-attaches only when an ASHP measure is present.
+- Verified end-to-end: Coldrush (has ASHP) → 5 sheets render with proper (cont.) headers/footers; Beech Grove (no ASHP) → 0 sheets. Same auto re-issue flow as Loft/Glazing/Solar.
+
+## Backlog (next)
+- P1: Add standard details (Loft LD-01…, Glazing, Solar, ASHP) to TOC + Drawing Register so they're formally scheduled.
+- P1: Checklist Nudge — dashboard flag when loft checklist items still "Unknown". Re-detect 10 Emmens floor plan (entrance hall).
+- P2: Measure-linked conditional details (F-Cap only when downlights=Yes; tank only when loft tank present). Action deep-links; Hall auto-insert; per-drawing revision & sign-off.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
