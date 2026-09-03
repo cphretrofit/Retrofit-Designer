@@ -332,8 +332,19 @@ export default function DesignWorkspace() {
                 {p.itemsBeforeIssue.map((it, i) => (
                   <li key={i} className="flex items-start gap-3 pb-3 border-b border-border/60 last:border-0">
                     <span className="font-mono text-[11px] text-muted-foreground mt-0.5">{String(i + 1).padStart(2, "0")}</span>
-                    <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" style={{ color: it.severity === "critical" ? "var(--c-critical)" : it.severity === "warning" ? "var(--c-warning)" : "var(--c-info)" }} strokeWidth={1.75} />
-                    <div><div className="text-[13px]">{it.text}</div><div className="font-mono text-[10px] text-muted-foreground mt-0.5">{it.measure}</div></div>
+                    {it.resolved
+                      ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} />
+                      : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" style={{ color: it.severity === "critical" ? "var(--c-critical)" : it.severity === "warning" ? "var(--c-warning)" : "var(--c-info)" }} strokeWidth={1.75} />}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={cn("text-[13px]", it.resolved && "line-through text-muted-foreground")}>{it.text}</span>
+                        {it.resolved
+                          ? <StatusChip tone="pass">RESOLVED</StatusChip>
+                          : it.status ? <span className="text-[10px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-muted-foreground">{it.status}</span> : null}
+                      </div>
+                      <div className="font-mono text-[10px] text-muted-foreground mt-0.5">{it.measure}{it.actionedBy ? ` · ${it.actionedBy}` : ""}</div>
+                      {it.note && <div className="text-[12px] text-muted-foreground mt-1 leading-snug">{it.note}</div>}
+                    </div>
                   </li>
                 ))}
               </ol>
@@ -449,7 +460,7 @@ export default function DesignWorkspace() {
         </main>
 
         {/* Right intelligence */}
-        <IntelligencePanel p={p} measure={activeMeasure} onOpen={setSection} />
+        <IntelligencePanel p={p} measure={activeMeasure} onOpen={setSection} onItemsChange={(items) => setP((prev) => ({ ...prev, itemsBeforeIssue: items }))} />
       </div>
     </div>
   );

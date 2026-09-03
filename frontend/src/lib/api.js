@@ -24,6 +24,13 @@ export const changePassword = (payload) =>
 export const confirmAllItems = (id) =>
   api.post(`/projects/${id}/items/confirm-all`, { confirmed: true }).then((r) => r.data);
 
+export const updateActionItem = (id, index, payload) =>
+  api.put(`/projects/${id}/items/${index}`, payload).then((r) => r.data);
+export const addActionItem = (id, payload) =>
+  api.post(`/projects/${id}/items`, payload).then((r) => r.data);
+export const deleteActionItem = (id, index) =>
+  api.delete(`/projects/${id}/items/${index}`).then((r) => r.data);
+
 export const updatePhotos = (id, photos) =>
   api.put(`/projects/${id}/photos`, { photos }).then((r) => r.data);
 

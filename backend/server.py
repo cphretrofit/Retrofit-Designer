@@ -1230,6 +1230,80 @@ async def confirm_item(project_id: str, index: int, payload: ItemConfirm):
     return {"itemsBeforeIssue": items}
 
 
+class ActionUpdate(BaseModel):
+    status: Optional[str] = None
+    note: Optional[str] = None
+    actionedBy: Optional[str] = None
+    resolved: Optional[bool] = None
+
+
+def _norm_item(it):
+    return {"text": it, "severity": "info_required"} if isinstance(it, str) else dict(it)
+
+
+@api_router.put("/projects/{project_id}/items/{index}")
+async def update_action_item(project_id: str, index: int, payload: ActionUpdate):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    items = proj.get("itemsBeforeIssue") or []
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found")
+    it = _norm_item(items[index])
+    if payload.status is not None:
+        it["status"] = payload.status.strip()
+    if payload.note is not None:
+        it["note"] = payload.note.strip()
+    if payload.actionedBy is not None:
+        it["actionedBy"] = payload.actionedBy.strip()
+    if payload.resolved is not None:
+        it["resolved"] = payload.resolved
+    it["actionedAt"] = datetime.now(timezone.utc).isoformat()
+    items[index] = it
+    await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
+    return {"itemsBeforeIssue": items}
+
+
+class ActionCreate(BaseModel):
+    text: str
+    measure: Optional[str] = None
+    severity: Optional[str] = "info_required"
+
+
+@api_router.post("/projects/{project_id}/items")
+async def add_action_item(project_id: str, payload: ActionCreate):
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=422, detail="Action text required")
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    items = proj.get("itemsBeforeIssue") or []
+    sev = (payload.severity or "info_required").strip()
+    if sev not in ("critical", "warning", "info_required"):
+        sev = "info_required"
+    items.append({"text": text, "measure": (payload.measure or "").strip() or "General",
+                  "severity": sev, "custom": True})
+    await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
+    return {"itemsBeforeIssue": items}
+
+
+@api_router.delete("/projects/{project_id}/items/{index}")
+async def delete_action_item(project_id: str, index: int):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    items = proj.get("itemsBeforeIssue") or []
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="Item not found")
+    it = items[index]
+    if not (isinstance(it, dict) and it.get("custom")):
+        raise HTTPException(status_code=422, detail="Only custom actions can be deleted")
+    items.pop(index)
+    await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
+    return {"itemsBeforeIssue": items}
+
+
 class DefectIn(BaseModel):
     element: Optional[str] = ""
     description: str

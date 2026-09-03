@@ -168,5 +168,9 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 ## Backlog (next)
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 
+## DONE — Actionable action items / task tracking (Jun 2026)
+- The advisory "Actions required" items (`itemsBeforeIssue`) are now trackable, not display-only. In the right-hand Intelligence panel each action expands inline (`ActionItems.jsx`) with: free-text **Status** (+ quick-pick chips), free-text **Note**, **Actioned by**, auto **timestamp**, a **Mark as resolved** toggle, a **Go to** section deep-link, and per-item delete for custom actions. Users can **Add custom actions** too. Resolved items grey out + strike through and drop out of the "N actions required" count. Status/note/resolved also reflected read-only in the QA → Outstanding Items section.
+- Backend (server.py): `PUT /api/projects/{id}/items/{index}` (status/note/actionedBy/resolved + stamps actionedAt), `POST /api/projects/{id}/items` (add custom action, flagged `custom:true`), `DELETE /api/projects/{id}/items/{index}` (custom only). App-UI only — not yet reflected in the issued PDF pack. All 3 endpoints verified via curl; UI verified via screenshot.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
