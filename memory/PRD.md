@@ -48,6 +48,13 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — Standard detail sheets by measure family (Jun 2026)
+- Generalised `_standard_detail_pages(subdir, title)` (scans `backend/assets/<subdir>`, one full-width sheet per page, auto-picks up new files). Bound into every relevant job by measure family, after the Drawing Register:
+  - **loft_details** (8 sheets) when a LOFT measure exists.
+  - **glazing_details** (3: high-perf windows, external door, patio/french doors) when a WIN/doors measure exists.
+  - **solar_details** (3: PV array on roof, PV/inverter/battery schematic, battery storage) when a SOLAR measure exists.
+- Verified on 10 Emmens (loft p62-69, solar p70-72; glazing correctly absent — no windows measure). All images downscaled to ~140-340KB JPEG.
+
 ## DONE — Standard loft-insulation details on every job (Jun 2026)
 - New "Standard Loft Insulation Details" section (Section 07) bound into every pack that has a LOFT measure, right after the Drawing Register. `_standard_loft_detail_pages()` scans `backend/assets/loft_details/` (sorted by filename), one full-width detail per page. 8 sheets loaded: eaves, gable, party wall, loft hatch, ceiling service penetration, cold-water tank, downlight IC-4/F-Cap, shower-cable-in-loft. Images downscaled to 1600px JPEG (~230-340KB each) to keep the pack lean. To add more details later, drop image files into that folder — they auto-appear.
 

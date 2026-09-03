@@ -1751,38 +1751,33 @@ def _premium_cover_html(p, hero_uri, issued_date):
         '</div>')
 
 
-_LOFT_DETAILS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "loft_details")
+_DETAILS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
-def _standard_loft_detail_pages():
-    """Standard loft-insulation construction details bound into every job with a loft measure.
-    Scans the assets folder so newly-added detail sheets are picked up automatically (sorted by filename)."""
+def _standard_detail_pages(subdir, title):
+    """Standard construction-detail sheets bound into every relevant job (one full-width detail per page).
+    Scans backend/assets/<subdir> so newly-added sheets are picked up automatically (sorted by filename)."""
+    folder = os.path.join(_DETAILS_ROOT, subdir)
     try:
-        files = sorted(f for f in os.listdir(_LOFT_DETAILS_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png")))
+        files = sorted(f for f in os.listdir(folder) if f.lower().endswith((".jpg", ".jpeg", ".png")))
     except FileNotFoundError:
         return []
     figs = []
     for f in files:
-        with open(os.path.join(_LOFT_DETAILS_DIR, f), "rb") as fh:
+        with open(os.path.join(folder, f), "rb") as fh:
             ct = "image/png" if f.lower().endswith(".png") else "image/jpeg"
             figs.append(f'data:{ct};base64,{base64.b64encode(fh.read()).decode()}')
     if not figs:
         return []
-    intro = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
-             '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Standard Loft Insulation Details</div>'
-             '<div class="muted" style="font-size:11px; margin-top:8px;">Standard loft-insulation construction details included on every scheme as good-practice guidance. '
-             'To be read with the manufacturer&rsquo;s instructions, BS 7671 and the applicable Building Regulations, and confirmed against site-specific conditions.</div>')
+    header = '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
+    intro = (header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
+             '<div class="muted" style="font-size:11px; margin-top:8px;">Standard construction details included on every relevant scheme as good-practice guidance. '
+             'To be read with the manufacturer&rsquo;s instructions, the relevant British Standards / BS 7671 and the applicable Building Regulations, and confirmed against site-specific conditions.</div>')
+    cont = header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title} (cont.)</div>'
     pages = []
-    per_page = 1
-    for i in range(0, len(figs), per_page):
-        chunk = figs[i:i + per_page]
-        blocks = "".join(
-            f'<div style="border:1px solid #e5e5e5; overflow:hidden; margin-top:{"14px" if j or i else "18px"};">'
-            f'<img src="{u}" style="width:100%; display:block;"></div>' for j, u in enumerate(chunk))
-        pages.append((intro if i == 0 else
-                      '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
-                      '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Standard Loft Insulation Details (cont.)</div>')
-                     + blocks)
+    for i, u in enumerate(figs):
+        pages.append((intro if i == 0 else cont)
+                     + f'<div style="border:1px solid #e5e5e5; overflow:hidden; margin-top:18px;"><img src="{u}" style="width:100%; display:block;"></div>')
     return pages
 
 
@@ -2738,7 +2733,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     compliance_pages = _compliance_html(p, measures)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
     _has_loft = any(_mfam(m.get("code"), m.get("name")) == "LOFT" for m in measures)
-    loft_detail_pages = _standard_loft_detail_pages() if _has_loft else []
+    _has_win = any(_mfam(m.get("code"), m.get("name")) == "WIN" for m in measures)
+    _has_solar = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in measures)
+    loft_detail_pages = _standard_detail_pages("loft_details", "Standard Loft Insulation Details") if _has_loft else []
+    glazing_detail_pages = _standard_detail_pages("glazing_details", "Standard Glazing &amp; Door Details") if _has_win else []
+    solar_detail_pages = _standard_detail_pages("solar_details", "Standard Solar PV &amp; Battery Details") if _has_solar else []
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
@@ -2748,7 +2747,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *scope_pages, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
-             *spec_pages, *photo_pages, drawings_page, *loft_detail_pages, *defects_pages, *items_pages,
+             *spec_pages, *photo_pages, drawings_page, *loft_detail_pages, *glazing_detail_pages, *solar_detail_pages, *defects_pages, *items_pages,
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
     total = len(pages)
