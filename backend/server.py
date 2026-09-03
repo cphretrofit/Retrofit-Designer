@@ -184,6 +184,7 @@ from pdf_builder import (
     _eem_requirements_html,
     _compliance_html,
     build_pack_html,
+    compute_drawing_register,
     _render_pack_html,
     _collect_source_docs,
     _merge_appendix,
@@ -982,6 +983,75 @@ async def autodetect_floorplan(project_id: str):
     await db.projects.update_one({"id": project_id}, {"$set": {"floorPlanDetecting": True, "floorPlanDetectError": None}})
     asyncio.create_task(_run_floorplan_autodetect_bg(project_id))
     return {"status": "started"}
+
+
+_floorplan_batch = {"running": False, "total": 0, "done": 0, "updated": 0, "skipped": 0, "errors": 0, "startedAt": None, "finishedAt": None}
+
+
+async def _run_floorplan_rebatch_bg():
+    try:
+        ids = [d["id"] for d in await db.projects.find({"floorPlan": {"$ne": None}}, {"_id": 0, "id": 1}).to_list(2000)]
+        _floorplan_batch.update({"total": len(ids), "done": 0, "updated": 0, "skipped": 0, "errors": 0})
+        for pid in ids:
+            try:
+                prev = await db.projects.find_one({"id": pid}, {"_id": 0, "floorPlan": 1})
+                prev_markers = ((prev or {}).get("floorPlan") or {}).get("markers") or []
+                docs = await db.documents.find({"project_id": pid, "is_deleted": False}).to_list(300)
+                if not docs:
+                    _floorplan_batch["skipped"] += 1
+                    continue
+                fp = await detect_and_extract_floorplan(docs, pid)
+                if fp:
+                    if prev_markers:
+                        fp["markers"] = prev_markers
+                    await db.projects.update_one({"id": pid}, {"$set": {"floorPlan": fp}})
+                    _floorplan_batch["updated"] += 1
+                else:
+                    _floorplan_batch["skipped"] += 1
+            except Exception:
+                logger.exception("rebatch floorplan failed for %s", pid)
+                _floorplan_batch["errors"] += 1
+            finally:
+                _floorplan_batch["done"] += 1
+    finally:
+        _floorplan_batch["running"] = False
+        _floorplan_batch["finishedAt"] = datetime.now(timezone.utc).isoformat()
+
+
+@api_router.post("/admin/floorplans/rebatch")
+async def rebatch_floorplans():
+    if _floorplan_batch["running"]:
+        return {"status": "already-running", **_floorplan_batch}
+    _floorplan_batch.update({"running": True, "startedAt": datetime.now(timezone.utc).isoformat(), "finishedAt": None})
+    asyncio.create_task(_run_floorplan_rebatch_bg())
+    return {"status": "started"}
+
+
+@api_router.get("/admin/floorplans/rebatch")
+async def rebatch_floorplans_status():
+    return _floorplan_batch
+
+
+class DrawingSignoffsIn(BaseModel):
+    drawingSignoffs: dict = {}
+
+
+@api_router.get("/projects/{project_id}/drawing-register")
+async def get_drawing_register(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"drawings": compute_drawing_register(p), "signoffs": p.get("drawingSignoffs") or {}}
+
+
+@api_router.put("/projects/{project_id}/drawing-signoffs")
+async def put_drawing_signoffs(project_id: str, payload: DrawingSignoffsIn, request: Request):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"drawingSignoffs": payload.drawingSignoffs}})
+    asyncio.create_task(_maybe_refresh_pack(project_id, _public_origin(request)))
+    return {"status": "ok", "drawingSignoffs": payload.drawingSignoffs}
 
 
 class FloorPlanIn(BaseModel):

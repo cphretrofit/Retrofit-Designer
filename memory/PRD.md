@@ -130,8 +130,13 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Checklist Nudge**: `/api/dashboard` now returns `loftChecklistGap` per project (LOFT measure + any loft check Unknown); Dashboard shows an amber "Loft" chip on those rows. Added `loft_tank` to the Loft & Fabric Checklist (backend page + `SiteConditionsPanel`).
 - **10 Emmens Hall**: strengthened `CAD_FLOORPLAN_SYSTEM` to tie the drawn staircase to circulation space; re-ran detection → Ground Floor now includes "Hall" (front-door routing fixed). Pack auto-rebuilds.
 
+## DONE — Sign-off, deep-links, Hall auto-insert, batch re-render (Jun 2026)
+- **Drawing Sign-off (per-row)**: new `compute_drawing_register(p)` in `pdf_builder.py` is the single source of truth (bespoke + auto junctions + attached + standard details) with STABLE unique refs. PDF Drawing Register gained a Sign-off column (D drawn · C checked · A approved) + per-row Rev override. New endpoints `GET /api/projects/{id}/drawing-register` and `PUT /api/projects/{id}/drawing-signoffs` (stored in `project.drawingSignoffs`, keyed by ref; triggers pack auto-refresh). New `DrawingRegisterPanel.jsx` in the workspace 'Drawings' section: per-row Rev input + D/C/A toggles, Approved gated behind Drawn+Checked (auto-clears if either is unset). Verified: PDF render + frontend testing agent 100%.
+- **Action deep-links**: `IntelligencePanel.sectionFor(a)` routes every action to a section (measure-<CODE> / defects / calculations / ventilation / junctions / design-review / outstanding fallback). All actions now clickable. Defects/calcs/vent matched before the QA catch-all. Verified by testing agent (12/12 actions navigated).
+- **Hall auto-insert**: `_carve_hall` + `_largest_empty_rect` in `cad_floorplan.py` — carves the largest dead-space gap (3–45% of footprint) into a labelled Hall/Landing when no circulation room exists. Runs per floor in `_render_single` (baked into cadSvg). Only fires on a genuine geometric gap.
+- **Batch re-render**: `POST/GET /api/admin/floorplans/rebatch` (+ `_floorplan_batch` progress). Ran the one-off: 4 projects with floor plans, 3 updated, 0 errors. NOTE: detection is stochastic — the batch pass dropped Emmens' Hall; a re-run restored it (Hall now present in cadData + cadSvg). For projects where the AI fully tiles rooms with no gap, carve can't recover a merged hall — the prompt is the primary safeguard.
+
 ## Backlog (next)
-- P2: Action deep-links for QA/general actions; Hall auto-insert for other plans with a clear inter-room gap; per-drawing revision & sign-off toggle; batch re-render existing floor plans.
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 
 ## Test credentials

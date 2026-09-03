@@ -247,6 +247,65 @@ def _route_front_door(rooms, fd_x):
     return fd_x
 
 
+def _largest_empty_rect(rooms, W, H, step=0.1):
+    """Largest axis-aligned rectangle (in metres) inside the WxH envelope not covered by any room."""
+    if W <= 0 or H <= 0:
+        return None
+    nx = min(max(1, int(round(W / step))), 200)
+    ny = min(max(1, int(round(H / step))), 200)
+    cw, ch = W / nx, H / ny
+    cov = [[False] * nx for _ in range(ny)]
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        i0 = max(0, int((rx + 1e-6) / cw)); i1 = min(nx, int((rx + rw - 1e-6) / cw) + 1)
+        j0 = max(0, int((ry + 1e-6) / ch)); j1 = min(ny, int((ry + rh - 1e-6) / ch) + 1)
+        for j in range(j0, j1):
+            row = cov[j]
+            for i in range(i0, i1):
+                row[i] = True
+    heights = [0] * nx
+    best = None  # (area_cells, i0, j0, i1, j1)
+    for j in range(ny):
+        for i in range(nx):
+            heights[i] = 0 if cov[j][i] else heights[i] + 1
+        stack = []
+        for i in range(nx + 1):
+            cur = heights[i] if i < nx else 0
+            start = i
+            while stack and stack[-1][1] > cur:
+                si, sh = stack.pop()
+                area = sh * (i - si)
+                if best is None or area > best[0]:
+                    best = (area, si, j - sh + 1, i, j + 1)
+                start = si
+            stack.append((start, cur))
+    if not best or best[0] == 0:
+        return None
+    _, i0, j0, i1, j1 = best
+    return (i0 * cw, j0 * ch, (i1 - i0) * cw, (j1 - j0) * ch)
+
+
+def _carve_hall(rooms, W, H, upper):
+    """If the plan has a clear dead-space gap between rooms and no circulation space,
+    auto-carve it as a labelled Hall (ground) / Landing (upper) so the front door can route to it."""
+    if not rooms:
+        return
+    if any(any(w in (r.get("name") or "").lower() for w in _CIRC_ROOMS) for r in rooms):
+        return
+    rect = _largest_empty_rect(rooms, W, H)
+    if not rect:
+        return
+    x, y, w, h = rect
+    if w < 0.6 or h < 0.6:
+        return
+    foot = W * H
+    frac = (w * h) / foot if foot else 0
+    if frac < 0.03 or frac > 0.45:
+        return
+    rooms.append({"name": "Landing" if upper else "Hall",
+                  "x": round(x, 2), "y": round(y, 2), "w": round(w, 2), "h": round(h, 2), "_carved": True})
+
+
 def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
@@ -255,6 +314,7 @@ def _render_single(d: dict):
     _title_l = (d.get("title") or "").lower()
     _upper = any(k in _title_l for k in ("first", "second", "third", "upper", "1st", "2nd", " f.", "landing"))
     _label_unnamed(rooms, _upper)
+    _carve_hall(rooms, W, H, _upper)
     _fd = d.get("frontDoor") or {}
     fd_x = _route_front_door(rooms, _num(_fd.get("x"))) if _fd else None
 

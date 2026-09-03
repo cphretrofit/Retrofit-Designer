@@ -1,0 +1,31 @@
+{
+  "summary": "Frontend-only testing of the two new features. (1) Drawing Register & Sign-off panel on Coldrush /design/drawings: panel + 16 rows load, D/C toggles work, Approved is disabled until both D and C are on, turning Checked off auto-clears Approved and re-disables it, revision edit works, Save button is disabled when clean ('Saved') and enabled when dirty, save shows success toast, and toggles + revision persist across reload. Test data reverted (LD-02 back to Rev P01, all toggles off). (2) Actions Required deep-links: verified on Coldrush (3 measure actions -> measure-ASHP/SOLAR/VENT) and on 81 St Nicholas Road (8af609d2-9a61-4d0c-8cf5-38cb273de0d3, 12 actions) — all 12 rows clickable and every one navigated to a /design/<section> route (measure-LOFT, measure-SOLAR, measure-VENT, design-review). 0 navigation failures. Measure-scoped panel with no actions correctly renders a disabled toggle showing '0 actions required'.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {
+        "screen": "Design Workspace > Drawings (Coldrush)",
+        "issues": ["p.designPack.drawings is empty for this project, so the bespoke-drawing grid above the register renders as an empty div (no empty-state text). Purely cosmetic."]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional (relevance, not a defect): in IntelligencePanel.sectionFor the 'design-review' regex (qa|sign-off|approv|coordinator) is evaluated before 'defects'/'calculations', so defect-worded actions containing words like 'approval' route to Design Review instead of Defects (e.g. 'Wall defects recorded: wallpaper peeling...' -> design-review). Consider ordering defects/calculations/ventilation checks before the QA/design-review catch-all.",
+    "Optional: add an empty-state for the bespoke drawings grid on the Drawings section when designPack.drawings is empty."
+  ],
+  "critical_code_review_comments": [
+    "DrawingRegisterPanel: getDrawingRegister .catch(() => {}) silently swallows fetch failures — the panel would render 'No drawings scheduled yet.' on an API error with no error state. Consider an error state/toast.",
+    "sectionFor can return 'junctions' — verified that DesignWorkspace has a 'junctions' case, so no dead route."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "not tested", "frontend": "100%" },
+  "seed_data_creation": "No new data. Temporarily modified Coldrush drawing sign-off LD-02 (D/C/A + Rev P07) then reverted to original state (all off, Rev P01). LD-01 untouched.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 (worked, httpOnly cookie login at /login)",
+  "context_for_next_testing_agent": "Both features verified working end-to-end on the public preview URL. Useful data: Coldrush project a9713cce-9685-4f8b-b300-c222a5903776 has 16 register rows (LD-01 fully signed off, HD-01 drawn only) and only 3 measure-linked actions; project 8af609d2-9a61-4d0c-8cf5-38cb273de0d3 (81 St Nicholas Road) has 12 actions including non-measure/QA ones and is the best project for deep-link coverage. Note the actions panel only exists inside the Design Workspace (/project/<id>/design/<section>), not on the project detail page. A 401 on GET /api/auth/me before login is expected noise in console.",
+  "rca_of_the_issue": "N/A - no defects found in the two features under test."
+}

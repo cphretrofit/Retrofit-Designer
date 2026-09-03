@@ -21,6 +21,7 @@ import { SolarPanel } from "@/components/SolarPanel";
 import { HeritagePanel } from "@/components/HeritagePanel";
 import { NarrativePanel } from "@/components/NarrativePanel";
 import { MeasureEvidence } from "@/components/MeasureEvidence";
+import { DrawingRegisterPanel } from "@/components/DrawingRegisterPanel";
 
 import { MARK_ICON, MARK_COLOR } from "./workspace/constants";
 import { NavItem, NavGroup } from "./workspace/Nav";
@@ -309,13 +310,16 @@ export default function DesignWorkspace() {
         return <NarrativePanel projectId={id} initial={p.sectionOverrides} onChange={(v) => setP((prev) => ({ ...prev, sectionOverrides: v }))} />;
       case "drawings":
         return (
-          <div className="anim-in grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {(p.designPack.drawings || []).map((d) => (
-              <div key={d.ref} className="border border-border rounded-sm bg-card overflow-hidden">
-                <div className="aspect-[4/3] dot-bg flex items-center justify-center border-b border-border"><JunctionSketch name={d.title} /></div>
-                <div className="p-3"><div className="font-mono text-[10px] text-muted-foreground">{d.ref}</div><div className="text-[13px] font-medium mt-0.5">{d.title}</div><div className="flex items-center gap-3 mt-1 text-[11px] font-mono text-muted-foreground"><span>Scale {d.scale}</span><span>Rev {d.revision}</span></div></div>
-              </div>
-            ))}
+          <div className="anim-in space-y-5">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(p.designPack.drawings || []).map((d) => (
+                <div key={d.ref} className="border border-border rounded-sm bg-card overflow-hidden">
+                  <div className="aspect-[4/3] dot-bg flex items-center justify-center border-b border-border"><JunctionSketch name={d.title} /></div>
+                  <div className="p-3"><div className="font-mono text-[10px] text-muted-foreground">{d.ref}</div><div className="text-[13px] font-medium mt-0.5">{d.title}</div><div className="flex items-center gap-3 mt-1 text-[11px] font-mono text-muted-foreground"><span>Scale {d.scale}</span><span>Rev {d.revision}</span></div></div>
+                </div>
+              ))}
+            </div>
+            <DrawingRegisterPanel projectId={id} />
           </div>
         );
       case "outstanding":

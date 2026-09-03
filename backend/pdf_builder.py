@@ -1851,6 +1851,61 @@ def _standard_detail_pages(subdir, title, exclude=None):
     return pages
 
 
+def _slug_ref(ref, used):
+    r = (ref or "DET").strip() or "DET"
+    base, k = r, 2
+    while r in used:
+        r = f"{base}-{k}"
+        k += 1
+    used.add(r)
+    return r
+
+
+def compute_drawing_register(p):
+    """Single source of truth for the Drawing Register: bespoke drawings + auto per-measure
+    junctions + attached detail sheets + standard details. Returns rows with STABLE unique refs
+    so per-drawing sign-off can be keyed on `ref` (shared by the PDF builder and the API)."""
+    dp = p.get("designPack") or {}
+    measures = p.get("measures") or []
+    sc = (p.get("property") or {}).get("siteConditions") or {}
+    used, rows = set(), []
+    for d in (dp.get("drawings") or []):
+        rows.append({"ref": _slug_ref(d.get("ref"), used), "title": d.get("title") or "Drawing",
+                     "scale": d.get("scale") or "NTS", "revision": d.get("revision") or "P01", "kind": "bespoke"})
+    _downl = _sc_flag(sc, "downlights") is True
+    for _m in measures:
+        fam = _mfam(_m.get("code"), _m.get("name"))
+        jns = list(_m.get("junctions") or _default_junctions(fam))
+        if fam == "LOFT" and _downl and not any(("f-cap" in (j.get("name") or "").lower()) or ("downlight" in (j.get("name") or "").lower()) for j in jns):
+            jns.append({"name": "Recessed Downlight (F-Cap)", "detail": "D-L07"})
+        for _j in jns[:9]:
+            rows.append({"ref": _slug_ref(_j.get("detail") or "DET", used),
+                         "title": f"{_m.get('name')} \u2014 {_j.get('name')} junction detail",
+                         "scale": "NTS", "revision": "P01", "kind": "junction"})
+    for _d in [d for d in (p.get("_datasheetDocs") or []) if any(k in ((d.get("type") or "") + " " + (d.get("name") or "")).lower() for k in ("detail drawing", "installation detail", "construction detail", "standard detail", "inca"))]:
+        rows.append({"ref": _slug_ref("ATT", used), "title": f"{_d.get('name')} \u2014 attached detail drawing",
+                     "scale": "\u2014", "revision": "\u2014", "kind": "attached"})
+
+    def _fam_present(fam):
+        return any(_mfam(m.get("code"), m.get("name")) == fam for m in measures)
+    loft_excl = set()
+    if _sc_flag(sc, "downlights") is not True:
+        loft_excl.add("8_downlight_fcap.jpg")
+    if _sc_flag(sc, "loft_tank") is not True:
+        loft_excl.add("7_cold_water_tank.jpg")
+    if _sc_flag(sc, "esh_cable_over_insulation") is not True:
+        loft_excl.add("9_shower_cable.jpg")
+    std_excl = {"loft_details": loft_excl}
+    for sub, fam in (("loft_details", "LOFT"), ("glazing_details", "WIN"), ("solar_details", "SOLAR"), ("ashp_details", "ASHP")):
+        if not _fam_present(fam):
+            continue
+        pref = _DETAIL_SETS[sub][0]
+        for i, fn in enumerate(_standard_detail_files(sub, std_excl.get(sub)), 1):
+            rows.append({"ref": _slug_ref(f"{pref}-{i:02d}", used), "title": _detail_title(sub, fn),
+                         "scale": "NTS", "revision": "P01", "kind": "standard"})
+    return rows
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -1888,14 +1943,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                     (("loft_details", "LOFT"), ("glazing_details", "WIN"),
                      ("solar_details", "SOLAR"), ("ashp_details", "ASHP"))
                     if _fam_present(fam)]
-    _std_rows = ""
-    for _sub in _std_present:
-        _pref, _ttl = _DETAIL_SETS[_sub]
-        for _i, _fn in enumerate(_standard_detail_files(_sub, _std_excl.get(_sub)), 1):
-            _std_rows += (f'<tr><td class="mono" style="color:#262626;">{_pref}-{_i:02d}</td>'
-                          f'<td>{_esc(_detail_title(_sub, _fn))}</td>'
-                          f'<td class="mono muted" style="text-align:right;">NTS</td>'
-                          f'<td class="mono muted" style="text-align:right;">P01</td></tr>')
 
     # Cover
     meta = [("Reference", p.get("jobRef") or p.get("ref")), ("Client", p.get("client")), ("Design Stage", p.get("designStage")), ("Revision", p.get("revision"))]
@@ -2029,31 +2076,28 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>'
                            '<div style="margin-top:22px;" class="muted"><span style="font-size:12px;">No survey photographs recorded for this project.</span></div>')
 
-    # Drawing register — include auto-generated junction details per measure
-    draw_rows = "".join(
-        f'<tr><td class="mono" style="color:#262626;">{_esc(d.get("ref"))}</td><td>{_esc(d.get("title"))}</td>'
-        f'<td class="mono muted" style="text-align:right;">{_esc(d.get("scale"))}</td><td class="mono muted" style="text-align:right;">{_esc(d.get("revision"))}</td></tr>'
-        for d in drawings)
-    _auto_rows = ""
-    for _m in measures:
-        _fam = _mfam(_m.get("code"), _m.get("name"))
-        _jns = _m.get("junctions") or _default_junctions(_fam)
-        for _j in _jns[:9]:
-            _auto_rows += (f'<tr><td class="mono" style="color:#262626;">{_esc(_j.get("detail") or "DET")}</td>'
-                           f'<td>{_esc(_m.get("name"))} &mdash; {_esc(_j.get("name"))} junction detail</td>'
-                           f'<td class="mono muted" style="text-align:right;">NTS</td>'
-                           f'<td class="mono muted" style="text-align:right;">P01</td></tr>')
-    for _d in [d for d in (p.get("_datasheetDocs") or []) if any(k in ((d.get("type") or "") + " " + (d.get("name") or "")).lower() for k in ("detail drawing", "installation detail", "construction detail", "standard detail", "inca"))]:
-        _auto_rows += ('<tr><td class="mono" style="color:#262626;">ATT</td>'
-                       f'<td>{_esc(_d.get("name"))} &mdash; attached detail drawing</td>'
-                       '<td class="mono muted" style="text-align:right;">&mdash;</td>'
-                       '<td class="mono muted" style="text-align:right;">&mdash;</td></tr>')
+    # Drawing register — bespoke + auto junctions + standard details, with per-drawing sign-off
+    _reg = compute_drawing_register(p)
+    _signoffs = p.get("drawingSignoffs") or {}
+
+    def _so_mark(v):
+        return '<span style="color:#16A34A;">&#10003;</span>' if v else '<span style="color:#d4d4d4;">&mdash;</span>'
+    _reg_rows = ""
+    for _r in _reg:
+        _so = _signoffs.get(_r["ref"]) or {}
+        _rev = _esc(_so.get("revision") or _r["revision"])
+        _dca = f'D {_so_mark(_so.get("drawn"))}&nbsp;&nbsp;C {_so_mark(_so.get("checked"))}&nbsp;&nbsp;A {_so_mark(_so.get("approved"))}'
+        _reg_rows += (f'<tr><td class="mono" style="color:#262626;">{_esc(_r["ref"])}</td>'
+                      f'<td>{_esc(_r["title"])}</td>'
+                      f'<td class="mono muted" style="text-align:right;">{_esc(_r["scale"])}</td>'
+                      f'<td class="mono muted" style="text-align:right;">{_rev}</td>'
+                      f'<td class="mono" style="text-align:right; font-size:9px; white-space:nowrap;">{_dca}</td></tr>')
     drawings_page = f'''
       <div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>
       <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Drawing Register</div>
-      <div class="muted" style="font-size:11px; margin-top:8px;">Junction and installation details are auto-generated per measure and reproduced in each measure&rsquo;s Technical Specification. Official INCA / manufacturer standard details, where supplied, are bound in the appendix and listed here. Scaled bespoke details are calculated to BRE IP1/06 (f<span>Rsi</span> &gt; 0.75) at technical design stage.</div>
-      <table style="margin-top:20px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
-      <tbody>{(draw_rows + _auto_rows + _std_rows) or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
+      <div class="muted" style="font-size:11px; margin-top:8px;">Junction and installation details are auto-generated per measure and reproduced in each measure&rsquo;s Technical Specification. Official INCA / manufacturer standard details, where supplied, are bound in the appendix and listed here. Scaled bespoke details are calculated to BRE IP1/06 (f<span>Rsi</span> &gt; 0.75) at technical design stage. Sign-off: D drawn &middot; C checked &middot; A approved.</div>
+      <table style="margin-top:20px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th><th style="text-align:right;">Sign-off</th></tr></thead>
+      <tbody>{_reg_rows or '<tr><td colspan="5" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
     # Site conditions (computed for TOC + evidence page)
     _sc = (p.get("property") or {}).get("siteConditions") or {}

@@ -33,6 +33,18 @@ export function IntelligencePanel({ p, measure, onOpen }) {
   const allActions = (p.itemsBeforeIssue || []).map((a) =>
     typeof a === "string" ? { text: a, severity: "info_required" } : a);
   const acts = measure ? allActions.filter((a) => a.measure === measure.code) : allActions;
+  // Deep-link every action to the most relevant workspace section (measure actions jump to their
+  // measure; QA/general actions jump to Defects, Calculations, Ventilation, Design Review, etc.).
+  const sectionFor = (a) => {
+    if (a.measure && measureCodes.has(a.measure)) return `measure-${a.measure}`;
+    const t = `${a.measure || ""} ${a.text || ""}`.toLowerCase();
+    if (/(defect|moisture|damp|condensation|mould|mold|crack|disrepair|thermal brid|cold brid|eaves junction)/.test(t)) return "defects";
+    if (/(u[- ]?value|calculation|\bsap\b|heat ?loss|target u|fabric performance|psi)/.test(t)) return "calculations";
+    if (/(ventilat|extract|commission|dmev|mvhr|mev\b|trickle|air ?flow)/.test(t)) return "ventilation";
+    if (/(junction|detail drawing|drawing)/.test(t)) return "junctions";
+    if (/\b(qa|sign[- ]?off|coordinator|approv|design review)\b/.test(t)) return "design-review";
+    return "outstanding";
+  };
   const intel = measure
     ? [
         ["Measure", measure.name],
@@ -75,12 +87,13 @@ export function IntelligencePanel({ p, measure, onOpen }) {
           <ul className="mt-2 space-y-1.5" data-testid="actions-required-list">
             {acts.map((a, i) => {
               const sev = SEV[a.severity] || SEV.info_required;
-              const clickable = onOpen && measureCodes.has(a.measure);
+              const target = sectionFor(a);
+              const clickable = !!onOpen;
               return (
                 <li key={i}>
                   <button
                     type="button"
-                    onClick={clickable ? () => onOpen(`measure-${a.measure}`) : undefined}
+                    onClick={clickable ? () => onOpen(target) : undefined}
                     data-testid={`action-item-${i}`}
                     className={`w-full flex items-start gap-2 text-[11.5px] leading-snug rounded-sm px-2 py-1.5 border border-border/60 bg-surface-1 text-left ${clickable ? "hover:border-border hover:bg-surface-2 transition-colors cursor-pointer" : "cursor-default"}`}
                   >
