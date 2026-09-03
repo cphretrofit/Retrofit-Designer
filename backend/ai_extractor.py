@@ -757,6 +757,7 @@ Extract and DRAFT a retrofit design to approximately 75% completion. Return ONLY
 
 Rules:
 - Use the exact values found in the documents. Where a value is missing or you make a sensible PAS 2035 default assumption, still fill it in BUT add an entry to itemsBeforeIssue describing what must be confirmed (severity "info_required" for missing data, "warning" for an assumption, "critical" for a defect/risk).
+- Do NOT raise itemsBeforeIssue (or design considerations) for any of these — they are out of scope at the design stage: (a) notes printed on the Job Card — ignore Job Card notes entirely; (b) DNO / G99 approval for Solar PV — this is obtained after installation; (c) flat-roof insulation or flat-roof U-values when no flat-roof measure is in scope — do not mention flat roofs at all; (d) a post-installation or lodged EPC — this is produced after the works.
 - measures[].code must be one of: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT.
 - Only include measures that the documents say are being installed for THIS property.
 - U-values in W/m2K as numbers. Omit (null) targetU/existingU/calculatedU for non-fabric measures (ASHP, SOLAR, VENT).
@@ -1029,6 +1030,22 @@ Return ONLY JSON:
 {"considerations":[{"topic":"Crossflow Ventilation","present":"No","narrative":"..."}]}"""
 
 
+_OUT_OF_SCOPE_ACTION_PATTERNS = [
+    r"job\s*card",
+    r"\bg99\b",
+    r"\bdno\b",
+    r"flat\s+roof",
+    r"(epc.*(lodg|post[\s-]?install|after\s+install))|((lodg|post[\s-]?install).*epc)",
+]
+
+
+def _is_out_of_scope_action(text):
+    """Design-stage items we never raise: Job Card notes, DNO/G99 (obtained post-install),
+    flat-roof (out of scope), and post-installation / lodged EPC (produced after works)."""
+    t = (text or "").lower()
+    return any(re.search(p, t) for p in _OUT_OF_SCOPE_ACTION_PATTERNS)
+
+
 async def generate_design_considerations(project: dict, assessment_text: str = ""):
     sc = (project.get("property") or {}).get("siteConditions") or {}
     measures = [f'{m.get("code")} — {m.get("name")}' for m in (project.get("measures") or [])]
@@ -1043,6 +1060,8 @@ async def generate_design_considerations(project: dict, assessment_text: str = "
     for c in (data.get("considerations") or []):
         topic = (c.get("topic") or "").strip()
         narr = (c.get("narrative") or "").strip()
+        if "flat roof" in (topic + " " + narr).lower():
+            continue  # out of scope — never mention flat roofs in the design
         if topic and narr:
             out.append({"topic": topic, "present": (c.get("present") or "").strip(), "narrative": narr})
     return out
@@ -1238,6 +1257,7 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
     for m in measures:
         for o in m.get("outstanding", [])[:1]:
             items.append({"text": f"{o} — {m['name']}", "measure": m["code"], "severity": "warning"})
+    items = [it for it in items if not _is_out_of_scope_action(it.get("text") if isinstance(it, dict) else it)]
     if not items:
         items = [{"text": "Final QA sign-off by coordinator", "measure": "QA", "severity": "info_required"}]
     items = items[:12]

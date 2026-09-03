@@ -48,6 +48,12 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — Standard loft-insulation details on every job (Jun 2026)
+- New "Standard Loft Insulation Details" section (Section 07) bound into every pack that has a LOFT measure, right after the Drawing Register. `_standard_loft_detail_pages()` scans `backend/assets/loft_details/` (sorted by filename), one full-width detail per page. 8 sheets loaded: eaves, gable, party wall, loft hatch, ceiling service penetration, cold-water tank, downlight IC-4/F-Cap, shower-cable-in-loft. Images downscaled to 1600px JPEG (~230-340KB each) to keep the pack lean. To add more details later, drop image files into that folder — they auto-appear.
+
+## DONE — Out-of-scope actions filtered (Jun 2026)
+- Extractor now drops (and prompt instructs Claude never to raise) design-stage-irrelevant items: Job Card notes, DNO/G99 (post-install), flat-roof references (out of scope), and post-installation/lodged EPC. `_is_out_of_scope_action()` in ai_extractor.py + flat-roof filter on design considerations. Cleaned 10 Emmens stored data (12 → 8 actions).
+
 ## DONE — Clickable "actions required" (Jun 2026)
 - The Design Status "N actions required" row in `IntelligencePanel.jsx` is now an expandable button: clicking it reveals the full action list from `p.itemsBeforeIssue` (severity icon + full text). Items whose `measure` matches a project measure are clickable and navigate to `measure-{code}` via `onOpen` (passed from DesignWorkspace). When a measure is open, the list filters to that measure. testids: `actions-required-toggle`, `actions-required-list`, `action-item-{i}`.
 

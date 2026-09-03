@@ -1751,6 +1751,41 @@ def _premium_cover_html(p, hero_uri, issued_date):
         '</div>')
 
 
+_LOFT_DETAILS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "loft_details")
+
+
+def _standard_loft_detail_pages():
+    """Standard loft-insulation construction details bound into every job with a loft measure.
+    Scans the assets folder so newly-added detail sheets are picked up automatically (sorted by filename)."""
+    try:
+        files = sorted(f for f in os.listdir(_LOFT_DETAILS_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png")))
+    except FileNotFoundError:
+        return []
+    figs = []
+    for f in files:
+        with open(os.path.join(_LOFT_DETAILS_DIR, f), "rb") as fh:
+            ct = "image/png" if f.lower().endswith(".png") else "image/jpeg"
+            figs.append(f'data:{ct};base64,{base64.b64encode(fh.read()).decode()}')
+    if not figs:
+        return []
+    intro = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
+             '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Standard Loft Insulation Details</div>'
+             '<div class="muted" style="font-size:11px; margin-top:8px;">Standard loft-insulation construction details included on every scheme as good-practice guidance. '
+             'To be read with the manufacturer&rsquo;s instructions, BS 7671 and the applicable Building Regulations, and confirmed against site-specific conditions.</div>')
+    pages = []
+    per_page = 1
+    for i in range(0, len(figs), per_page):
+        chunk = figs[i:i + per_page]
+        blocks = "".join(
+            f'<div style="border:1px solid #e5e5e5; overflow:hidden; margin-top:{"14px" if j or i else "18px"};">'
+            f'<img src="{u}" style="width:100%; display:block;"></div>' for j, u in enumerate(chunk))
+        pages.append((intro if i == 0 else
+                      '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
+                      '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Standard Loft Insulation Details (cont.)</div>')
+                     + blocks)
+    return pages
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -2702,6 +2737,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
+    _has_loft = any(_mfam(m.get("code"), m.get("name")) == "LOFT" for m in measures)
+    loft_detail_pages = _standard_loft_detail_pages() if _has_loft else []
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
@@ -2711,7 +2748,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *scope_pages, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
-             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
+             *spec_pages, *photo_pages, drawings_page, *loft_detail_pages, *defects_pages, *items_pages,
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
     total = len(pages)
