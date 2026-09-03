@@ -1754,30 +1754,100 @@ def _premium_cover_html(p, hero_uri, issued_date):
 _DETAILS_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
-def _standard_detail_pages(subdir, title):
-    """Standard construction-detail sheets bound into every relevant job (one full-width detail per page).
-    Scans backend/assets/<subdir> so newly-added sheets are picked up automatically (sorted by filename)."""
+# Standard construction-detail sets: subdir -> (drawing-register ref prefix, section title).
+_DETAIL_SETS = {
+    "loft_details":    ("LD", "Standard Loft Insulation Details"),
+    "glazing_details": ("GD", "Standard Glazing & Door Details"),
+    "solar_details":   ("SD", "Standard Solar PV & Battery Details"),
+    "ashp_details":    ("HD", "Standard ASHP & Heating Controls Details"),
+}
+_DETAIL_TITLES = {
+    "loft_details": {
+        "1_eaves.jpg": "Eaves & External Wall Junction",
+        "2_gable.jpg": "Gable Wall Junction",
+        "3_party_wall.jpg": "Party / Compartment Wall Junction",
+        "4_loft_hatch.jpg": "Loft Hatch — Insulated Detail",
+        "5_ceiling_penetration.jpg": "Ceiling Service Penetration",
+        "7_cold_water_tank.jpg": "Cold-Water Tank & Pipework",
+        "8_downlight_fcap.jpg": "Recessed Downlight (F-Cap) Installation",
+        "9_shower_cable.jpg": "Shower Cable in Loft Space",
+    },
+    "glazing_details": {
+        "1a_windows.jpg": "High-Performance Windows — Vertical Section",
+        "1b_external_door.jpg": "External Door — Vertical Section",
+        "1c_patio_french_doors.jpg": "Patio / French Doors — Threshold & Seal",
+    },
+    "solar_details": {
+        "2a_pv_array.jpg": "PV Array on Roof",
+        "2b_system_schematic.jpg": "System Schematic — PV, Inverter & Battery",
+        "2c_battery_storage.jpg": "Battery Storage Installation",
+    },
+    "ashp_details": {
+        "1_ashp_system.jpg": "Air Source Heat Pump — Typical System",
+        "2_room_thermostat.jpg": "Room Thermostat",
+        "3_programmer.jpg": "Programmer / Time Controller",
+        "4_weather_compensation.jpg": "Weather Compensation Sensor",
+        "5_zone_smart_controls.jpg": "Zone / Smart Controls",
+    },
+}
+
+
+def _sc_flag(sc, key):
+    """Effective site-condition verdict: explicit flat boolean wins, else the detected-evidence verdict."""
+    sc = sc or {}
+    v = sc.get(key)
+    if isinstance(v, bool):
+        return v
+    for e in (sc.get("evidence") or []):
+        if e.get("key") == key and isinstance(e.get("present"), bool):
+            return e.get("present")
+    return None
+
+
+def _detail_title(subdir, fname):
+    t = (_DETAIL_TITLES.get(subdir) or {}).get(fname)
+    if t:
+        return t
+    base = os.path.splitext(fname)[0]
+    base = re.sub(r"^\d+[a-z]?[_-]", "", base).replace("_", " ").replace("-", " ")
+    return base.strip().title() or fname
+
+
+def _standard_detail_files(subdir, exclude=None):
+    """Ordered filenames of the standard details for a set, honouring the site-specific exclusion set."""
     folder = os.path.join(_DETAILS_ROOT, subdir)
     try:
         files = sorted(f for f in os.listdir(folder) if f.lower().endswith((".jpg", ".jpeg", ".png")))
     except FileNotFoundError:
         return []
+    ex = exclude or set()
+    return [f for f in files if f not in ex]
+
+
+def _standard_detail_pages(subdir, title, exclude=None):
+    """Standard construction-detail sheets bound into every relevant job (one full-width detail per page).
+    Scans backend/assets/<subdir> so newly-added sheets are picked up automatically (sorted by filename).
+    Site-specific sheets (F-Cap, loft tank, shower cable) are dropped via `exclude` to keep packs lean."""
+    files = _standard_detail_files(subdir, exclude)
+    if not files:
+        return []
+    prefix = (_DETAIL_SETS.get(subdir) or ("DET",))[0]
     figs = []
     for f in files:
-        with open(os.path.join(folder, f), "rb") as fh:
+        with open(os.path.join(_DETAILS_ROOT, subdir, f), "rb") as fh:
             ct = "image/png" if f.lower().endswith(".png") else "image/jpeg"
-            figs.append(f'data:{ct};base64,{base64.b64encode(fh.read()).decode()}')
-    if not figs:
-        return []
+            figs.append((f, f'data:{ct};base64,{base64.b64encode(fh.read()).decode()}'))
     header = '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
-    intro = (header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
+    intro = (header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{_esc(title)}</div>'
              '<div class="muted" style="font-size:11px; margin-top:8px;">Standard construction details included on every relevant scheme as good-practice guidance. '
              'To be read with the manufacturer&rsquo;s instructions, the relevant British Standards / BS 7671 and the applicable Building Regulations, and confirmed against site-specific conditions.</div>')
-    cont = header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title} (cont.)</div>'
+    cont = header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{_esc(title)} (cont.)</div>'
     pages = []
-    for i, u in enumerate(figs):
+    for i, (fname, u) in enumerate(figs):
+        cap = (f'<div class="mono faint" style="font-size:9.5px; margin-top:7px; letter-spacing:0.04em;">'
+               f'{prefix}-{i + 1:02d} &middot; {_esc(_detail_title(subdir, fname))} &middot; NTS</div>')
         pages.append((intro if i == 0 else cont)
-                     + f'<div style="border:1px solid #e5e5e5; overflow:hidden; margin-top:18px;"><img src="{u}" style="width:100%; display:block;"></div>')
+                     + f'<div style="border:1px solid #e5e5e5; overflow:hidden; margin-top:18px;"><img src="{u}" style="width:100%; display:block;"></div>{cap}')
     return pages
 
 
@@ -1800,6 +1870,32 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                     _jl.append({"name": "Recessed Downlight (F-Cap)", "detail": "D-L07", "status": "pending",
                                 "note": "Fit a maintenance-free fire-rated loft cap (F-Cap) over every recessed downlight before insulating; maintain clearance to transformers/drivers per Approved Document B."})
                     _m["junctions"] = _jl
+
+    # Standard construction-detail sets present in this pack (drives bound detail pages, Drawing Register & TOC).
+    _sc_std = (p.get("property") or {}).get("siteConditions") or {}
+
+    def _fam_present(fam):
+        return any(_mfam(_mm.get("code"), _mm.get("name")) == fam for _mm in measures)
+    _loft_excl = set()
+    if _sc_flag(_sc_std, "downlights") is not True:
+        _loft_excl.add("8_downlight_fcap.jpg")
+    if _sc_flag(_sc_std, "loft_tank") is not True:
+        _loft_excl.add("7_cold_water_tank.jpg")
+    if _sc_flag(_sc_std, "esh_cable_over_insulation") is not True:
+        _loft_excl.add("9_shower_cable.jpg")
+    _std_excl = {"loft_details": _loft_excl}
+    _std_present = [sub for sub, fam in
+                    (("loft_details", "LOFT"), ("glazing_details", "WIN"),
+                     ("solar_details", "SOLAR"), ("ashp_details", "ASHP"))
+                    if _fam_present(fam)]
+    _std_rows = ""
+    for _sub in _std_present:
+        _pref, _ttl = _DETAIL_SETS[_sub]
+        for _i, _fn in enumerate(_standard_detail_files(_sub, _std_excl.get(_sub)), 1):
+            _std_rows += (f'<tr><td class="mono" style="color:#262626;">{_pref}-{_i:02d}</td>'
+                          f'<td>{_esc(_detail_title(_sub, _fn))}</td>'
+                          f'<td class="mono muted" style="text-align:right;">NTS</td>'
+                          f'<td class="mono muted" style="text-align:right;">P01</td></tr>')
 
     # Cover
     meta = [("Reference", p.get("jobRef") or p.get("ref")), ("Client", p.get("client")), ("Design Stage", p.get("designStage")), ("Revision", p.get("revision"))]
@@ -1957,7 +2053,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
       <div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Drawing Register</div>
       <div class="muted" style="font-size:11px; margin-top:8px;">Junction and installation details are auto-generated per measure and reproduced in each measure&rsquo;s Technical Specification. Official INCA / manufacturer standard details, where supplied, are bound in the appendix and listed here. Scaled bespoke details are calculated to BRE IP1/06 (f<span>Rsi</span> &gt; 0.75) at technical design stage.</div>
       <table style="margin-top:20px;"><thead><tr><th>Drawing Ref</th><th>Title</th><th style="text-align:right;">Scale</th><th style="text-align:right;">Rev</th></tr></thead>
-      <tbody>{draw_rows}{_auto_rows or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
+      <tbody>{(draw_rows + _auto_rows + _std_rows) or '<tr><td colspan="4" class="muted" style="font-size:12px;">Construction details to be issued at technical design stage.</td></tr>'}</tbody></table>'''
 
     # Site conditions (computed for TOC + evidence page)
     _sc = (p.get("property") or {}).get("siteConditions") or {}
@@ -2021,6 +2117,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     _ins_after("01", sec01)
     _ins_after("02", [("02.1", "Sequence of Work", "sub"), ("02.2", "Measures Interaction Matrix", "sub")])
     _ins_after("04", [("04.1", "Standards &amp; Compliance", "sub"), ("04.2", "Exclusions", "sub"), ("04.3", "Commissioning &amp; Handover", "sub")])
+    if _std_present:
+        _ins_after("07", [(f"07.{_i + 1}", _DETAIL_SETS[_sub][1].replace("&", "&amp;"), "sub")
+                          for _i, _sub in enumerate(_std_present)])
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
@@ -2546,6 +2645,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
          "If present, fit maintenance-free fire-rated F-Caps over every fitting before insulating (Approved Document B) — see detail D-L07."),
         ("loft_crossflow", "Loft felt has lapvents for cross-flow ventilation",
          "If absent, install eaves / over-fascia ventilators to BS 5250 before insulating."),
+        ("loft_tank", "Cold-water storage tank in the loft",
+         "If present, insulate the tank sides and top (never underneath) and lag all loft pipework against freezing (BS 6700 / good practice) — see detail LD."),
     ]
     if any(_sc.get(_k) is not None for _k, _, _ in _lc_defs):
         _lc_rows = ""
@@ -2732,14 +2833,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
-    _has_loft = any(_mfam(m.get("code"), m.get("name")) == "LOFT" for m in measures)
-    _has_win = any(_mfam(m.get("code"), m.get("name")) == "WIN" for m in measures)
-    _has_solar = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in measures)
-    _has_ashp = any(_mfam(m.get("code"), m.get("name")) == "ASHP" for m in measures)
-    loft_detail_pages = _standard_detail_pages("loft_details", "Standard Loft Insulation Details") if _has_loft else []
-    glazing_detail_pages = _standard_detail_pages("glazing_details", "Standard Glazing &amp; Door Details") if _has_win else []
-    solar_detail_pages = _standard_detail_pages("solar_details", "Standard Solar PV &amp; Battery Details") if _has_solar else []
-    ashp_detail_pages = _standard_detail_pages("ashp_details", "Standard ASHP &amp; Heating Controls Details") if _has_ashp else []
+    _has_loft = "loft_details" in _std_present
+    loft_detail_pages = _standard_detail_pages("loft_details", _DETAIL_SETS["loft_details"][1], _std_excl.get("loft_details")) if _has_loft else []
+    glazing_detail_pages = _standard_detail_pages("glazing_details", _DETAIL_SETS["glazing_details"][1]) if "glazing_details" in _std_present else []
+    solar_detail_pages = _standard_detail_pages("solar_details", _DETAIL_SETS["solar_details"][1]) if "solar_details" in _std_present else []
+    ashp_detail_pages = _standard_detail_pages("ashp_details", _DETAIL_SETS["ashp_details"][1]) if "ashp_details" in _std_present else []
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,

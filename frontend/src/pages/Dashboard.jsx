@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDashboard, getProjects } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2 } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -136,6 +136,12 @@ export default function Dashboard() {
                   {p.actionsRequired > 0 && (
                     <span className="flex items-center gap-1 text-[10.5px] font-mono" style={{ color: "var(--c-warning)" }}>
                       <AlertTriangle className="h-3 w-3" strokeWidth={1.5} />{p.actionsRequired}
+                    </span>
+                  )}
+                  {p.loftChecklistGap && (
+                    <span data-testid={`loft-gap-${p.id}`} title="Loft & fabric checklist has unanswered (Unknown) items — resolve before issuing the pack"
+                      className="flex items-center gap-1 text-[10.5px] font-mono" style={{ color: "var(--c-info)" }}>
+                      <ClipboardList className="h-3 w-3" strokeWidth={1.5} />Loft
                     </span>
                   )}
                 </div>

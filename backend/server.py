@@ -601,10 +601,31 @@ async def root():
     return {"service": "Retrofit Design Platform", "status": "ok"}
 
 
+_LOFT_CHECK_KEYS = ("loft_storage", "esh_cable_over_insulation", "downlights", "loft_crossflow", "loft_tank")
+
+
+def _loft_checklist_gap(p):
+    """True when a LOFT-measure project still has an unanswered (Unknown) loft & fabric checklist item."""
+    ms = p.get("measures") or []
+    if not any((m.get("code") or "").upper() in ("LOFT", "RIR") or "loft" in (m.get("name") or "").lower() for m in ms):
+        return False
+    sc = (p.get("property") or {}).get("siteConditions") or {}
+    ev = {e.get("key"): e for e in (sc.get("evidence") or [])}
+
+    def flag(k):
+        v = sc.get(k)
+        if isinstance(v, bool):
+            return v
+        e = ev.get(k)
+        return e.get("present") if (e and isinstance(e.get("present"), bool)) else None
+    return any(flag(k) is None for k in _LOFT_CHECK_KEYS)
+
+
 @api_router.get("/dashboard")
 async def dashboard():
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     for p in projects:
+        p["loftChecklistGap"] = _loft_checklist_gap(p)
         p.pop("property", None)
         p.pop("measures", None)
         p.pop("designPack", None)

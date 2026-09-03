@@ -14,6 +14,7 @@ const LOFT_CHECKS = [
   { key: "esh_cable_over_insulation", label: "Electric-shower cable running over the loft insulation" },
   { key: "downlights", label: "Recessed spotlights / downlights fitted" },
   { key: "loft_crossflow", label: "Loft felt has lapvents for cross-flow ventilation" },
+  { key: "loft_tank", label: "Cold-water storage tank in the loft" },
 ];
 
 export function SiteConditionsPanel({ projectId, project, onChange }) {

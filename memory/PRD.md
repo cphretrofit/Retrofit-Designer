@@ -123,10 +123,16 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - `pdf_builder.py`: `_has_ashp` flag + `ashp_detail_pages = _standard_detail_pages("ashp_details", "Standard ASHP & Heating Controls Details")`, bound after solar_detail_pages. Auto-attaches only when an ASHP measure is present.
 - Verified end-to-end: Coldrush (has ASHP) → 5 sheets render with proper (cont.) headers/footers; Beech Grove (no ASHP) → 0 sheets. Same auto re-issue flow as Loft/Glazing/Solar.
 
+## DONE — Standard-details polish + Emmens Hall (Jun 2026)
+- **Scheduled in Register + TOC**: standard details now formally numbered (LD-/GD-/SD-/HD-) in the Drawing Register and listed as TOC sub-entries (07.1, 07.2…) per set present. Each bound detail page carries a `LD-01 · Title · NTS` caption.
+- **Measure-linked conditional loft details**: F-Cap sheet only binds when `downlights` = Yes, cold-water tank sheet only when new `loft_tank` = Yes, shower-cable sheet only when `esh_cable_over_insulation` = Yes (via `_sc_flag` + `exclude` in `_standard_detail_pages`). Keeps packs lean.
+- **Fixed scrambled detail filenames**: loft/glazing/solar image files were saved under mismatched names in an earlier session (e.g. `1_eaves.jpg` actually held the party-wall diagram). Rewrote each file to the name matching its true content so titles/order/exclusions are correct. ASHP set was already correct.
+- **Checklist Nudge**: `/api/dashboard` now returns `loftChecklistGap` per project (LOFT measure + any loft check Unknown); Dashboard shows an amber "Loft" chip on those rows. Added `loft_tank` to the Loft & Fabric Checklist (backend page + `SiteConditionsPanel`).
+- **10 Emmens Hall**: strengthened `CAD_FLOORPLAN_SYSTEM` to tie the drawn staircase to circulation space; re-ran detection → Ground Floor now includes "Hall" (front-door routing fixed). Pack auto-rebuilds.
+
 ## Backlog (next)
-- P1: Add standard details (Loft LD-01…, Glazing, Solar, ASHP) to TOC + Drawing Register so they're formally scheduled.
-- P1: Checklist Nudge — dashboard flag when loft checklist items still "Unknown". Re-detect 10 Emmens floor plan (entrance hall).
-- P2: Measure-linked conditional details (F-Cap only when downlights=Yes; tank only when loft tank present). Action deep-links; Hall auto-insert; per-drawing revision & sign-off.
+- P2: Action deep-links for QA/general actions; Hall auto-insert for other plans with a clear inter-room gap; per-drawing revision & sign-off toggle; batch re-render existing floor plans.
+- P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
