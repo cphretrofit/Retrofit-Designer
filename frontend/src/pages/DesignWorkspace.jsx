@@ -303,7 +303,7 @@ export default function DesignWorkspace() {
       case "floorplan":
         return <FloorPlanPanel projectId={id} initial={p.floorPlan} project={p} onChange={(fp) => setP((prev) => ({ ...prev, floorPlan: fp }))} />;
       case "solar":
-        return <SolarPanel projectId={id} initial={p.solar} onChange={(v) => setP((prev) => ({ ...prev, solar: v }))} />;
+        return <SolarPanel projectId={id} initial={p.solar} solarMeasure={p.measures.find((m) => m.code === "SOLAR")} address={p.property?.address || p.address || p.name} onChange={(v) => setP((prev) => ({ ...prev, solar: v }))} />;
       case "heritage":
         return <HeritagePanel projectId={id} initial={p.heritage} postcode={(p.property || {}).postcode || p.postcode} onChange={(v) => setP((prev) => ({ ...prev, heritage: v }))} />;
       case "narrative":

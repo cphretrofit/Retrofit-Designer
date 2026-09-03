@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only test of the Aerial & Solar page changes (subject-property highlight + job-card PV kWp banner). Logged in as it@cphretrofit.co.uk (httpOnly cookie login OK). Verified 4 Beeson Close (positive) and Coldrush (negative). All 3 requested cases pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Aerial & Solar (4 Beeson Close)", "issues": ["Spotlight vignette (rgba(8,12,20,0.34) box-shadow) is subtle on already-dark aerial imagery; ring + pin are clear, but the darkened surround is barely perceptible — consider ~0.45 opacity if stronger emphasis is desired. Cosmetic only, not a defect."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "jobKwp regex on solarMeasure.name is sound (kWp then bare kW with negative lookahead); it correctly ignores 'Solar PV + Battery'. Note it would also match a name containing e.g. '2.4 kW inverter' — acceptable for current data."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested", "frontend": "100%"},
+  "seed_data_creation": "none",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6",
+  "context_for_next_testing_agent": "Route /project/<id>/design/solar. Beeson Close f4a33e9d-4172-415f-94ae-f11164e1a34a shows aerial-image (768x768), subject-marker-label 'Subject property · 4 Beeson Close, Reading, Berkshire, RG8 0UZ', ring measured exactly centred (dx=0, dy=0), 2 map-pin SVGs (overlay pin + label pin). jobcard-pv reads 'Job card PV system: 2.4 kWp (per job card · Solar PV 2.4 kWp) Roof modelled max 14.40 kWp' (review statement said 15.60; actual stored Google data gives 14.40 — value comes from solar data, not a bug). Coldrush a9713cce-9685-4f8b-b300-c222a5903776: no aerial yet, jobcard-pv correctly absent (count 0).",
+  "rca_of_the_issue": "N/A - no defects found. Pre-login 401 on /api/auth/me observed as expected noise."
+}

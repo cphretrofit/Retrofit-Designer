@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { solarLookup, applyPvTarget } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, Satellite, Zap } from "lucide-react";
+import { Loader2, Satellite, Zap, MapPin } from "lucide-react";
 
-export function SolarPanel({ projectId, initial, onChange }) {
+export function SolarPanel({ projectId, initial, onChange, solarMeasure, address }) {
   const [solar, setSolar] = useState(initial || null);
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState(initial?.targetKwp || "");
@@ -37,6 +37,14 @@ export function SolarPanel({ projectId, initial, onChange }) {
 
   const kwp = solar?.maxArrayPanelsCount && solar?.panelCapacityWatts
     ? (solar.maxArrayPanelsCount * solar.panelCapacityWatts / 1000).toFixed(2) : null;
+  // PV system size stated on the job card — read from the Solar measure NAME only.
+  // (The measure `system` string gets overwritten with the Google-modelled figure by PV autofill,
+  //  so it must NOT be used as the job-card source.)
+  const jobKwp = (() => {
+    const s = `${solarMeasure?.name || ""}`;
+    const m = s.match(/([\d.]+)\s*kwp/i) || s.match(/([\d.]+)\s*kw(?![p\w])/i);
+    return m ? parseFloat(m[1]) : null;
+  })();
   const stat = (l, v, u) => (
     <div className="border border-border rounded-sm p-3">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{l}</div>
@@ -55,11 +63,35 @@ export function SolarPanel({ projectId, initial, onChange }) {
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Satellite className="h-3.5 w-3.5" strokeWidth={1.75} />} Fetch aerial &amp; solar
         </button>
       </div>
+      {jobKwp != null && (
+        <div data-testid="jobcard-pv" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border border-primary/30 bg-primary/5 px-3 py-2 text-[12.5px]">
+          <Zap className="h-3.5 w-3.5 text-primary" strokeWidth={2} />
+          <span className="text-muted-foreground">Job card PV system:</span>
+          <span className="font-display text-base">{jobKwp} kWp</span>
+          {solarMeasure?.name ? <span className="text-[11px] text-muted-foreground">(per job card · {solarMeasure.name})</span> : null}
+          {kwp ? (
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              Roof modelled max {kwp} kWp{Number(jobKwp) > Number(kwp) ? " — job card exceeds modelled roof max" : ""}
+            </span>
+          ) : null}
+        </div>
+      )}
       {solar ? (
         <div className="space-y-4" data-testid="solar-result">
           {solar.aerialImage && (
-            <div className="border border-border rounded-sm overflow-hidden">
+            <div className="relative border border-border rounded-sm overflow-hidden" data-testid="aerial-image">
               <img src={solar.aerialImage} alt="Aerial roof view" className="w-full block" />
+              {/* Subject-property highlight — Google Solar centres the imagery on this property */}
+              <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+                <span className="rounded-full" style={{ width: 76, height: 76, boxShadow: "0 0 0 9999px rgba(8,12,20,0.5)", border: "2.5px solid #fde047", outline: "2px solid rgba(0,0,0,0.4)" }} />
+              </div>
+              <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: "calc(50% - 30px)" }}>
+                <MapPin className="h-8 w-8 text-yellow-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" strokeWidth={2.25} fill="#facc15" />
+              </div>
+              <div data-testid="subject-marker-label" className="absolute top-3 left-3 flex items-center gap-1.5 bg-black/70 text-white text-[11px] px-2.5 py-1 rounded-sm backdrop-blur-sm">
+                <MapPin className="h-3 w-3 text-yellow-300" strokeWidth={2} fill="#facc15" />
+                Subject property{address ? ` · ${address}` : ""}
+              </div>
             </div>
           )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

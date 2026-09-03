@@ -140,6 +140,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Front-door marker**: `_front_door_placement()` anchors the entrance to the EXTERNAL wall of the circulation space (carved or AI Hall/Landing) and `_render_single` draws a bold rotated swing symbol (gap + arc + leaf) opening inward on whichever wall (bottom/top/left/right) the Hall meets the envelope. Never invents a door on upper floors. Verified by rendering 10 Emmens — door now opens into the Hall on the correct external wall.
 - **Detection guardrail (batch)**: `_fp_stats()` + guard in `_run_floorplan_rebatch_bg` keep the previous plan when a fresh detection returns fewer rooms OR loses circulation the previous plan had (new `kept` counter). Verified: regress→kept, improvement→updated. Single-project manual re-detect is intentionally NOT guarded (user wants the fresh result).
 
+## DONE — Aerial subject marker + job-card PV kWp (Jun 2026)
+- **Subject-property highlight**: `SolarPanel.jsx` overlays a centred marker (yellow map-pin + highlighted ring + spotlight vignette) and a top-left label chip ("Subject property · <address>") on the Google Solar aerial (imagery is centred on the property). Address passed from DesignWorkspace.
+- **Job-card PV size**: parsed as kWp from the SOLAR measure NAME only (e.g. "Solar PV 2.4 kWp") — NOT from `measure.system`, which PV autofill overwrites with the Google-modelled figure. Shown as a banner with a roof-modelled-max comparison; hidden when the job card states no size (e.g. "Solar PV + Battery"). Testing agent 100% (positive + negative cases).
+
 ## Backlog (next)
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 
