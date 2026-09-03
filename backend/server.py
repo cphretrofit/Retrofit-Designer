@@ -985,23 +985,47 @@ async def autodetect_floorplan(project_id: str):
     return {"status": "started"}
 
 
-_floorplan_batch = {"running": False, "total": 0, "done": 0, "updated": 0, "skipped": 0, "errors": 0, "startedAt": None, "finishedAt": None}
+_floorplan_batch = {"running": False, "total": 0, "done": 0, "updated": 0, "skipped": 0, "kept": 0, "errors": 0, "startedAt": None, "finishedAt": None}
+
+_CIRC_WORDS = ("hall", "hallway", "landing", "corridor", "lobby", "entrance", "porch", "stair")
+
+
+def _fp_stats(fp):
+    """(room_count, has_circulation) for a floorPlan doc — used to detect a regressing re-detection."""
+    cd = (fp or {}).get("cadData") or {}
+    floors = cd.get("floors")
+    rooms = []
+    if isinstance(floors, list) and floors:
+        for fl in floors:
+            rooms += (fl.get("rooms") or [])
+    else:
+        rooms = cd.get("rooms") or []
+    names = [(r.get("name") or "").lower() for r in rooms]
+    has_circ = any(any(w in n for w in _CIRC_WORDS) for n in names)
+    return len(rooms), has_circ
 
 
 async def _run_floorplan_rebatch_bg():
     try:
         ids = [d["id"] for d in await db.projects.find({"floorPlan": {"$ne": None}}, {"_id": 0, "id": 1}).to_list(2000)]
-        _floorplan_batch.update({"total": len(ids), "done": 0, "updated": 0, "skipped": 0, "errors": 0})
+        _floorplan_batch.update({"total": len(ids), "done": 0, "updated": 0, "skipped": 0, "kept": 0, "errors": 0})
         for pid in ids:
             try:
                 prev = await db.projects.find_one({"id": pid}, {"_id": 0, "floorPlan": 1})
-                prev_markers = ((prev or {}).get("floorPlan") or {}).get("markers") or []
+                prev_fp = (prev or {}).get("floorPlan") or {}
+                prev_markers = prev_fp.get("markers") or []
                 docs = await db.documents.find({"project_id": pid, "is_deleted": False}).to_list(300)
                 if not docs:
                     _floorplan_batch["skipped"] += 1
                     continue
                 fp = await detect_and_extract_floorplan(docs, pid)
                 if fp:
+                    prev_n, prev_circ = _fp_stats(prev_fp)
+                    new_n, new_circ = _fp_stats(fp)
+                    # Guardrail: never let a re-detect regress a good plan (fewer rooms or lost circulation).
+                    if prev_n and (new_n < prev_n or (prev_circ and not new_circ)):
+                        _floorplan_batch["kept"] += 1
+                        continue
                     if prev_markers:
                         fp["markers"] = prev_markers
                     await db.projects.update_one({"id": pid}, {"$set": {"floorPlan": fp}})

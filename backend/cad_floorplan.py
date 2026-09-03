@@ -234,17 +234,38 @@ def _label_unnamed(rooms, upper):
             r["name"] = fill
 
 
-def _route_front_door(rooms, fd_x):
-    """Keep the front door opening into a circulation space (Hall/Landing), never a wet room."""
-    if fd_x is None or not rooms:
-        return fd_x
+def _front_door_placement(rooms, fd, W, H, upper):
+    """Return (x_m, y_m, wall) for the front door, anchored to the EXTERNAL wall of a circulation
+    space (Hall/Landing) so the entrance always opens into circulation and reads at a glance.
+    On upper floors only draw when the survey explicitly gave a door."""
+    if not rooms:
+        return None
+    fdx = _num(fd.get("x")) if (fd and fd.get("x") is not None) else None
     circ = [r for r in rooms if any(w in (r.get("name") or "").lower() for w in _CIRC_ROOMS)]
-    cur = next((r for r in rooms if _num(r.get("x")) <= fd_x <= _num(r.get("x")) + _num(r.get("w"))), None)
-    cur_wet = bool(cur) and any(w in (cur.get("name") or "").lower() for w in _WET_ROOMS)
-    if circ and (cur is None or cur_wet):
-        tgt = min(circ, key=lambda r: abs((_num(r.get("x")) + _num(r.get("w")) / 2) - fd_x))
-        return _num(tgt.get("x")) + _num(tgt.get("w")) / 2
-    return fd_x
+    if not fd and (upper or not circ):
+        return None
+    target = None
+    if circ:
+        target = (min(circ, key=lambda r: abs((_num(r.get("x")) + _num(r.get("w")) / 2) - fdx))
+                  if fdx is not None else max(circ, key=lambda r: _num(r.get("w")) * _num(r.get("h"))))
+    if target is None and fdx is not None:
+        cur = next((r for r in rooms if _num(r.get("x")) <= fdx <= _num(r.get("x")) + _num(r.get("w"))), None)
+        if cur and not any(w in (cur.get("name") or "").lower() for w in _WET_ROOMS):
+            target = cur
+    if target is None:
+        nonwet = [r for r in rooms if not any(w in (r.get("name") or "").lower() for w in _WET_ROOMS)] or rooms
+        target = max(nonwet, key=lambda r: _num(r.get("w")) * _num(r.get("h")))
+    rx, ry, rw, rh = _num(target.get("x")), _num(target.get("y")), _num(target.get("w")), _num(target.get("h"))
+    tol = 0.3
+    cands = []
+    if abs((ry + rh) - H) <= tol: cands.append(("bottom", min(max(rx + rw / 2, 0.4), W - 0.4), H))
+    if abs(ry) <= tol:            cands.append(("top", min(max(rx + rw / 2, 0.4), W - 0.4), 0.0))
+    if abs(rx) <= tol:            cands.append(("left", 0.0, min(max(ry + rh / 2, 0.4), H - 0.4)))
+    if abs((rx + rw) - W) <= tol: cands.append(("right", W, min(max(ry + rh / 2, 0.4), H - 0.4)))
+    if not cands:
+        return (min(max(rx + rw / 2, 0.4), W - 0.4), H, "bottom")
+    wall, ax, ay = cands[0]
+    return (ax, ay, wall)
 
 
 def _largest_empty_rect(rooms, W, H, step=0.1):
@@ -316,7 +337,7 @@ def _render_single(d: dict):
     _label_unnamed(rooms, _upper)
     _carve_hall(rooms, W, H, _upper)
     _fd = d.get("frontDoor") or {}
-    fd_x = _route_front_door(rooms, _num(_fd.get("x"))) if _fd else None
+    _fdp = _front_door_placement(rooms, _fd if _fd else None, W, H, _upper)
 
     col_x = 745                      # right column divider
     X0 = 150                         # plan origin x (left dims to the left)
@@ -487,13 +508,19 @@ def _render_single(d: dict):
             parts.append(f'<rect x="{x-16:.1f}" y="{y-11:.1f}" width="32" height="22" fill="#fff" stroke="#111" stroke-width="1.2"/>')
             parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="{_fit(lbl or "LH",30,base=12):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "LH")}</text>')
 
-    # front door — a marked opening on the front wall (routed to a circulation space) + label
-    if _fd and fd_x is not None:
-        x = mx(fd_x)
-        ybot = Y0 + ph
-        parts.append(f'<rect x="{x-22:.1f}" y="{ybot-5:.1f}" width="44" height="10" fill="#fff" stroke="#111" stroke-width="1.4"/>')
-        parts.append(f'<path d="M{x-22:.1f},{ybot:.1f} l0,-30 a30,30 0 0 1 30,30" fill="none" stroke="#111" stroke-width="1.1"/>')
-        parts.append(f'<text x="{x:.1f}" y="{ybot+82:.1f}" font-size="12" text-anchor="middle" font-family="Georgia,serif">Front Door</text>')
+    # front door — bold swing symbol on the external wall of the circulation space (reads at a glance)
+    if _fdp:
+        _fw, _fdxm, _fdym = _fdp[2], _fdp[0], _fdp[1]
+        fx, fy = mx(_fdxm), my(_fdym)
+        rot = {"bottom": 0, "top": 180, "left": 90, "right": 270}[_fw]
+        # local door (hinge left jamb, leaf opens up-into-room); rotated so it opens inward on any wall
+        door = ('<rect x="-22" y="-5" width="44" height="10" fill="#fff" stroke="#111" stroke-width="1.4"/>'
+                '<path d="M-22,0 a44,44 0 0 1 44,0" fill="none" stroke="#111" stroke-width="1.1"/>'
+                '<line x1="-22" y1="0" x2="-22" y2="-44" stroke="#111" stroke-width="2.6"/>')
+        parts.append(f'<g transform="translate({fx:.1f},{fy:.1f}) rotate({rot})">{door}</g>')
+        loff = {"bottom": (0, 82), "top": (0, -74), "left": (-64, 4), "right": (64, 4)}[_fw]
+        anch = "middle" if _fw in ("bottom", "top") else ("end" if _fw == "left" else "start")
+        parts.append(f'<text x="{fx+loff[0]:.1f}" y="{fy+loff[1]:.1f}" font-size="12" text-anchor="{anch}" font-family="Georgia,serif">Front Door</text>')
 
     # --- dimension chains ---
     def chain_h(dims, yline, above, fit_px, normalize=True):

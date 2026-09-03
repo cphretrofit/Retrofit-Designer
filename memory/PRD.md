@@ -136,6 +136,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Hall auto-insert**: `_carve_hall` + `_largest_empty_rect` in `cad_floorplan.py` — carves the largest dead-space gap (3–45% of footprint) into a labelled Hall/Landing when no circulation room exists. Runs per floor in `_render_single` (baked into cadSvg). Only fires on a genuine geometric gap.
 - **Batch re-render**: `POST/GET /api/admin/floorplans/rebatch` (+ `_floorplan_batch` progress). Ran the one-off: 4 projects with floor plans, 3 updated, 0 errors. NOTE: detection is stochastic — the batch pass dropped Emmens' Hall; a re-run restored it (Hall now present in cadData + cadSvg). For projects where the AI fully tiles rooms with no gap, carve can't recover a merged hall — the prompt is the primary safeguard.
 
+## DONE — Front-door marker + detection guardrail (Jun 2026)
+- **Front-door marker**: `_front_door_placement()` anchors the entrance to the EXTERNAL wall of the circulation space (carved or AI Hall/Landing) and `_render_single` draws a bold rotated swing symbol (gap + arc + leaf) opening inward on whichever wall (bottom/top/left/right) the Hall meets the envelope. Never invents a door on upper floors. Verified by rendering 10 Emmens — door now opens into the Hall on the correct external wall.
+- **Detection guardrail (batch)**: `_fp_stats()` + guard in `_run_floorplan_rebatch_bg` keep the previous plan when a fresh detection returns fewer rooms OR loses circulation the previous plan had (new `kept` counter). Verified: regress→kept, improvement→updated. Single-project manual re-detect is intentionally NOT guarded (user wants the fresh result).
+
 ## Backlog (next)
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 
