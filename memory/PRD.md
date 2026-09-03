@@ -156,6 +156,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - Site-condition PHOTO curation quality (P1): "Stored items in loft" gallery wrongly includes external-elevation + loft-hatch photos (should be loft-interior only); lapvents/crossflow card shows a hatch image (should show loft felt at eaves showing lap/easy vents); downlights card missing photos. This is an AI vision photo→condition classification problem (`_attach_sitenote_condition_photos` / `detect_site_conditions`) needing a focused prompt/logic pass + re-run.
 - Ventilation-first ordering (P2): matrix + sequence pages already sort VENT first, but the "Proposed Retrofit Strategy" directory list still shows stored order — reorder to list VENT first.
 
+## DONE — Vent-first strategy + per-measure dividers; loft-photo curation improved (Jun 2026)
+- **Vent-first strategy list**: the "Proposed Retrofit Strategy" divider now sorts measures with Extract Ventilation first as the lead measure (verified: p25 lists VENT → Loft → Solar).
+- **Per-measure chapter dividers**: each measure's spec section is preceded by a full-page divider ("01 · MEASURE · PAS B9 · Loft Insulation Top-up", etc.), so each measure reads as a self-contained chapter with its spec + detail drawings together (verified: p33 Loft divider → p34-42 spec → p43-49 loft details; p50 Solar divider).
+- **Loft photo curation — PARTIAL**: tightened `_COND_KEYWORDS` + added `_COND_EXCLUDE` (external/elevation/hatch/eaves/felt barred from stored-items; hatch/tank barred from cross-flow) and made loft_crossflow/downlights authoritative site-note picks. LIMITATION: the RdSAP site notes caption every loft photo identically ("Loft insulation"), so label text cannot separate stored-items vs eaves-felt vs downlight photos, and loft_storage already holds a URL so it isn't re-picked. A correct fix needs a per-photo VISION classifier (classify each embedded loft photo by image content → stored-items / eaves-felt-lapvents / downlight) rather than caption keywords. NOT fully resolved.
+
 ## Backlog (next)
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 

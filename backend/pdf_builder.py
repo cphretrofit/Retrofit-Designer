@@ -2039,10 +2039,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         {tpl_line}
       </div>'''
 
-    # Strategy divider
+    # Strategy divider — ventilation listed first as the lead measure (vent-first sequencing)
     strat_list = "".join(
         f'<div style="margin-bottom:7px; font-size:13px; color:#525252;"><span class="mono faint" style="font-size:10px; margin-right:12px;">'
-        f'{_esc(("PAS " + m["pas"]) if m.get("pas") else m.get("code"))}</span>{_esc(m.get("name"))}</div>' for m in measures)
+        f'{_esc(("PAS " + m["pas"]) if m.get("pas") else m.get("code"))}</span>{_esc(m.get("name"))}</div>'
+        for m in sorted(measures, key=lambda m: 0 if _mfam(m.get("code"), m.get("name")) == "VENT" else 1))
     dr_items = ((p.get("templateBlueprint") or {}).get("designRequirements") or [])[:5]
     dr_html = ""
     if dr_items:
@@ -2387,6 +2388,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     for idx, m in enumerate(measures, 1):
         title = _esc(m.get("name"))
         pas = _esc(m.get("pas") or m.get("code") or "")
+        # Per-measure chapter divider so each measure reads as a self-contained section
+        spec_pages.append(
+            '<div style="min-height:225mm; display:flex; flex-direction:column; justify-content:center;">'
+            f'<div class="ghost">{idx:02d}</div>'
+            f'<div class="faint upper" style="font-size:10px; letter-spacing:0.22em;">Measure &middot; {_esc(("PAS " + m["pas"]) if m.get("pas") else (m.get("code") or "Measure"))}</div>'
+            f'<div class="disp" style="font-size:40px; line-height:1.05; margin-top:6px;">{title}</div>'
+            + (f'<div class="muted" style="font-size:12px; margin-top:14px; max-width:150mm; line-height:1.6;">{_esc(m.get("system"))}</div>' if m.get("system") else "")
+            + '</div>')
         spec = _measure_spec(bp, m)
         specifications = (spec.get("specifications") or [])[:30]
         works = (spec.get("worksItems") or [])[:60]

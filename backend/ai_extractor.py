@@ -401,11 +401,19 @@ async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
 
 _COND_KEYWORDS = {
     "electric_shower": ("shower",),
-    "downlights": ("downlight", "spotlight", "recessed", "spot light"),
-    "loft_storage": ("loft", "attic", "roof space", "roof void"),
-    "loft_crossflow": ("eaves", "loft", "roof space", "roof void"),
+    "downlights": ("downlight", "spotlight", "recessed", "spot light", "ceiling light"),
+    "loft_storage": ("stored", "storage", "boarding", "boarded", "belongings", "clutter", "boxes", "junk", "items in loft"),
+    "loft_crossflow": ("eaves", "felt", "lap vent", "lapvent", "easy vent", "easyvent", "sarking", "ventilation felt", "membrane"),
     "floor_type": ("floor",),
     "bathroom_upstairs": ("bathroom", "en suite", "ensuite"),
+}
+
+# Reject obviously-wrong photos for a given loft condition (e.g. external elevations / the hatch
+# must never populate the "stored items" gallery; the tank/hatch must not populate cross-flow).
+_COND_EXCLUDE = {
+    "loft_storage": ("hatch", "external", "elevation", "eaves", "felt", "soffit", "fascia", "front elevation", "rear elevation", "side elevation", "roofline", "chimney", "gable"),
+    "loft_crossflow": ("hatch", "stored", "storage", "boarding", "cylinder", "tank"),
+    "downlights": ("external", "elevation", "eaves", "hatch", "soffit", "fascia"),
 }
 
 
@@ -463,9 +471,9 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         if k == "floor_type":
             return bool(e.get("value") or sc.get("floor_type"))
         return e.get("present") is True or sc.get(k) is True
-    # Loft photos in the RdSAP site notes are authoritative — override any vision FIG
-    # (which often mis-picks an external elevation) and always prefer the site-note set.
-    AUTH = {"loft_storage"}
+    # Loft photos in the RdSAP site notes are authoritative — override any vision FIG (which often
+    # mis-picks an external elevation or the hatch) and re-pick these loft conditions from the notes.
+    AUTH = {"loft_storage", "loft_crossflow", "downlights"}
     need = [e for e in ev if (e.get("key") in AUTH and e.get("source") != "Site notes")
             or (_positive(e) and not e.get("url"))]
     if not need:
@@ -494,10 +502,14 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         if not kws:
             continue
         gallery, seen_hashes = [], set()
+        excl = _COND_EXCLUDE.get(e.get("key")) or ()
         for i, lb in enumerate(labels):
             if i in used:
                 continue
-            if any(k in (lb.get("label") or "").lower() for k in kws):
+            lbl = (lb.get("label") or "").lower()
+            if excl and any(x in lbl for x in excl):
+                continue
+            if any(k in lbl for k in kws):
                 data, ext = lb["image"]
                 h = hashlib.md5(data).hexdigest()
                 if h in seen_hashes:
