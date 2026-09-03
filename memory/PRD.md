@@ -48,6 +48,9 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
   3. Per-measure spec sub-pages (8 per measure): Technical Spec, Installation Methodology, Thermal Bridging, Design Compliance Checklist, Construction & Thermal Detail, Junctions/Checks/Risks, Installation Details, Datasheet — junction content also appears in the Section 07 Drawing Register. Confirm which per-measure pages to keep.
   4. `summary_page` (Design Summary) vs `measures_schedule_page` vs `directory_pages` vs `matrix_page` — all enumerate measures in different framings.
 
+## DONE — Clickable "actions required" (Jun 2026)
+- The Design Status "N actions required" row in `IntelligencePanel.jsx` is now an expandable button: clicking it reveals the full action list from `p.itemsBeforeIssue` (severity icon + full text). Items whose `measure` matches a project measure are clickable and navigate to `measure-{code}` via `onOpen` (passed from DesignWorkspace). When a measure is open, the list filters to that measure. testids: `actions-required-toggle`, `actions-required-list`, `action-item-{i}`.
+
 ## DONE — Checklist autofill + floor-plan circulation/front-door (Jun 2026)
 - Loft & Fabric Checklist now prefills from AI detection: UI falls back to the detected evidence verdict when no explicit flat flag is set, and Save persists the effective values so the PDF reflects them. Site-note loft-storage override now also sets the flat `loft_storage` key.
 - Floor plan (`cad_floorplan.py`): unnamed/blank rooms are labelled "Hall" (ground) / "Landing" (upper); the front door is routed to a circulation space and never a wet room, and is drawn as a marked wall opening + swing. Added `_label_unnamed` / `_route_front_door`.

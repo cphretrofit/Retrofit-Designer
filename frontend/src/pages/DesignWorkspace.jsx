@@ -445,7 +445,7 @@ export default function DesignWorkspace() {
         </main>
 
         {/* Right intelligence */}
-        <IntelligencePanel p={p} measure={activeMeasure} />
+        <IntelligencePanel p={p} measure={activeMeasure} onOpen={setSection} />
       </div>
     </div>
   );
