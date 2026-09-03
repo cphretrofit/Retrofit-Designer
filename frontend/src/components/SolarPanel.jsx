@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { solarLookup, applyPvTarget } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, Satellite, Zap, MapPin } from "lucide-react";
+import { Loader2, Satellite, Zap, MapPin, AlertTriangle } from "lucide-react";
 
 export function SolarPanel({ projectId, initial, onChange, solarMeasure, address }) {
   const [solar, setSolar] = useState(initial || null);
@@ -41,10 +41,12 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
   // (The measure `system` string gets overwritten with the Google-modelled figure by PV autofill,
   //  so it must NOT be used as the job-card source.)
   const jobKwp = (() => {
+    if (solarMeasure?.jobCardKwp != null) return Number(solarMeasure.jobCardKwp);
     const s = `${solarMeasure?.name || ""}`;
     const m = s.match(/([\d.]+)\s*kwp/i) || s.match(/([\d.]+)\s*kw(?![p\w])/i);
     return m ? parseFloat(m[1]) : null;
   })();
+  const pvOver = jobKwp != null && kwp != null && Number(jobKwp) > Number(kwp);
   const stat = (l, v, u) => (
     <div className="border border-border rounded-sm p-3">
       <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{l}</div>
@@ -64,14 +66,14 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
         </button>
       </div>
       {jobKwp != null && (
-        <div data-testid="jobcard-pv" className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border border-primary/30 bg-primary/5 px-3 py-2 text-[12.5px]">
-          <Zap className="h-3.5 w-3.5 text-primary" strokeWidth={2} />
+        <div data-testid="jobcard-pv" className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border px-3 py-2 text-[12.5px] ${pvOver ? "border-amber-400/60 bg-amber-400/10" : "border-primary/30 bg-primary/5"}`}>
+          {pvOver ? <AlertTriangle className="h-3.5 w-3.5 text-amber-500" strokeWidth={2} /> : <Zap className="h-3.5 w-3.5 text-primary" strokeWidth={2} />}
           <span className="text-muted-foreground">Job card PV system:</span>
           <span className="font-display text-base">{jobKwp} kWp</span>
           {solarMeasure?.name ? <span className="text-[11px] text-muted-foreground">(per job card · {solarMeasure.name})</span> : null}
           {kwp ? (
-            <span className="ml-auto text-[11px] text-muted-foreground">
-              Roof modelled max {kwp} kWp{Number(jobKwp) > Number(kwp) ? " — job card exceeds modelled roof max" : ""}
+            <span data-testid="pv-delta-note" className={`ml-auto text-[11px] ${pvOver ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
+              {pvOver ? `Exceeds roof modelled max ${kwp} kWp — verify the array physically fits` : `Roof modelled max ${kwp} kWp`}
             </span>
           ) : null}
         </div>

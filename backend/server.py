@@ -1056,6 +1056,80 @@ async def rebatch_floorplans_status():
     return _floorplan_batch
 
 
+_solar_backfill = {"running": False, "total": 0, "done": 0, "updated": 0, "nofigure": 0, "errors": 0, "startedAt": None, "finishedAt": None}
+
+
+def _compose_solar_name(old_name, kwp):
+    base = f"Solar PV {kwp:g} kWp"
+    if old_name and "battery" in old_name.lower():
+        base += " + Battery"
+    return base
+
+
+async def _run_solar_name_backfill_bg():
+    from deps import get_object
+    from ai_extractor import extract_text_any, extract_jobcard_pv_kwp
+    try:
+        projects = await db.projects.find({"measures.code": "SOLAR"}, {"_id": 0, "id": 1, "measures": 1}).to_list(2000)
+        targets = []
+        for p in projects:
+            sm = next((m for m in (p.get("measures") or []) if (m.get("code") or "").upper() == "SOLAR"), None)
+            if sm and sm.get("jobCardKwp") is None and not re.search(r"[\d.]+\s*kwp", sm.get("name") or "", re.I):
+                targets.append(p["id"])
+        _solar_backfill.update({"total": len(targets), "done": 0, "updated": 0, "nofigure": 0, "errors": 0})
+        for pid in targets:
+            try:
+                docs = await db.documents.find({"project_id": pid}).to_list(400)
+                ordered = sorted(docs, key=lambda d: 0 if any(k in ((d.get("doc_type") or "") + " " + (d.get("original_filename") or "")).lower() for k in ("scope", "job", "works", "assessment", "specification")) else 1)
+                kwp = None
+                for d in ordered:
+                    if d.get("is_deleted") or not d.get("storage_path") or (d.get("doc_type") or "") == "Survey Photo":
+                        continue
+                    fn = d.get("original_filename") or "f"
+                    ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+                    try:
+                        data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+                        text = await asyncio.to_thread(extract_text_any, data, ext) if data else ""
+                    except Exception:
+                        continue
+                    kwp = extract_jobcard_pv_kwp(text)
+                    if kwp:
+                        break
+                if not kwp:
+                    _solar_backfill["nofigure"] += 1
+                    continue
+                proj = await db.projects.find_one({"id": pid}, {"_id": 0, "measures": 1})
+                measures = proj.get("measures") or []
+                for m in measures:
+                    if (m.get("code") or "").upper() == "SOLAR":
+                        m["jobCardKwp"] = kwp
+                        m["name"] = _compose_solar_name(m.get("name"), kwp)
+                await db.projects.update_one({"id": pid}, {"$set": {"measures": measures}})
+                _solar_backfill["updated"] += 1
+            except Exception:
+                logger.exception("solar name backfill failed for %s", pid)
+                _solar_backfill["errors"] += 1
+            finally:
+                _solar_backfill["done"] += 1
+    finally:
+        _solar_backfill["running"] = False
+        _solar_backfill["finishedAt"] = datetime.now(timezone.utc).isoformat()
+
+
+@api_router.post("/admin/solar-name/backfill")
+async def solar_name_backfill():
+    if _solar_backfill["running"]:
+        return {"status": "already-running", **_solar_backfill}
+    _solar_backfill.update({"running": True, "startedAt": datetime.now(timezone.utc).isoformat(), "finishedAt": None})
+    asyncio.create_task(_run_solar_name_backfill_bg())
+    return {"status": "started"}
+
+
+@api_router.get("/admin/solar-name/backfill")
+async def solar_name_backfill_status():
+    return _solar_backfill
+
+
 class DrawingSignoffsIn(BaseModel):
     drawingSignoffs: dict = {}
 

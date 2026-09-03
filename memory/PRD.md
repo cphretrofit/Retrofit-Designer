@@ -144,6 +144,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Subject-property highlight**: `SolarPanel.jsx` overlays a centred marker (yellow map-pin + highlighted ring + spotlight vignette) and a top-left label chip ("Subject property · <address>") on the Google Solar aerial (imagery is centred on the property). Address passed from DesignWorkspace.
 - **Job-card PV size**: parsed as kWp from the SOLAR measure NAME only (e.g. "Solar PV 2.4 kWp") — NOT from `measure.system`, which PV autofill overwrites with the Google-modelled figure. Shown as a banner with a roof-modelled-max comparison; hidden when the job card states no size (e.g. "Solar PV + Battery"). Testing agent 100% (positive + negative cases).
 
+## DONE — Job-card kWp backfill + PV delta flag (Jun 2026)
+- **Job-card kWp backfill**: new `extract_jobcard_pv_kwp()` (ai_extractor) deterministically parses the stated PV array size from job-card/scope document text (prefers "system size/maximum", ignores per-panel <1 kWp ratings and inverter kW). Admin job `POST/GET /api/admin/solar-name/backfill` scans SOLAR projects whose measure name lacks a kWp, sets `measure.jobCardKwp` + rewrites name to "Solar PV X kWp[ + Battery]". Ran one-off: 3 targets, 1 updated (10 Emmens → "Solar PV 5 kWp + Battery", from its Scope of Works "maximum 5.0 kWp"); 2 genuinely have no figure in their docs (Coldrush etc.) so stay hidden. Frontend `SolarPanel` now prefers `solarMeasure.jobCardKwp` over name-regex.
+- **PV delta flag**: the job-card PV banner turns amber with a warning icon when the job-card kWp exceeds the roof modelled maximum (`pvOver`), so oversized specs are caught before issue. Blue/neutral otherwise.
+
 ## Backlog (next)
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 

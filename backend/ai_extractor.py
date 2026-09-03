@@ -1803,6 +1803,29 @@ async def run_import_job(job_id: str):
         await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)}})
 
 
+def extract_jobcard_pv_kwp(text):
+    """Best-effort job-card Solar PV ARRAY size (kWp) from document text.
+    Ignores per-panel ratings (< 1 kWp / 'each') and prefers a stated system size / maximum."""
+    if not text:
+        return None
+    t = re.sub(r"[\u0000-\u001f\ue000-\uf8ff]", " ", text)
+    t = re.sub(r"\s+", " ", t)
+    cands = []
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*k[wW]p", t):
+        val = float(m.group(1))
+        if val < 1.0 or val > 100:
+            continue
+        ctx = t[max(0, m.start() - 60):m.end() + 20].lower()
+        if any(k in ctx for k in ("each", "per panel", "rated at", "panel rated")):
+            continue
+        weight = 2 if any(k in ctx for k in ("system size", "maximum", "total", "array", "installed", "up to")) else 1
+        cands.append((weight, val))
+    if not cands:
+        return None
+    best_w = max(w for w, _ in cands)
+    return max(v for w, v in cands if w == best_w)
+
+
 async def reextract_project_fields(project_id):
     """Re-run AI extraction on a project's existing documents and refresh only the
     guardrail-governed fields (ventilation, site conditions, design considerations),
