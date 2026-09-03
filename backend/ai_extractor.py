@@ -461,6 +461,53 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
         doc.close()
 
 
+async def _classify_loft_photos(labels, limit=18):
+    """Vision-classify the LOFT-relevant site-note photos into an evidence category so the correct
+    image populates each loft card. Returns {original_label_index: category}. Categories:
+    stored_items | eaves_felt | downlight | loft_general | other."""
+    LOFT_HINT = ("loft", "attic", "roof space", "roof void", "insulation", "eaves", "felt",
+                 "downlight", "spotlight", "recessed", "hatch", "sarking", "membrane",
+                 "cross flow", "cross-flow", "ventilation felt", "lap vent", "lapvent")
+    cand = [i for i, lb in enumerate(labels) if any(h in (lb.get("label") or "").lower() for h in LOFT_HINT)][:limit]
+    if not cand:
+        return {}
+    imgs, idxmap = [], []
+    for i in cand:
+        try:
+            data, _ext = labels[i]["image"]
+            b = _img_b64(data)
+            if b:
+                imgs.append(b)
+                idxmap.append(i)
+        except Exception:
+            continue
+    if not imgs:
+        return {}
+    listing = "\n".join(f"FIG {n + 1}: {((labels[idxmap[n]].get('label') or '').strip(': ') or 'loft photo')}" for n in range(len(idxmap)))
+    prompt = (f"You are shown {len(imgs)} survey photographs (FIG 1..{len(imgs)}) from a loft / retrofit survey:\n{listing}\n\n"
+              "Classify EACH photo by what it MAINLY shows, using EXACTLY one of these categories:\n"
+              "- stored_items: inside the loft space showing stored belongings, boxes, boarding / boarded areas or clutter on the loft floor\n"
+              "- eaves_felt: the eaves, roofing felt, sarking or breather membrane at the edge/slope of the loft (used to check for lap vents / cross-flow ventilation)\n"
+              "- downlight: a recessed ceiling downlight / spotlight, seen from inside the loft (penetration) or from the room below\n"
+              "- loft_general: general loft insulation / loft interior with none of the above specifically visible\n"
+              "- other: an external elevation, the loft hatch itself, a hot-water cylinder / cold-water tank, or anything NOT inside the loft space\n\n"
+              'Return ONLY a JSON object mapping every FIG number to its category, e.g. {"1":"stored_items","2":"other","3":"eaves_felt"}.')
+    try:
+        res = await call_claude_vision_json(
+            "You are a meticulous PAS 2035:2023 retrofit surveyor classifying loft photographs by their visible content.",
+            prompt, imgs)
+    except Exception as e:
+        logger.warning("loft photo vision classification failed: %s", e)
+        return {}
+    out = {}
+    for k, v in (res or {}).items():
+        try:
+            out[idxmap[int(k) - 1]] = str(v).strip().lower()
+        except Exception:
+            continue
+    return out
+
+
 async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
     """Give each DETECTED site condition an evidence photo pulled from the surveyor's
     site notes (e.g. 'Photo of shower:' -> electric shower) when the vision sweep found none."""
@@ -474,8 +521,7 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
     # Loft photos in the RdSAP site notes are authoritative — override any vision FIG (which often
     # mis-picks an external elevation or the hatch) and re-pick these loft conditions from the notes.
     AUTH = {"loft_storage", "loft_crossflow", "downlights"}
-    need = [e for e in ev if (e.get("key") in AUTH and e.get("source") != "Site notes")
-            or (_positive(e) and not e.get("url"))]
+    need = [e for e in ev if e.get("key") in AUTH or (_positive(e) and not e.get("url"))]
     if not need:
         return 0
     need.sort(key=lambda e: 0 if e.get("key") in AUTH else 1)  # fill loft first
@@ -496,33 +542,53 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         labels.extend(await asyncio.to_thread(extract_sitenote_photo_labels, data))
     if not labels:
         return 0
+    loft_keys = {"loft_storage", "loft_crossflow", "downlights"}
+    CAT_FOR = {"loft_storage": "stored_items", "loft_crossflow": "eaves_felt", "downlights": "downlight"}
+    CAT_CAPTION = {"stored_items": "Stored items / boarding in the loft space",
+                   "eaves_felt": "Loft felt at the eaves — cross-flow ventilation check",
+                   "downlight": "Recessed downlight penetration"}
+    # Content-based vision classification of the loft photos so each loft card shows only its own evidence.
+    loft_cat = await _classify_loft_photos(labels) if any(e.get("key") in loft_keys for e in need) else {}
+    use_vision = bool(loft_cat)
+
     changed, used = 0, set()
     for e in need:
+        want_cat = CAT_FOR.get(e.get("key")) if use_vision else None
         kws = _COND_KEYWORDS.get(e.get("key")) or ()
-        if not kws:
+        if want_cat is None and not kws:
             continue
+        if want_cat is not None:
+            # rebuild loft cards from the vision result (drop any earlier mis-picked photo)
+            e.pop("url", None)
+            e.pop("photos", None)
+            e.pop("caption", None)
         gallery, seen_hashes = [], set()
         excl = _COND_EXCLUDE.get(e.get("key")) or ()
         for i, lb in enumerate(labels):
             if i in used:
                 continue
-            lbl = (lb.get("label") or "").lower()
-            if excl and any(x in lbl for x in excl):
-                continue
-            if any(k in lbl for k in kws):
-                data, ext = lb["image"]
-                h = hashlib.md5(data).hexdigest()
-                if h in seen_hashes:
-                    used.add(i)
+            if want_cat is not None:
+                if loft_cat.get(i) != want_cat:
                     continue
-                seen_hashes.add(h)
-                url = await _store_defect_image(project_id, data, ext)
-                if url:
-                    gallery.append({"url": url,
-                                    "caption": (lb.get("label") or "").strip(": ").strip() or e.get("label")})
-                    used.add(i)
-                if len(gallery) >= 12:
-                    break
+            else:
+                lbl = (lb.get("label") or "").lower()
+                if excl and any(x in lbl for x in excl):
+                    continue
+                if not any(k in lbl for k in kws):
+                    continue
+            data, ext = lb["image"]
+            h = hashlib.md5(data).hexdigest()
+            if h in seen_hashes:
+                used.add(i)
+                continue
+            seen_hashes.add(h)
+            url = await _store_defect_image(project_id, data, ext)
+            if url:
+                cap = CAT_CAPTION.get(want_cat) if want_cat else ((lb.get("label") or "").strip(": ").strip() or e.get("label"))
+                gallery.append({"url": url, "caption": cap})
+                used.add(i)
+            if len(gallery) >= 12:
+                break
         if gallery:
             e["url"] = gallery[0]["url"]
             e["photos"] = gallery
