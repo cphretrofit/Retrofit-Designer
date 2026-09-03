@@ -148,6 +148,14 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Job-card kWp backfill**: new `extract_jobcard_pv_kwp()` (ai_extractor) deterministically parses the stated PV array size from job-card/scope document text (prefers "system size/maximum", ignores per-panel <1 kWp ratings and inverter kW). Admin job `POST/GET /api/admin/solar-name/backfill` scans SOLAR projects whose measure name lacks a kWp, sets `measure.jobCardKwp` + rewrites name to "Solar PV X kWp[ + Battery]". Ran one-off: 3 targets, 1 updated (10 Emmens → "Solar PV 5 kWp + Battery", from its Scope of Works "maximum 5.0 kWp"); 2 genuinely have no figure in their docs (Coldrush etc.) so stay hidden. Frontend `SolarPanel` now prefers `solarMeasure.jobCardKwp` over name-regex.
 - **PV delta flag**: the job-card PV banner turns amber with a warning icon when the job-card kWp exceeds the roof modelled maximum (`pvOver`), so oversized specs are caught before issue. Blue/neutral otherwise.
 
+## DONE — In-depth interaction matrix + per-measure sectioning (Jun 2026)
+- **Measures Interaction Matrix (Annex D)**: replaced the coarse green/amber logic with an `_INTERACTIONS` knowledge base keyed by measure-family pairs, giving finer levels (green/amber/orange/red) and detailed, measure-specific management notes with standards (BS 5250 loft-void condensation, ADF ventilation, BRE BR 262 reveals/eaves lapping, BS 7671 + MCS MIS 3002 PV cabling/isolator, MCS MIS 3005 + BS EN 12831 ASHP right-sizing). `_interaction`/`_interaction_note` both read the map. Verified in Emmens pack (LOFT×VENT amber, LOFT×SOLAR amber w/ BS 7671, SOLAR×VENT green).
+- **Per-measure sectioning**: each measure's standard construction-detail drawings (loft/glazing/solar/ashp) now render immediately AFTER that measure's spec pages (within the "loft stage"), not in a separate Section-07 appendix dump. Detail-page eyebrow relabelled "Construction Details" (was "Section 07"). Drawing Register retained as the schedule/index; TOC 07.x sub-entries removed. Verified: Emmens p41 loft datasheet → p42–48 loft details → p49 solar spec.
+
+## Still outstanding (raised, not yet done)
+- Site-condition PHOTO curation quality (P1): "Stored items in loft" gallery wrongly includes external-elevation + loft-hatch photos (should be loft-interior only); lapvents/crossflow card shows a hatch image (should show loft felt at eaves showing lap/easy vents); downlights card missing photos. This is an AI vision photo→condition classification problem (`_attach_sitenote_condition_photos` / `detect_site_conditions`) needing a focused prompt/logic pass + re-run.
+- Ventilation-first ordering (P2): matrix + sequence pages already sort VENT first, but the "Proposed Retrofit Strategy" directory list still shows stored order — reorder to list VENT first.
+
 ## Backlog (next)
 - P1 (future): Advanced CAD auto-drawings phase 3 — fully site-specific junction details traced from assessment docs.
 

@@ -956,11 +956,40 @@ def _commissioning_html(p, measures):
                "Requirements to be satisfied at completion to close out the retrofit in line with PAS 2035:2023 and TrustMark.")
 
 
+# PAS 2035:2023 Annex D (Figure D.1) — pairwise measure-interaction assessment.
+# level: green (do not interact) | amber (interact — construction detail required)
+#        | orange (interact — specific application / upgrade) | red (not appropriate together)
+_INTERACTIONS = {
+    frozenset({"VENT", "LOFT"}): ("amber", "Topping up the loft insulation lowers loft-void temperatures and raises interstitial/surface condensation risk. The whole-dwelling ventilation strategy is provided/upgraded to Approved Document F in step with the works, roof-void cross-ventilation is maintained (or eaves / over-fascia ventilators added), and any extract duct crossing the loft is insulated and sealed to discharge directly to outside (BS 5250:2021)."),
+    frozenset({"VENT", "RIR"}): ("amber", "Insulating at the rafter line warms the roof void and changes its moisture balance; the ventilation strategy is upgraded to Approved Document F and the roof detailed as a warm construction with the correct vapour-control and ventilation regime to avoid interstitial condensation (BS 5250:2021)."),
+    frozenset({"VENT", "WALL"}): ("amber", "Wall insulation and associated sealing reduce adventitious infiltration; purpose-provided ventilation (continuous or intermittent extract with background ventilators) is provided/upgraded to Approved Document F to maintain indoor air quality and manage moisture as the dwelling is tightened (BS 5250:2021)."),
+    frozenset({"VENT", "WIN"}): ("amber", "New windows sharply cut background infiltration; trickle ventilators and/or the mechanical extract system are sized to Approved Document F so whole-dwelling background ventilation is retained and condensation risk controlled (BS 5250:2021)."),
+    frozenset({"VENT", "DOORS"}): ("amber", "Replacement external doors reduce infiltration; the ventilation strategy is reviewed against Approved Document F to preserve the whole-dwelling air-change rate (BS 5250:2021)."),
+    frozenset({"VENT", "FLOOR"}): ("amber", "Floor insulation and perimeter draught-sealing reduce infiltration; the ventilation provision is reviewed against Approved Document F to maintain adequate whole-dwelling ventilation (BS 5250:2021)."),
+    frozenset({"WALL", "WIN"}): ("amber", "Wall insulation and window replacement are detailed together so insulation is carried across the reveals, head and cill and lapped to the frame — maintaining a continuous thermal line and controlling thermal bridging and surface condensation at the opening (BRE BR 262 / BRE IP 1/06)."),
+    frozenset({"WALL", "DOORS"}): ("amber", "Insulation is carried around door reveals and thresholds and lapped to the frame to keep the thermal line continuous and limit bridging at the opening (BRE BR 262)."),
+    frozenset({"WALL", "LOFT"}): ("amber", "At the eaves and wall head the wall insulation and loft insulation are lapped to maintain a continuous thermal envelope and eliminate the cold bridge at the wall plate, while preserving eaves ventilation (BRE BR 262, BS 5250:2021)."),
+    frozenset({"WALL", "FLOOR"}): ("amber", "The wall/floor junction is detailed to close the insulation line at the perimeter (and at skirting level for internal insulation) to limit ground-floor thermal bridging and cold-bridge condensation (BRE BR 262)."),
+    frozenset({"WALL", "RIR"}): ("amber", "The wall-to-roof insulation line is detailed continuously at the eaves and verge so there is no break in the thermal envelope (BRE BR 262)."),
+    frozenset({"LOFT", "SOLAR"}): ("amber", "Roof-mounted PV brings DC cabling and often the isolator/inverter into the loft: electrical equipment and cabling are kept accessible and clear of the insulation (never buried), insulation continuity is maintained at roof penetrations, and array fixings are flashed and sealed against water ingress (BS 7671, MCS MIS 3002)."),
+    frozenset({"RIR", "SOLAR"}): ("amber", "PV roof fixings penetrate the insulated rafter-line construction; fixings are detailed and sealed to maintain weather-tightness and the vapour-control layer, with cabling kept clear of insulation (BS 7671, MCS MIS 3002)."),
+    frozenset({"LOFT", "ASHP"}): ("amber", "Heat-pump primary pipework and any condensate run through the loft are insulated and lagged against freezing and kept clear of the insulation depth; all penetrations are sealed (BS 5250:2021, MCS MIS 3005)."),
+    frozenset({"ASHP", "WALL"}): ("orange", "Heat-pump and emitter sizing are based on the POST-retrofit fabric heat loss so the system is not oversized — the wall-insulation U-values are fed into the room-by-room heat-loss calculation before the ASHP design is finalised (MCS MIS 3005, BS EN 12831)."),
+    frozenset({"ASHP", "LOFT"}): ("orange", "The reduced roof heat loss from the loft top-up is included in the room-by-room heat-loss calculation so the heat pump and emitters are correctly sized and not oversized (MCS MIS 3005, BS EN 12831)."),
+    frozenset({"ASHP", "WIN"}): ("orange", "The improved window U-values are included in the heat-loss calculation so the heat pump and emitters are sized to the post-retrofit demand (MCS MIS 3005, BS EN 12831)."),
+    frozenset({"ASHP", "FLOOR"}): ("orange", "Floor-insulation U-values are included in the heat-loss calculation to right-size the heat pump and emitters (MCS MIS 3005, BS EN 12831)."),
+    frozenset({"ASHP", "RIR"}): ("orange", "The insulated roof U-value is included in the heat-loss calculation to right-size the heat pump and emitters (MCS MIS 3005, BS EN 12831)."),
+    frozenset({"ASHP", "SOLAR"}): ("orange", "Both alter the dwelling's electrical load/generation: consumer-unit capacity, cable sizing, any diversion of surplus PV to the battery and the DNO notification are coordinated, and the two MCS designs aligned (BS 7671, MCS)."),
+    frozenset({"ASHP", "VENT"}): ("amber", "Heat-pump services and ventilation ducting/terminals are coordinated for routing and external clearances; where MVHR is used it is balanced alongside the heating design (Approved Document F, MCS MIS 3005)."),
+    frozenset({"SOLAR", "VENT"}): ("green", "No adverse interaction; roof-level PV fixings are coordinated with ventilation terminals and flues to maintain the required clearances (MCS MIS 3002)."),
+}
+
+
 def _interaction(a, b):
-    s = {_mfam(a), _mfam(b)}
-    if s in ({"VENT", "WIN"}, {"VENT", "WALL"}, {"VENT", "LOFT"}, {"VENT", "FLOOR"}, {"WALL", "WIN"}):
-        return "amber"
-    return "green"
+    key = frozenset({_mfam(a), _mfam(b)})
+    if len(key) < 2:
+        return "green"
+    return _INTERACTIONS.get(key, ("green", None))[0]
 
 
 def _interaction_matrix_html(measures):
@@ -1486,14 +1515,17 @@ def _ov_page(p, key):
 
 
 def _interaction_note(a, b, c):
-    fams = {_mfam(a.get("code"), a.get("name")), _mfam(b.get("code"), b.get("name"))}
+    key = frozenset({_mfam(a.get("code"), a.get("name")), _mfam(b.get("code"), b.get("name"))})
+    entry = _INTERACTIONS.get(key)
+    if entry and entry[1]:
+        return entry[1]
     if c == "green":
-        return "No adverse interaction; the measures are compatible and installed to their individual specifications."
-    if "VENT" in fams:
-        return "As the fabric is tightened, mechanical extract and background ventilation are provided/upgraded to maintain indoor air quality and manage moisture (BS 5250, Approved Document F)."
-    if fams == {"WALL", "WIN"}:
-        return "Window reveals and wall insulation are detailed together to maintain continuity of insulation and control thermal bridging at the junction (BR 262)."
-    return "The interface is detailed in the individual measure specifications and coordinated in the installation sequence."
+        return "No adverse interaction; the measures are compatible and installed to their individual specifications, coordinated within the installation sequence."
+    if c == "amber":
+        return "The interface between these measures is resolved with a construction detail that maintains insulation continuity and controls thermal bridging and moisture at the junction (PAS 2035:2023 Annex D, BRE BR 262)."
+    if c == "orange":
+        return "A specific application or upgrade is required; the measures are coordinated and any capacity, sizing or compatibility implications resolved before installation (PAS 2035:2023 Annex D)."
+    return "These measures are not appropriate together in this configuration; the design adopts an alternative approach (PAS 2035:2023 Annex D)."
 
 
 def _kv_table(rows, w1="34%"):
@@ -1837,7 +1869,7 @@ def _standard_detail_pages(subdir, title, exclude=None):
         with open(os.path.join(_DETAILS_ROOT, subdir, f), "rb") as fh:
             ct = "image/png" if f.lower().endswith(".png") else "image/jpeg"
             figs.append((f, f'data:{ct};base64,{base64.b64encode(fh.read()).decode()}'))
-    header = '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 07 &middot; Construction Details</div>'
+    header = '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Construction Details</div>'
     intro = (header + f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{_esc(title)}</div>'
              '<div class="muted" style="font-size:11px; margin-top:8px;">Standard construction details included on every relevant scheme as good-practice guidance. '
              'To be read with the manufacturer&rsquo;s instructions, the relevant British Standards / BS 7671 and the applicable Building Regulations, and confirmed against site-specific conditions.</div>')
@@ -2161,9 +2193,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     _ins_after("01", sec01)
     _ins_after("02", [("02.1", "Sequence of Work", "sub"), ("02.2", "Measures Interaction Matrix", "sub")])
     _ins_after("04", [("04.1", "Standards &amp; Compliance", "sub"), ("04.2", "Exclusions", "sub"), ("04.3", "Commissioning &amp; Handover", "sub")])
-    if _std_present:
-        _ins_after("07", [(f"07.{_i + 1}", _DETAIL_SETS[_sub][1].replace("&", "&amp;"), "sub")
-                          for _i, _sub in enumerate(_std_present)])
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
@@ -2573,6 +2602,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           + '<div class="muted" style="font-size:11px; margin-top:8px;">Indicative installation / construction details showing the intended finished arrangement. Read with the manufacturer instructions and any attached INCA / manufacturer standard details.</div>'
                           + f'<div style="margin-top:14px;">{_install_details_block(fam_j)}</div>')
         spec_pages.append(_head("Product Datasheet &amp; Specification") + _measure_datasheet_block(m, fam_j, p))
+        # Standard construction-detail drawings live WITHIN their measure's section (not a separate appendix)
+        _det_sub = {"LOFT": "loft_details", "WIN": "glazing_details", "SOLAR": "solar_details", "ASHP": "ashp_details"}.get(fam_j)
+        if _det_sub and _det_sub in _std_present:
+            spec_pages.extend(_standard_detail_pages(_det_sub, _DETAIL_SETS[_det_sub][1], _std_excl.get(_det_sub)))
 
     # ---- Defects & remedial actions ----
     defects = list(p.get("defects") or [])
@@ -2877,11 +2910,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
-    _has_loft = "loft_details" in _std_present
-    loft_detail_pages = _standard_detail_pages("loft_details", _DETAIL_SETS["loft_details"][1], _std_excl.get("loft_details")) if _has_loft else []
-    glazing_detail_pages = _standard_detail_pages("glazing_details", _DETAIL_SETS["glazing_details"][1]) if "glazing_details" in _std_present else []
-    solar_detail_pages = _standard_detail_pages("solar_details", _DETAIL_SETS["solar_details"][1]) if "solar_details" in _std_present else []
-    ashp_detail_pages = _standard_detail_pages("ashp_details", _DETAIL_SETS["ashp_details"][1]) if "ashp_details" in _std_present else []
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
@@ -2891,7 +2919,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *scope_pages, matrix_page,
              measures_schedule_page, performance,
              standards_page, exclusions_page, commissioning_page,
-             *spec_pages, *photo_pages, drawings_page, *loft_detail_pages, *glazing_detail_pages, *solar_detail_pages, *ashp_detail_pages, *defects_pages, *items_pages,
+             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
     total = len(pages)
