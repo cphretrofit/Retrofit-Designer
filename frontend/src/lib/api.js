@@ -114,5 +114,6 @@ export const deleteUser = (uid) => api.delete(`/admin/users/${uid}`).then((r) =>
 
 export const loftPhotosRebatch = () => api.post("/admin/loft-photos/rebatch").then((r) => r.data);
 export const loftPhotosRebatchStatus = () => api.get("/admin/loft-photos/rebatch").then((r) => r.data);
+export const wipeDesigns = () => api.post("/admin/wipe-designs").then((r) => r.data);
 
 export const mediaUrl = (u) => (!u ? u : u.startsWith("http") ? u : `${BACKEND_URL}${u}`);

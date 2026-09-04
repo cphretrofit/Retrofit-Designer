@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getDashboard, getProjects } from "@/lib/api";
+import { getDashboard, getProjects, getClients } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
 import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList } from "lucide-react";
@@ -23,6 +23,7 @@ const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [allProjects, setAllProjects] = useState([]);
+  const [clients, setClients] = useState([]);
   const [q, setQ] = useState("");
   const [sf, setSf] = useState(null);
   const [pf, setPf] = useState(null);
@@ -30,6 +31,7 @@ export default function Dashboard() {
 
   useEffect(() => { getDashboard().then(setData).catch(() => {}); }, []);
   useEffect(() => { getProjects().then(setAllProjects).catch(() => {}); }, []);
+  useEffect(() => { getClients(false).then(setClients).catch(() => {}); }, []);
 
   const stats = data?.stats;
   const projects = data?.projects || [];
@@ -81,10 +83,45 @@ export default function Dashboard() {
 
         {/* KPI band */}
         <div className="grid grid-cols-2 lg:grid-cols-4 border border-border rounded-sm bg-card overflow-hidden">
-          <KPI label="Active Projects" value={stats?.activeProjects ?? "—"} icon={Layers} sub="Across 6 delivery partners" testid="kpi-active-projects" />
+          <KPI label="Active Projects" value={stats?.activeProjects ?? "—"} icon={Layers} sub="Live retrofit designs" testid="kpi-active-projects" />
           <KPI label="Ready for QA" value={stats?.readyForQA ?? "—"} icon={ShieldCheck} tone="var(--c-info)" sub="Awaiting coordinator review" testid="kpi-ready-qa" />
           <KPI label="Require Attention" value={stats?.requireAttention ?? "—"} icon={AlertTriangle} tone="var(--c-critical)" sub="Blocking items open" testid="kpi-attention" />
           <KPI label="Avg Design Time" value={stats?.avgDesignTime ?? "—"} unit="min" icon={Clock} sub="↓ from 2–3 hrs baseline" testid="kpi-design-time" />
+        </div>
+
+        {/* Clients — designs completed per client */}
+        <div className="mt-8 border border-border rounded-sm bg-card" data-testid="dashboard-clients">
+          <div className="flex items-center justify-between px-5 h-12 border-b border-border">
+            <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Clients · Designs Completed</span>
+            <button onClick={() => navigate("/clients")} data-testid="clients-view-all"
+              className="flex items-center gap-1.5 text-[12px] text-muted-foreground hover:text-foreground transition-colors font-medium">
+              View all <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+          </div>
+          {clients.length === 0 ? (
+            <div className="px-5 py-8 text-center text-[13px] text-muted-foreground" data-testid="clients-empty">No clients yet — add one from the Clients page.</div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {[...clients].sort((a, b) => (b.completedCount || 0) - (a.completedCount || 0) || (b.projectCount || 0) - (a.projectCount || 0)).map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => navigate(`/clients/${c.id}`)}
+                  data-testid={`dashboard-client-${c.id}`}
+                  className="text-left px-5 py-4 border-b border-r border-border/70 hover:bg-secondary/60 transition-colors group"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" strokeWidth={1.75} />
+                    <span className="text-[13.5px] font-medium truncate">{c.name}</span>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-1.5">
+                    <span className="font-display font-300 text-3xl leading-none tabular-nums" style={{ color: c.completedCount ? "var(--c-pass)" : undefined }} data-testid={`dashboard-client-completed-${c.id}`}>{c.completedCount || 0}</span>
+                    <span className="text-[12px] text-muted-foreground">completed</span>
+                    <span className="text-[12px] text-muted-foreground font-mono ml-auto">/ {c.projectCount || 0} total</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Project table */}
@@ -163,7 +200,7 @@ export default function Dashboard() {
           ))}
           {list.length === 0 && (
             <div className="px-5 py-12 text-center text-[13px] text-muted-foreground" data-testid="search-empty">
-              No properties match “{q}”.
+              {ql ? `No properties match “${q}”.` : "No designs yet — start a new retrofit design to get going."}
             </div>
           )}
         </div>

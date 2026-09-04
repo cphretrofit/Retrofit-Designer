@@ -176,5 +176,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - New admin-only **Maintenance** tab (`/maintenance`, `Maintenance.jsx` + shared `AdminTabs.jsx`) alongside Users. First card: **Re-sort loft survey photos** — one-click background job that re-scans every loft-measure project's full survey-photo set through the vision classifier (`_attach_sitenote_condition_photos` → `_classify_loft_photos`) and rebuilds the stored-items / eaves-felt / downlight cards by image content. Live progress bar + updated/kept/skipped/errors summary (floorplan-rebatch pattern).
 - Backend (server.py): `POST /api/admin/loft-photos/rebatch` + `GET` status (admin-gated via `require_admin`). Never-blank guardrail: snapshots each loft card's photos before running and restores them if the fresh pass returns nothing. Verified end-to-end: 13/13 projects, 6 updated, 7 skipped (no loft evidence to re-pick), 0 errors.
 
+## DONE — Fresh start wipe + dashboard client stats (Jun 2026)
+- **Wiped all designs**: deleted every project (18) and all project-linked documents (693) via `POST /api/admin/wipe-designs` (admin-gated). Clients directory and each client's datasheet/product library (e.g. Coldrush's 13 products) kept intact. Added an `app_meta.seed_done` sentinel + guarded `seed()` so demo data never repopulates on restart (verified: 0 projects after backend restart).
+- **Dashboard KPIs now real**: activeProjects/readyForQA/requireAttention/avgDesignTime computed from live data (were hardcoded 42/8/3/47).
+- **Dashboard Clients section**: new "Clients · Designs Completed" card on the Command Centre showing each active client with "N completed / M total" (completed = status approved or 100% completion), each card links to the client detail page. `GET /api/clients` now returns `completedCount` alongside `projectCount`.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.

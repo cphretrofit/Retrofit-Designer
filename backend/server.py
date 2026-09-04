@@ -568,6 +568,9 @@ def all_projects():
 
 
 async def seed():
+    # Once the workspace has been intentionally cleared (fresh start), never repopulate demo data.
+    if await db.app_meta.find_one({"_id": "seed_done"}):
+        return
     count = await db.projects.count_documents({})
     if count == 0:
         docs = []
@@ -577,6 +580,8 @@ async def seed():
             docs.append(d)
         await db.projects.insert_many(docs)
         logger.info("Seeded %d projects", len(docs))
+    await db.app_meta.update_one({"_id": "seed_done"},
+        {"$set": {"_id": "seed_done", "at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
 
 
 class FieldUpdate(BaseModel):
@@ -634,12 +639,13 @@ async def dashboard():
         p["partner"] = _resolve_partner(p)
     ready_qa = sum(1 for p in projects if p.get("status") == "ready_for_qa")
     attention = sum(1 for p in projects if p.get("status") == "require_attention")
+    times = [p.get("designTime") for p in projects if isinstance(p.get("designTime"), (int, float))]
     return {
         "stats": {
-            "activeProjects": 42,
-            "readyForQA": max(ready_qa, 8),
-            "requireAttention": max(attention, 3),
-            "avgDesignTime": 47,
+            "activeProjects": len(projects),
+            "readyForQA": ready_qa,
+            "requireAttention": attention,
+            "avgDesignTime": round(sum(times) / len(times)) if times else 0,
         },
         "projects": sorted(projects, key=lambda x: x.get("updatedAt", ""), reverse=True),
     }
@@ -714,12 +720,19 @@ async def list_clients(include_archived: bool = False):
     q = {} if include_archived else {"status": "active"}
     cs = await db.clients.find(q, {"_id": 0}).to_list(500)
     counts = {}
-    for pr in await db.projects.find({}, {"client": 1}).to_list(1000):
+    completed = {}
+    for pr in await db.projects.find({}, {"client": 1, "status": 1, "completion": 1}).to_list(2000):
         c = (pr.get("client") or "").strip()
-        if c:
-            counts[c.lower()] = counts.get(c.lower(), 0) + 1
+        if not c:
+            continue
+        key = c.lower()
+        counts[key] = counts.get(key, 0) + 1
+        if pr.get("status") == "approved" or (pr.get("completion") or 0) >= 100:
+            completed[key] = completed.get(key, 0) + 1
     for c in cs:
-        c["projectCount"] = counts.get((c.get("name") or "").strip().lower(), 0)
+        key = (c.get("name") or "").strip().lower()
+        c["projectCount"] = counts.get(key, 0)
+        c["completedCount"] = completed.get(key, 0)
         c["productCount"] = len(c.get("products") or [])
     return sorted(cs, key=lambda x: x.get("name", "").lower())
 
@@ -1689,8 +1702,23 @@ async def reseed():
     await db.documents.delete_many({})
     await db.import_jobs.delete_many({})
     await db.counters.delete_many({})
+    await db.app_meta.update_one({"_id": "seed_done"},
+        {"$set": {"_id": "seed_done", "at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
     await seed()
     return {"status": "reseeded"}
+
+
+@api_router.post("/admin/wipe-designs")
+async def wipe_designs(_: dict = Depends(require_admin)):
+    """Permanently delete all designs (projects) and their uploaded project documents.
+    Keeps clients and each client's datasheet/product library intact, and stops demo data reseeding."""
+    pr = await db.projects.delete_many({})
+    dr = await db.documents.delete_many({"project_id": {"$nin": [None]}})
+    await db.import_jobs.delete_many({})
+    await db.counters.delete_many({})
+    await db.app_meta.update_one({"_id": "seed_done"},
+        {"$set": {"_id": "seed_done", "at": datetime.now(timezone.utc).isoformat()}}, upsert=True)
+    return {"status": "wiped", "projectsDeleted": pr.deleted_count, "documentsDeleted": dr.deleted_count}
 
 
 # ---------------- Object storage ----------------
