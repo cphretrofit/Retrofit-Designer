@@ -1170,6 +1170,15 @@ def _norm(s):
     return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
+_GENERIC_SYSTEMS = ("mineral wool quilt", "mineral wool + reinforced render", "wood fibre + lime plaster",
+                    "pvc-u argon", "argon-filled double glazing", "top-up to 300mm", "reinforced render system")
+
+
+def _is_generic_system(s):
+    s = (s or "").strip().lower()
+    return (not s) or any(g in s for g in _GENERIC_SYSTEMS)
+
+
 def _assign_products(project: dict, products: list, source: str = "datasheet"):
     # Drop previously auto-assigned rows of this source so re-applying is idempotent; keep manual rows.
     for m in project.get("measures") or []:
@@ -1205,6 +1214,12 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
                     existing.append(rec)
                     man_keys.add(k)
             m["products"] = existing
+            # Supersede a generic default system with the actual specified product name (Saffron etc.)
+            if existing and _is_generic_system(m.get("system")):
+                _f = existing[0]
+                _label = " ".join(x for x in [(_f.get("manufacturer") or "").strip(), (_f.get("product") or "").strip()] if x)
+                if _label:
+                    m["system"] = _label
             matched.add(c)
     leftover = []
     for code, recs in by_code.items():

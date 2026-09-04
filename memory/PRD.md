@@ -192,6 +192,13 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Full appendix (no user-facing warning/slim)**: per user preference, handled internally — appendix caps raised so the complete document is produced (`_collect_source_docs` 24→60 with larger queries; `_merge_appendix` page budget 150→500, per-doc 80→150). Existing image recompression + deflate keep the file size sensible.
 - ⚠️ Geo pre-cache and full-appendix not E2E-verified (all projects wiped this session) — validate on next real import. Frontend shortcuts verified via screenshot (5 dashboard + 5 Clients buttons); backend syntax/imports/postcode parser verified.
 
+## DONE — Cover photo, floor-plan annotations, project datasheets, supersede naming (Jun 2026)
+- **Cover / main photo**: pack hero now uses (1) a photo the user flags as main, else (2) the FIRST survey photo (RdSAP external-elevation convention), else keyword/first fallback (`pdf_builder._render_pack_html`). Workspace Photos section has a "Set main" button + "Main" badge (`DesignWorkspace.jsx`, persisted via existing `PUT /projects/{id}/photos` with `isMain`).
+- **Floor-plan loft coverage**: insulated ceiling area now drawn as 10% highlighter fill + dashed outline + diagonal hatch per room (was legend-only). Added **"Trickle Vents Removed (TVR)"** legend entry + red "TVR" tags on windows when detected (`cad_floorplan.py`, `trickleVentsRemoved` flag or notes mention). Unit-render verified.
+- **Project datasheets**: added a **Product Datasheets** upload slot in the import flow (`ImportProject.jsx`) and an **"Add datasheets"** upload in the workspace Evidence tab (uses existing `POST /projects/{id}/documents` + `/datasheets/parse`). Always PDF; stored on the project.
+- **Supersede naming**: when a datasheet/product is assigned to a measure, a *generic default* system (e.g. "Mineral wool quilt — top-up to 300mm") is replaced with the actual specified product (e.g. "Superglass Multi-Roll 44") — `_assign_products` + `_is_generic_system` in ai_extractor. Custom/edited systems are left untouched. Unit-verified.
+- ⚠️ **NOT done — floor-plan tracing precision** ("computed plan that never wanders from the provided plan"): this is a deep AI room-tracing improvement, deferred as a dedicated next task. Cover photo + workspace flows couldn't be E2E-tested (projects wiped) — validate on next import.
+
 ## Note — Client datasheet upload already exists
 Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.
 

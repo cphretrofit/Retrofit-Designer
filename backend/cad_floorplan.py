@@ -407,10 +407,17 @@ def _render_single(d: dict):
     if loft_on:
         for r in rooms:
             rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
-            parts.append(_hatch_rect(mx(rx), my(ry), rw * S, rh * S))
+            X, Y, WW, HH = mx(rx), my(ry), rw * S, rh * S
+            # insulated ceiling coverage: 10% highlighter fill + dashed outline + diagonal hatch
+            parts.append(f'<rect x="{X:.1f}" y="{Y:.1f}" width="{WW:.1f}" height="{HH:.1f}" fill="#B45309" fill-opacity="0.10" stroke="#B45309" stroke-width="1.2" stroke-dasharray="6 4" stroke-opacity="0.55"/>')
+            parts.append(_hatch_rect(X, Y, WW, HH, gap=18, opacity=0.32))
         _txt = " ".join(str(x) for x in (d.get("loftCoverage"), loft_note) if x).lower()
         _roof = "warm roof" if ("warm" in _txt or "room" in _txt or "rir" in _txt) else "cold roof"
         legend.append(f"Loft insulation \u2014 full ceiling coverage{_loft_depth} ({_roof})")
+    _alltxt = " ".join(str(x) for x in ((d.get("notes") or []) + list(legend) + (d.get("measuresKey") or []))).lower()
+    tvr = bool(d.get("trickleVentsRemoved")) or ("trickle" in _alltxt and ("remov" in _alltxt or "delet" in _alltxt or "block" in _alltxt))
+    if tvr:
+        legend.append("Trickle vents removed (TVR) \u2014 tagged at affected windows")
     # interior walls
     for (x1, y1, x2, y2, ext) in wall_segs:
         if ext:
@@ -446,26 +453,27 @@ def _render_single(d: dict):
         if wc:
             parts.append(_circle_label(ccx, ccy + rhpx * 0.24, wc, r=11))
 
-    # windows: gap rectangle on wall + circled label just outside
+    # windows: gap rectangle on wall + circled label just outside (+ optional TVR tag)
     for wdw in (d.get("windows") or []):
         wall = (wdw.get("wall") or "").lower()
         lbl = wdw.get("label") or ""
         if wall == "top":
-            x = mx(_num(wdw.get("x"))); y = my(0)
+            x = mx(_num(wdw.get("x"))); y = my(0); lx, ly, tdy = x, y - 26, -18
             parts.append(f'<rect x="{x-16:.1f}" y="{y-4:.1f}" width="32" height="8" fill="#fff" stroke="#111" stroke-width="1.4"/>')
-            parts.append(_circle_label(x, y - 26, lbl, r=11))
         elif wall == "bottom":
-            x = mx(_num(wdw.get("x"))); y = my(H)
+            x = mx(_num(wdw.get("x"))); y = my(H); lx, ly, tdy = x, y + 26, 15
             parts.append(f'<rect x="{x-16:.1f}" y="{y-4:.1f}" width="32" height="8" fill="#fff" stroke="#111" stroke-width="1.4"/>')
-            parts.append(_circle_label(x, y + 26, lbl, r=11))
         elif wall == "left":
-            x = mx(0); y = my(_num(wdw.get("y")))
+            x = mx(0); y = my(_num(wdw.get("y"))); lx, ly, tdy = x - 26, y, 15
             parts.append(f'<rect x="{x-4:.1f}" y="{y-16:.1f}" width="8" height="32" fill="#fff" stroke="#111" stroke-width="1.4"/>')
-            parts.append(_circle_label(x - 26, y, lbl, r=11))
         elif wall == "right":
-            x = mx(W); y = my(_num(wdw.get("y")))
+            x = mx(W); y = my(_num(wdw.get("y"))); lx, ly, tdy = x + 26, y, 15
             parts.append(f'<rect x="{x-4:.1f}" y="{y-16:.1f}" width="8" height="32" fill="#fff" stroke="#111" stroke-width="1.4"/>')
-            parts.append(_circle_label(x + 26, y, lbl, r=11))
+        else:
+            continue
+        parts.append(_circle_label(lx, ly, lbl, r=11))
+        if tvr:
+            parts.append(f'<text x="{lx:.1f}" y="{ly+tdy:.1f}" font-size="8.5" font-weight="bold" text-anchor="middle" fill="#DC2626" font-family="Helvetica,Arial,sans-serif">TVR</text>')
 
     # doors: quarter-circle swing
     for dr in (d.get("doors") or []):

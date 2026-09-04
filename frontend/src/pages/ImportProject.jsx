@@ -15,6 +15,7 @@ const SLOTS = [
   { type: "Technical Survey", label: "Technical / Heat Loss Survey", hint: "Technical & ASHP / heat-loss surveys, floor plans, emitters, site measurements" },
   { type: "Scope of Works", label: "Scope of Works", hint: "Proposed measures, target U-values, strategy" },
   { type: "Job Card", label: "Job Card", hint: "Measures, SAP, per-room ventilation" },
+  { type: "Datasheet", label: "Product Datasheets", hint: "Manufacturer datasheets / BBA certs for this job (PDF) — stored on the design and parsed into the spec" },
 ];
 
 const STAGES = [
@@ -224,9 +225,9 @@ export default function ImportProject() {
               <div className="text-[11.5px] text-muted-foreground mt-0.5">
                 {client
                   ? (selClient?.productCount
-                      ? `${selClient.productCount} products in ${client}’s library — the AI will select the ones your job card and scope require, automatically.`
-                      : `${client} has no datasheets yet. Add them from the Clients page, then they’ll auto-apply to every ${client} job.`)
-                  : "Datasheets are pulled from the selected client’s library based on your job card — pick a client above."}
+                      ? `${selClient.productCount} products in ${client}’s library will auto-apply. You can also attach job-specific datasheets in the Product Datasheets box above — they’re stored on this design and supersede the defaults.`
+                      : `${client} has no saved library yet. Attach datasheets in the Product Datasheets box above, or add them from the Clients page to reuse on every ${client} job.`)
+                  : "Datasheets are pulled from the selected client’s library and any you attach above — pick a client above."}
               </div>
             </div>
 

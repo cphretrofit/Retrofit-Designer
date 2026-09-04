@@ -2985,11 +2985,22 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                                     "datasheet", "scope of works", "job card", "bar chart"))
     _real = [ph for ph in photo_uris if not _is_doc_img(ph)]
     hero_uri = None
-    for ph in _real:
-        t = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
-        if any(k in t for k in ("front", "elevation", "frontage", "street", "property", "dwelling", "facade", "exterior")):
-            hero_uri = ph.get("data")
-            break
+    # 1) explicit manual override — a photo the user flagged as the main / cover image
+    _main = next((ph for ph in photo_uris if (ph.get("isMain") or ph.get("main")) and ph.get("data")), None)
+    if _main:
+        hero_uri = _main["data"]
+    # 2) RdSAP convention — the FIRST survey photo is almost always the external / front elevation
+    if not hero_uri and _real and photo_uris:
+        _first = photo_uris[0]
+        if not _is_doc_img(_first) and _first.get("data"):
+            hero_uri = _first["data"]
+    # 3) keyword fallback
+    if not hero_uri:
+        for ph in _real:
+            t = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
+            if any(k in t for k in ("front", "elevation", "frontage", "street", "property", "dwelling", "facade", "exterior")):
+                hero_uri = ph.get("data")
+                break
     if not hero_uri and _real:
         hero_uri = _real[0].get("data")
     hero_is_property = hero_uri is not None

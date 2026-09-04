@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, updateField, updatePhotos, mediaUrl, applyClientLibrary, setReference } from "@/lib/api";
-import { ChevronUp, ChevronDown } from "lucide-react";
+import { getProject, updateField, updatePhotos, mediaUrl, applyClientLibrary, setReference, addDocuments, parseDatasheets } from "@/lib/api";
+import { ChevronUp, ChevronDown, Star, Upload } from "lucide-react";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
 import { toast } from "sonner";
@@ -46,6 +46,19 @@ export default function DesignWorkspace() {
     setDsBusy(true);
     try { const r = await applyClientLibrary(id); await load(); toast.success(`Applied ${r.count ?? 0} product(s) from the client library`); }
     catch (e) { toast.error("Could not apply client library", { description: e?.response?.data?.detail }); }
+    finally { setDsBusy(false); }
+  };
+
+  const uploadDs = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setDsBusy(true);
+    try {
+      await addDocuments(id, files, files.map(() => "Datasheet"));
+      const r = await parseDatasheets(id);
+      await load();
+      toast.success(`Added ${files.length} datasheet(s) — ${r.count ?? 0} product(s) parsed`);
+    } catch (e) { toast.error("Could not add datasheets", { description: e?.response?.data?.detail }); }
     finally { setDsBusy(false); }
   };
 
@@ -158,6 +171,7 @@ export default function DesignWorkspace() {
         const move = (i, d) => { const n = structuredClone(photos); const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; savePhotos(n); };
         const toggle = (i) => { const n = structuredClone(photos); n[i].included = n[i].included === false; savePhotos(n); };
         const setAll = (inc) => { const n = structuredClone(photos); n.forEach((x) => { x.included = inc; }); savePhotos(n); };
+        const setMain = (i) => { const n = structuredClone(photos); n.forEach((x, j) => { x.isMain = j === i; }); savePhotos(n); };
         const reorder = (from, to) => {
           if (from == null || to == null || from === to) return;
           const n = structuredClone(photos);
@@ -169,7 +183,7 @@ export default function DesignWorkspace() {
         return (
           <div className="anim-in">
             <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
-              <div className="text-[12px] text-muted-foreground" data-testid="photo-curation-summary">{incCount} of {photos.length} photos included in the Design Pack — drag to reorder, toggle to include/exclude.</div>
+              <div className="text-[12px] text-muted-foreground" data-testid="photo-curation-summary">{incCount} of {photos.length} photos included in the Design Pack — drag to reorder, toggle to include/exclude. The photo marked <span className="text-foreground font-medium">Main</span> is used on the pack cover.</div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setAll(true)} data-testid="photo-include-all" className="text-[11px] px-2.5 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Include all</button>
                 <button onClick={() => setAll(false)} data-testid="photo-exclude-all" className="text-[11px] px-2.5 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Exclude all</button>
@@ -191,6 +205,11 @@ export default function DesignWorkspace() {
                   >
                     <div className="aspect-[4/3] overflow-hidden relative">
                       <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover pointer-events-none" />
+                      {ph.isMain && (
+                        <div className="absolute top-2 left-2 flex items-center gap-1 bg-primary text-primary-foreground text-[9.5px] font-medium uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-sm" data-testid={`photo-main-badge-${i}`}>
+                          <Star className="h-3 w-3 fill-current" strokeWidth={0} /> Main
+                        </div>
+                      )}
                       <div className="absolute top-2 right-2 flex gap-1">
                         <button onClick={() => move(i, -1)} data-testid={`photo-up-${i}`} className="h-6 w-6 flex items-center justify-center bg-background/90 border border-border rounded-sm hover:bg-background"><ChevronUp className="h-3.5 w-3.5" /></button>
                         <button onClick={() => move(i, 1)} data-testid={`photo-down-${i}`} className="h-6 w-6 flex items-center justify-center bg-background/90 border border-border rounded-sm hover:bg-background"><ChevronDown className="h-3.5 w-3.5" /></button>
@@ -199,7 +218,13 @@ export default function DesignWorkspace() {
                     <figcaption className="p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 min-w-0"><span className="font-mono text-[10px] text-muted-foreground">FIG {ph.fig}</span><span className="text-[13px] font-medium truncate">{ph.caption}</span></div>
-                        <button onClick={() => toggle(i)} data-testid={`photo-toggle-${i}`} className={cn("text-[11px] px-2 h-6 rounded-sm border shrink-0", inc ? "border-border text-muted-foreground hover:bg-secondary" : "bg-primary text-primary-foreground border-primary")}>{inc ? "Exclude" : "Include"}</button>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button onClick={() => setMain(i)} disabled={ph.isMain} data-testid={`photo-set-main-${i}`} title="Use as pack cover photo"
+                            className={cn("flex items-center gap-1 text-[11px] px-2 h-6 rounded-sm border", ph.isMain ? "border-primary text-primary bg-primary/10 cursor-default" : "border-border text-muted-foreground hover:bg-secondary")}>
+                            <Star className={cn("h-3 w-3", ph.isMain && "fill-current")} strokeWidth={1.75} /> {ph.isMain ? "Main" : "Set main"}
+                          </button>
+                          <button onClick={() => toggle(i)} data-testid={`photo-toggle-${i}`} className={cn("text-[11px] px-2 h-6 rounded-sm border", inc ? "border-border text-muted-foreground hover:bg-secondary" : "bg-primary text-primary-foreground border-primary")}>{inc ? "Exclude" : "Include"}</button>
+                        </div>
                       </div>
                       <p className="text-[12px] text-muted-foreground mt-1 leading-snug">{ph.observation}</p>
                     </figcaption>
@@ -370,11 +395,18 @@ export default function DesignWorkspace() {
         return (
           <div className="anim-in space-y-4">
             <div className="flex items-center justify-between gap-4">
-              <div className="text-[12px] text-muted-foreground">Surveys &amp; evidence for this job. Product datasheets are managed per client — use “Apply client library” to pull the right products into this design.</div>
-              <button onClick={parseDs} disabled={dsBusy} data-testid="parse-datasheets-btn"
-                className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0">
-                {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />} Apply client library
-              </button>
+              <div className="text-[12px] text-muted-foreground">Surveys &amp; evidence for this job. Add job-specific product datasheets (PDF) below — they’re stored on this design and parsed into the spec — or use “Apply client library” to pull the client’s saved products.</div>
+              <div className="flex items-center gap-2 shrink-0">
+                <input id="ds-upload" type="file" multiple accept=".pdf" className="hidden" data-testid="datasheet-upload-input" onChange={(e) => { uploadDs(e.target.files); e.target.value = ""; }} />
+                <label htmlFor="ds-upload" data-testid="datasheet-upload-btn"
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer">
+                  <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Add datasheets
+                </label>
+                <button onClick={parseDs} disabled={dsBusy} data-testid="parse-datasheets-btn"
+                  className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0">
+                  {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />} Apply client library
+                </button>
+              </div>
             </div>
             <DocumentsList projectId={id} />
           </div>
