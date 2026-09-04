@@ -1,0 +1,16 @@
+{
+  "short_name": "CPH Retrofit",
+  "name": "CPH Retrofit — Design Platform",
+  "description": "Internal PAS 2035 retrofit design and audit tool by CPH Retrofit.",
+  "icons": [
+    { "src": "/favicon.ico", "sizes": "16x16 32x32 48x48", "type": "image/x-icon" },
+    { "src": "/favicon-32x32.png", "type": "image/png", "sizes": "32x32" },
+    { "src": "/apple-touch-icon.png", "type": "image/png", "sizes": "180x180" },
+    { "src": "/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#2e9e4f",
+  "background_color": "#0b0f14"
+}
