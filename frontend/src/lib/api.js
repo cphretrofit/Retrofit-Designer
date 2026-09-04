@@ -112,4 +112,7 @@ export const resetUserPassword = (uid, new_password) =>
   api.post(`/admin/users/${uid}/reset-password`, { new_password }).then((r) => r.data);
 export const deleteUser = (uid) => api.delete(`/admin/users/${uid}`).then((r) => r.data);
 
+export const loftPhotosRebatch = () => api.post("/admin/loft-photos/rebatch").then((r) => r.data);
+export const loftPhotosRebatchStatus = () => api.get("/admin/loft-photos/rebatch").then((r) => r.data);
+
 export const mediaUrl = (u) => (!u ? u : u.startsWith("http") ? u : `${BACKEND_URL}${u}`);

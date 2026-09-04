@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { TopBar } from "@/components/Shell";
 import { useAuth, formatApiError } from "@/context/AuthContext";
+import { AdminTabs } from "@/components/AdminTabs";
 import { listUsers, createUser, updateUser, resetUserPassword, deleteUser } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Loader2, Pencil, KeyRound, Trash2, ShieldCheck, User as UserIcon, X } from "lucide-react";
@@ -72,6 +73,7 @@ export default function UserManagement() {
     <div className="min-h-screen bg-background text-foreground">
       <TopBar crumbs={[{ label: "Command Centre", to: "/" }, { label: "User Management" }]} />
       <main className="max-w-5xl mx-auto px-6 py-10">
+        <AdminTabs />
         <div className="flex items-end justify-between">
           <div>
             <h1 className="font-display font-300 text-4xl tracking-tight">User Management</h1>

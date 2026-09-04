@@ -1130,6 +1130,84 @@ async def solar_name_backfill_status():
     return _solar_backfill
 
 
+_loft_photo_batch = {"running": False, "total": 0, "done": 0, "updated": 0, "skipped": 0, "kept": 0, "errors": 0, "startedAt": None, "finishedAt": None}
+
+_LOFT_PHOTO_KEYS = ("loft_storage", "loft_crossflow", "downlights")
+
+
+def _is_loft_project(p):
+    for m in (p.get("measures") or []):
+        code = (m.get("code") or "").upper()
+        if code in ("LOFT", "RIR") or "loft" in (m.get("name") or "").lower():
+            return True
+    return False
+
+
+def _loft_photo_snapshot(sc):
+    """loft key -> list of curated photo urls (for the never-blank guardrail)."""
+    out = {}
+    for e in (sc.get("evidence") or []):
+        k = e.get("key")
+        if k in _LOFT_PHOTO_KEYS:
+            urls = [ph.get("url") for ph in (e.get("photos") or []) if ph.get("url")]
+            if not urls and e.get("url"):
+                urls = [e.get("url")]
+            out[k] = urls
+    return out
+
+
+async def _run_loft_photo_rebatch_bg():
+    from ai_extractor import _attach_sitenote_condition_photos
+    try:
+        projects = await db.projects.find({}, {"_id": 0, "id": 1, "measures": 1}).to_list(3000)
+        ids = [p["id"] for p in projects if _is_loft_project(p)]
+        _loft_photo_batch.update({"total": len(ids), "done": 0, "updated": 0, "skipped": 0, "kept": 0, "errors": 0})
+        for pid in ids:
+            try:
+                proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+                before = _loft_photo_snapshot((proj.get("property") or {}).get("siteConditions") or {})
+                changed = await _attach_sitenote_condition_photos(pid, proj)
+                sc_after = (proj.get("property") or {}).get("siteConditions") or {}
+                # Guardrail: never blank a loft card that previously had photos.
+                restored = False
+                for e in (sc_after.get("evidence") or []):
+                    k = e.get("key")
+                    if k in before and before[k] and not (e.get("photos") or e.get("url")):
+                        e["photos"] = [{"url": u} for u in before[k]]
+                        e["url"] = before[k][0]
+                        restored = True
+                if changed:
+                    await db.projects.update_one({"id": pid}, {"$set": {"property.siteConditions": sc_after}})
+                    _loft_photo_batch["updated"] += 1
+                elif restored:
+                    await db.projects.update_one({"id": pid}, {"$set": {"property.siteConditions": sc_after}})
+                    _loft_photo_batch["kept"] += 1
+                else:
+                    _loft_photo_batch["skipped"] += 1
+            except Exception:
+                logger.exception("loft photo rebatch failed for %s", pid)
+                _loft_photo_batch["errors"] += 1
+            finally:
+                _loft_photo_batch["done"] += 1
+    finally:
+        _loft_photo_batch["running"] = False
+        _loft_photo_batch["finishedAt"] = datetime.now(timezone.utc).isoformat()
+
+
+@admin_router.post("/loft-photos/rebatch")
+async def loft_photos_rebatch(_: dict = Depends(require_admin)):
+    if _loft_photo_batch["running"]:
+        return {"status": "already-running", **_loft_photo_batch}
+    _loft_photo_batch.update({"running": True, "startedAt": datetime.now(timezone.utc).isoformat(), "finishedAt": None})
+    asyncio.create_task(_run_loft_photo_rebatch_bg())
+    return {"status": "started", **_loft_photo_batch}
+
+
+@admin_router.get("/loft-photos/rebatch")
+async def loft_photos_rebatch_status(_: dict = Depends(require_admin)):
+    return _loft_photo_batch
+
+
 class DrawingSignoffsIn(BaseModel):
     drawingSignoffs: dict = {}
 
