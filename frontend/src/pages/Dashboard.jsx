@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDashboard, getProjects, getClients } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -103,13 +103,22 @@ export default function Dashboard() {
           ) : (
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {[...clients].sort((a, b) => (b.completedCount || 0) - (a.completedCount || 0) || (b.projectCount || 0) - (a.projectCount || 0)).map((c) => (
-                <button
+                <div
                   key={c.id}
+                  role="button"
                   onClick={() => navigate(`/clients/${c.id}`)}
                   data-testid={`dashboard-client-${c.id}`}
-                  className="text-left px-5 py-4 border-b border-r border-border/70 hover:bg-secondary/60 transition-colors group"
+                  className="relative text-left px-5 py-4 border-b border-r border-border/70 hover:bg-secondary/60 transition-colors group cursor-pointer"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); navigate(`/clients/${c.id}?upload=1`); }}
+                    data-testid={`dashboard-client-upload-${c.id}`}
+                    title="Upload datasheets"
+                    className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-foreground"
+                  >
+                    <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />
+                  </button>
+                  <div className="flex items-center gap-2 min-w-0 pr-6">
                     <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" strokeWidth={1.75} />
                     <span className="text-[13.5px] font-medium truncate">{c.name}</span>
                   </div>
@@ -118,7 +127,7 @@ export default function Dashboard() {
                     <span className="text-[12px] text-muted-foreground">completed</span>
                     <span className="text-[12px] text-muted-foreground font-mono ml-auto">/ {c.projectCount || 0} total</span>
                   </div>
-                </button>
+                </div>
               ))}
             </div>
           )}

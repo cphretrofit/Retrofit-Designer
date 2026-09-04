@@ -3085,13 +3085,13 @@ async def _collect_source_docs(project_id: str):
     try:
         recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
                 "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Solar", "Scope of Works",
-                                     "Assessment", "Heat Pump Report", "Report", "Certificate"]}}, {"_id": 0}).to_list(20)
+                                     "Assessment", "Heat Pump Report", "Report", "Certificate"]}}, {"_id": 0}).to_list(60)
         proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1})
         cname = (proj or {}).get("client")
         if cname:
             cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(cname)}$", "$options": "i"}})
             if cl:
-                recs += await db.documents.find({"client_id": cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(20)
+                recs += await db.documents.find({"client_id": cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(40)
         _metas, _tasks = [], []
         for d in recs:
             sp = d.get("storage_path")
@@ -3113,7 +3113,7 @@ async def _collect_source_docs(project_id: str):
         logger.warning("collect source docs failed: %s", e)
     # Bind datasheets first so they are never dropped by the cap
     out.sort(key=lambda d: 0 if (d.get("type") == "Datasheet") else 1)
-    return out[:24]
+    return out[:60]
 
 
 def _merge_appendix(pdf_bytes, docs):
@@ -3155,7 +3155,7 @@ def _merge_appendix(pdf_bytes, docs):
             y += 32
         target = {}
         for d in docs:
-            if added > 150:
+            if added > 500:
                 break
             name, data, ct = d["name"], d["data"], (d.get("ct") or "")
             tgt = main.page_count  # divider is created at this page index
@@ -3163,7 +3163,7 @@ def _merge_appendix(pdf_bytes, docs):
                 try:
                     src = pymupdf.open(stream=data, filetype="pdf")
                     divider(name, f"Source Document \u00b7 {d.get('type', '')}")
-                    n = min(src.page_count, 80)
+                    n = min(src.page_count, 150)
                     main.insert_pdf(src, from_page=0, to_page=n - 1)
                     added += n
                     src.close()

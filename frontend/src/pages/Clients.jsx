@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getClients, createClient, updateClient } from "@/lib/api";
 import { TopBar } from "@/components/Shell";
 import { toast } from "sonner";
-import { Plus, Archive, ArchiveRestore, Building2, Loader2, ChevronRight } from "lucide-react";
+import { Plus, Archive, ArchiveRestore, Building2, Loader2, ChevronRight, Upload } from "lucide-react";
 
 export default function Clients() {
   const [clients, setClients] = useState([]);
@@ -71,6 +71,10 @@ export default function Clients() {
                     <div className="text-[11.5px] text-muted-foreground font-mono mt-0.5">{c.projectCount || 0} project{c.projectCount === 1 ? "" : "s"} · {c.productCount || 0} products in library</div>
                   </div>
                   <div className="flex items-center gap-2">
+                    <button onClick={(e) => { e.stopPropagation(); navigate(`/clients/${c.id}?upload=1`); }} data-testid={`client-upload-${c.id}`}
+                      className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12px] text-muted-foreground hover:bg-secondary transition-colors">
+                      <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Datasheets
+                    </button>
                     <button onClick={(e) => { e.stopPropagation(); setStatus(c, "archived"); }} data-testid={`client-archive-${c.id}`}
                       className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12px] text-muted-foreground hover:bg-secondary transition-colors">
                       <Archive className="h-3.5 w-3.5" strokeWidth={1.75} /> Archive

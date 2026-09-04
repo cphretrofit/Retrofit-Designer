@@ -1811,6 +1811,9 @@ async def run_import_job(job_id: str):
             project["jobRef"] = job["reference"]
         if (not project.get("installer") or project.get("installer") == "—") and project.get("client"):
             project["installer"] = project["client"]
+        _pc = _extract_postcode(f"{ai.get('address', '')} {ai.get('town', '')} {ai.get('name', '')}")
+        if _pc:
+            project.setdefault("property", {})["postcode"] = _pc
 
         # Enrichment steps are independent AI round-trips — run them concurrently
         # (was sequential, which is what pushed large 15-doc imports past the timeout).
@@ -1876,9 +1879,77 @@ async def run_import_job(job_id: str):
         await db.projects.insert_one(doc)
         await db.documents.update_many({"id": {"$in": doc_ids}}, {"$set": {"project_id": project["id"]}})
         await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "project_id": project["id"]}})
+        try:
+            asyncio.create_task(_precache_geo(project["id"]))
+        except Exception:
+            pass
     except Exception as e:
         logger.exception("AI import job failed")
         await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)}})
+
+
+_UK_PC_RE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?)\s*(\d[A-Z]{2})\b", re.I)
+
+
+def _extract_postcode(text):
+    m = _UK_PC_RE.search((text or "").upper())
+    return f"{m.group(1)} {m.group(2)}" if m else ""
+
+
+async def _precache_geo(project_id):
+    """After an import, resolve the property location and pre-fetch heritage designations,
+    OS/aerial maps and Google Solar imagery, caching them on the project so the FIRST pack
+    build is instant (no live external calls during rendering). Best-effort, background."""
+    try:
+        from pdf_builder import (_heritage_lookup_sync, _heritage_statement,
+                                 _static_map_data_uri, _solar_lookup_sync, _pv_from_solar, _apply_pv_autofill)
+    except Exception:
+        return
+    proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not proj:
+        return
+    pc = (proj.get("property") or {}).get("postcode") or proj.get("postcode")
+    h = proj.get("heritage") or {}
+    lat, lon = h.get("latitude"), h.get("longitude")
+    if (lat is None or lon is None) and pc:
+        try:
+            h = await asyncio.to_thread(_heritage_lookup_sync, pc) or h
+            if h and not h.get("error"):
+                h.update(_heritage_statement(h))
+            lat, lon = h.get("latitude"), h.get("longitude")
+            await db.projects.update_one({"id": project_id}, {"$set": {"heritage": h}})
+        except Exception as e:
+            logger.warning("precache heritage failed: %s", e)
+    if lat is None or lon is None:
+        return
+    try:
+        need_solar = not (proj.get("solar") or {}).get("aerialImage")
+        tasks = [asyncio.to_thread(_static_map_data_uri, lat, lon, 16, "osm"),
+                 asyncio.to_thread(_static_map_data_uri, lat, lon, 18, "aerial")]
+        if need_solar:
+            tasks.append(asyncio.to_thread(_solar_lookup_sync, lat, lon))
+        res = await asyncio.gather(*tasks, return_exceptions=True)
+        md = res[0] if not isinstance(res[0], Exception) else None
+        ad = res[1] if not isinstance(res[1], Exception) else None
+        if md:
+            h["_map_data"] = md
+        if ad:
+            h["_aerial_data"] = ad
+        await db.projects.update_one({"id": project_id}, {"$set": {"heritage": h}})
+        if need_solar and len(res) > 2 and not isinstance(res[2], Exception) and res[2] and res[2].get("aerialImage"):
+            s = res[2]
+            pv = _pv_from_solar(s)
+            if pv:
+                s["recommendedPv"] = pv
+            await db.projects.update_one({"id": project_id}, {"$set": {"solar": s}})
+            proj["solar"] = s
+            try:
+                await _apply_pv_autofill(project_id, proj, s)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("precache maps/solar failed: %s", e)
+
 
 
 def extract_jobcard_pv_kwp(text):

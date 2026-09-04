@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { getClient, uploadClientDatasheets, deleteClientDatasheet } from "@/lib/api";
 import { TopBar } from "@/components/Shell";
 import { toast } from "sonner";
@@ -14,12 +14,22 @@ const MEASURE_LABELS = {
 
 export default function ClientDetail() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [client, setClient] = useState(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
 
   const load = () => getClient(id).then(setClient).catch(() => {});
   useEffect(() => { load(); }, [id]);
+
+  // Deep-link from a client card ("Upload datasheets") opens the file picker straight away.
+  useEffect(() => {
+    if (searchParams.get("upload") === "1") {
+      const t = setTimeout(() => fileRef.current?.click(), 400);
+      setSearchParams({}, { replace: true });
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   const onUpload = async (fileList) => {
     const files = Array.from(fileList || []);
