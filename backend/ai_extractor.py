@@ -487,9 +487,10 @@ async def _classify_loft_photos(labels, limit=18):
     prompt = (f"You are shown {len(imgs)} survey photographs (FIG 1..{len(imgs)}) from a loft / retrofit survey:\n{listing}\n\n"
               "Classify EACH photo by what it MAINLY shows, using EXACTLY one of these categories:\n"
               "- stored_items: inside the loft space showing stored belongings, boxes, boarding / boarded areas or clutter on the loft floor\n"
-              "- eaves_felt: the eaves, roofing felt, sarking or breather membrane at the edge/slope of the loft (used to check for lap vents / cross-flow ventilation)\n"
+              "- eaves_felt: the eaves / roof slope where roofing FELT, bitumen sarking or breather membrane is visible between or draped over the rafters/joists (used to confirm the need for lap vents / cross-flow ventilation). Continuous felt with no ventilation gap = cross-flow ventilation needed.\n"
+              "- insulation_depth: loft insulation being MEASURED — a tape measure, ruler or rule standing in / laid across the insulation to show its depth or thickness. Choose this whenever a measuring tape is visible in the loft.\n"
               "- downlight: a recessed ceiling downlight / spotlight, seen from inside the loft (penetration) or from the room below\n"
-              "- loft_general: general loft insulation / loft interior with none of the above specifically visible\n"
+              "- loft_general: general loft insulation / loft interior (insulation quilt across the joists) with none of the above specifically visible\n"
               "- other: an external elevation, the loft hatch itself, a hot-water cylinder / cold-water tank, or anything NOT inside the loft space\n\n"
               'Return ONLY a JSON object mapping every FIG number to its category, e.g. {"1":"stored_items","2":"other","3":"eaves_felt"}.')
     try:
@@ -520,7 +521,11 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         return e.get("present") is True or sc.get(k) is True
     # Loft photos in the RdSAP site notes are authoritative — override any vision FIG (which often
     # mis-picks an external elevation or the hatch) and re-pick these loft conditions from the notes.
-    AUTH = {"loft_storage", "loft_crossflow", "downlights"}
+    AUTH = {"loft_storage", "loft_crossflow", "downlights", "loft_insulation"}
+    # Ensure a loft-insulation (depth) card exists so measuring-tape / depth photos are captured, not dropped.
+    if any((m.get("code") or "").upper() in ("LOFT", "RIR") or "loft" in (m.get("name") or "").lower() for m in (proj.get("measures") or [])):
+        if not any(e.get("key") == "loft_insulation" for e in ev):
+            ev.append({"key": "loft_insulation", "label": "Loft insulation (depth & coverage)", "present": True})
     need = [e for e in ev if e.get("key") in AUTH or (_positive(e) and not e.get("url"))]
     if not need:
         return 0
@@ -542,11 +547,16 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         labels.extend(await asyncio.to_thread(extract_sitenote_photo_labels, data))
     if not labels:
         return 0
-    loft_keys = {"loft_storage", "loft_crossflow", "downlights"}
-    CAT_FOR = {"loft_storage": "stored_items", "loft_crossflow": "eaves_felt", "downlights": "downlight"}
+    loft_keys = {"loft_storage", "loft_crossflow", "downlights", "loft_insulation"}
+    CAT_FOR = {"loft_storage": {"stored_items"}, "loft_crossflow": {"eaves_felt"},
+               "downlights": {"downlight"}, "loft_insulation": {"insulation_depth", "loft_general"}}
     CAT_CAPTION = {"stored_items": "Stored items / boarding in the loft space",
                    "eaves_felt": "Loft felt at the eaves — cross-flow ventilation check",
-                   "downlight": "Recessed downlight penetration"}
+                   "downlight": "Recessed downlight penetration",
+                   "insulation_depth": "Loft insulation depth measured on site",
+                   "loft_general": "Loft insulation / roof space"}
+    def _cap_for(want, cat):
+        return CAT_CAPTION.get(cat) or (CAT_CAPTION.get(next(iter(want))) if want else "") or "Loft photograph"
     # Content-based vision classification of the loft photos so each loft card shows only its own evidence.
     loft_cat = await _classify_loft_photos(labels) if any(e.get("key") in loft_keys for e in need) else {}
     use_vision = bool(loft_cat)
@@ -555,9 +565,9 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
     for e in need:
         want_cat = CAT_FOR.get(e.get("key")) if use_vision else None
         kws = _COND_KEYWORDS.get(e.get("key")) or ()
-        if want_cat is None and not kws:
+        if not want_cat and not kws:
             continue
-        if want_cat is not None:
+        if want_cat:
             # rebuild loft cards from the vision result (drop any earlier mis-picked photo)
             e.pop("url", None)
             e.pop("photos", None)
@@ -565,10 +575,10 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
         gallery, seen_hashes = [], set()
         excl = _COND_EXCLUDE.get(e.get("key")) or ()
         for i, lb in enumerate(labels):
-            if i in used:
+            if want_cat and i in used:
                 continue
-            if want_cat is not None:
-                if loft_cat.get(i) != want_cat:
+            if want_cat:
+                if loft_cat.get(i) not in want_cat:
                     continue
             else:
                 lbl = (lb.get("label") or "").lower()
@@ -579,14 +589,16 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
             data, ext = lb["image"]
             h = hashlib.md5(data).hexdigest()
             if h in seen_hashes:
-                used.add(i)
+                if want_cat:
+                    used.add(i)
                 continue
             seen_hashes.add(h)
             url = await _store_defect_image(project_id, data, ext)
             if url:
-                cap = CAT_CAPTION.get(want_cat) if want_cat else ((lb.get("label") or "").strip(": ").strip() or e.get("label"))
+                cap = _cap_for(want_cat, loft_cat.get(i)) if want_cat else ((lb.get("label") or "").strip(": ").strip() or e.get("label"))
                 gallery.append({"url": url, "caption": cap})
-                used.add(i)
+                if want_cat:
+                    used.add(i)
             if len(gallery) >= 12:
                 break
         if gallery:
@@ -845,7 +857,7 @@ Rules:
 - defects: list any property CONDITION DEFECTS the documents record (e.g. penetrating/rising damp, spalling render, cracked masonry, blocked airbricks, timber decay, disrepair). For each give element, a clear description, the likely cause, the evidence observed (and photo/figure reference if any), severity (high|medium|low), the remedial action required before install, and the relevant clause/standard (PAS 2035, Building Regulations Part, BS). Use [] if the documents mention none.
 - people: extract the REAL names of the Retrofit Assessor, Retrofit Coordinator, Retrofit Designer, Installer (company or person) and Tenant/Resident from the job card, air-tightness strategy or assessment. The Installer is usually the installing company / contractor named on the Job Card (often the client organisation). Use "" for any not stated — NEVER invent a name.
 - ventilation: extract the ventilation requirements and strategy from the ADF1 ventilation checklist / job card. Populate rooms with each wet room (kitchen, bathroom, WC, utility) and its extract system + rate, plus the whole-dwelling and background (trickle/equivalent-area) provision. Use [] rooms if none stated. NEVER assign an extract fan or dMEV to a bedroom or other habitable room — extract ventilation is for wet rooms only (kitchen, bathroom, WC, utility, en-suite).
-- siteConditionsFromDocs: from the JOB CARD / assessment TEXT (NOT photos), record any of these conditions the documents explicitly state: electric shower, recessed spotlights/downlights, stored items/boarding in loft, bathroom on an upper floor, ground floor type. Give present true/false (or value for floor_type), a short detail quoting where it is stated, and the source document name. Use [] where a condition is not stated in the documents. This complements the photo-based vision detection.
+- siteConditionsFromDocs: from the JOB CARD / assessment TEXT (NOT photos), record any of these conditions the documents explicitly state: electric shower, recessed spotlights/downlights, stored items/boarding in loft, bathroom on an upper floor, ground floor type. Look specifically at the RdSAP hot-water / shower entry — if an electric shower is recorded there, set electric_shower present true even when it is only stated in text. Give present true/false (or value for floor_type), a short detail quoting where it is stated, and the source document name. Use [] where a condition is not stated in the documents. This complements the photo-based vision detection.
 
 Return this exact JSON shape:
 {
@@ -1013,6 +1025,10 @@ Return ONLY JSON:
     {"key":"floor_type","label":"Ground floor type","present":null,"value":"suspended timber | solid concrete | unknown","detail":"","evidence_fig":"","reasoning":"","confidence":""}
   ]
 }
+STRICT RULES (apply exactly):
+- ELECTRIC SHOWER: a wall-mounted white electric shower unit (a rectangular box with a temperature/power dial or push-buttons, usually with a flexible hose and riser rail) over a bath or shower tray means electric_shower present=true. These are common in first-floor bathrooms. If such a unit is visible, do NOT mark it false or null.
+- CROSS-FLOW VENTILATION (loft): if roofing FELT / bitumen sarking / breather membrane is visible draped between or over the rafters at the eaves (traditional felt with no ventilation gap), the loft NEEDS cross-flow ventilation — set loft_crossflow present=true and cite that photo. Continuous felt visible between the joists at the eaves is confirmation of the need for lap vents / cross-flow ventilation.
+- BATHROOM: any photo clearly inside a bathroom (tiling, bath, WC, basin, shower) on an upper floor supports bathroom_upstairs. A single photo can support MORE THAN ONE condition — e.g. an electric shower inside an upstairs bathroom proves BOTH electric_shower AND bathroom_upstairs; cite that FIG for each.
 Only include conditions you can actually assess from the evidence. Be conservative and evidence-led."""
 
 
@@ -1076,6 +1092,13 @@ def _merge_doc_site_facts(sc, docfacts):
         if not k:
             continue
         existing = by_key.get(k)
+        # An explicit document statement (e.g. the RdSAP shower entry) upgrades a photo 'false' to true.
+        if f.get("present") is True and existing and existing.get("present") is False:
+            existing["present"] = True
+            sc[k] = True
+            existing["detail"] = existing.get("detail") or f.get("detail") or ""
+            existing["source"] = existing.get("source") or f.get("source") or "Job Card / assessment"
+            continue
         conclusive = existing and (existing.get("present") in (True, False) or (existing.get("value") and existing.get("value") != "unknown"))
         if k == "floor_type":
             cur = sc.get("floor_type")

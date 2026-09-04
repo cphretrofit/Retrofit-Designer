@@ -199,6 +199,14 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Supersede naming**: when a datasheet/product is assigned to a measure, a *generic default* system (e.g. "Mineral wool quilt — top-up to 300mm") is replaced with the actual specified product (e.g. "Superglass Multi-Roll 44") — `_assign_products` + `_is_generic_system` in ai_extractor. Custom/edited systems are left untouched. Unit-verified.
 - ⚠️ **NOT done — floor-plan tracing precision** ("computed plan that never wanders from the provided plan"): this is a deep AI room-tracing improvement, deferred as a dedicated next task. Cover photo + workspace flows couldn't be E2E-tested (projects wiped) — validate on next import.
 
+## DONE — Heritage auto-postcode + vision extraction rules (Jun 2026)
+- **Heritage**: postcode is no longer requested — `heritage/lookup` now falls back to parsing the postcode from the property address (`_extract_postcode`) and persists it, so the check "just works". HeritagePanel adds context on what designations (Conservation Area / Listed / Article 4) mean for external measures and shows the postcode in use.
+- **Cross-flow rule**: `_classify_loft_photos` (eaves_felt) + `SITE_COND_SYSTEM` now treat roofing felt/sarking visible between the rafters at the eaves as confirmation the loft NEEDS cross-flow ventilation (loft_crossflow present=true).
+- **Electric shower**: SITE_COND_SYSTEM given an explicit rule to recognise wall-mounted electric shower units; `siteConditionsFromDocs` reads the RdSAP shower entry; and `_merge_doc_site_facts` now UPGRADES a photo-derived `false` to `true` when a document explicitly states it (unit-verified).
+- **Shared photos (no more either/or)**: `_attach_sitenote_condition_photos` no longer globally consumes a photo — keyword conditions (electric_shower, bathroom_upstairs) can share the same image, so a shower-in-upstairs-bathroom photo lands in BOTH cards. Loft vision categories remain exclusive.
+- **Loft depth photos**: new `insulation_depth` vision category (tape-measure/depth shots) + a `loft_insulation` evidence card so measuring-tape loft photos are captured, not dropped; `loft_general` loft interiors also now retained.
+- ⚠️ Prompt/logic changes verified at syntax + unit level only (projects wiped) — validate on the next 15 Crossways / real import.
+
 ## Note — Client datasheet upload already exists
 Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.
 

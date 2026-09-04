@@ -38,7 +38,10 @@ export function HeritagePanel({ projectId, initial, postcode, onChange }) {
       <div className="flex items-start justify-between gap-4">
         <div className="text-[12px] text-muted-foreground max-w-xl">
           Statutory heritage &amp; landscape designations from the national planning dataset
-          (planning.data.gov.uk). These constrain external measures and must be reflected in the design.
+          (planning.data.gov.uk){postcode ? <> for <span className="font-mono text-foreground">{postcode}</span></> : ""}. The postcode is taken
+          automatically from the property — no need to enter it. Designations such as a Conservation Area,
+          Listed Building or Article 4 Direction constrain external measures (EWI, glazing, solar) and must be
+          reflected in the design and any planning / listed-building consent.
         </div>
         <button onClick={run} disabled={busy} data-testid="run-heritage-btn"
           className="flex items-center gap-1.5 h-9 px-4 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0">
@@ -49,7 +52,7 @@ export function HeritagePanel({ projectId, initial, postcode, onChange }) {
 
       {!h && (
         <div className="border border-dashed border-border rounded-sm bg-card p-8 text-center text-[13px] text-muted-foreground" data-testid="heritage-empty">
-          No heritage check run yet{postcode ? ` for ${postcode}` : ""}. Run the check to identify designations.
+          No heritage check run yet{postcode ? ` for ${postcode}` : ""}. Click “Run heritage check” — the postcode is pulled from the property automatically and checked against the national planning dataset.
         </div>
       )}
 

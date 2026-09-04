@@ -1537,6 +1537,11 @@ async def heritage_lookup(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
     pc = (proj.get("property") or {}).get("postcode") or proj.get("postcode")
     if not pc:
+        from ai_extractor import _extract_postcode
+        pc = _extract_postcode(" ".join(str(x) for x in [(proj.get("property") or {}).get("address"), proj.get("address"), proj.get("reference"), proj.get("name")] if x))
+        if pc:
+            await db.projects.update_one({"id": project_id}, {"$set": {"property.postcode": pc}})
+    if not pc:
         raise HTTPException(status_code=422, detail="Add a property postcode before running a heritage lookup")
     h = await asyncio.to_thread(_heritage_lookup_sync, pc)
     if h:
