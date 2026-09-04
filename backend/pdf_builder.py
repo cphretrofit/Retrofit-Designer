@@ -379,18 +379,35 @@ def _static_map_data_uri(lat, lon, zoom=16, provider="osm"):
         S, grid = 256, 3
         canvas = Image.new("RGB", (S * grid, S * grid), "#e8e8e8")
         headers = {"User-Agent": "OrthographRetrofit/1.0 (PAS2035 retrofit design tool)"}
-        for gx in range(grid):
-            for gy in range(grid):
-                tx, ty = x0 - 1 + gx, y0 - 1 + gy
-                if tx < 0 or ty < 0 or tx >= n or ty >= n:
-                    continue
-                if provider == "aerial":
-                    turl = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{ty}/{tx}"
-                else:
-                    turl = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
-                rr = requests.get(turl, headers=headers, timeout=12)
+
+        def _tile(gx, gy):
+            tx, ty = x0 - 1 + gx, y0 - 1 + gy
+            if tx < 0 or ty < 0 or tx >= n or ty >= n:
+                return None
+            if provider == "aerial":
+                turl = f"https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{zoom}/{ty}/{tx}"
+            else:
+                turl = f"https://tile.openstreetmap.org/{zoom}/{tx}/{ty}.png"
+            try:
+                rr = requests.get(turl, headers=headers, timeout=(3.05, 7))
                 if rr.status_code == 200:
-                    canvas.paste(Image.open(io.BytesIO(rr.content)).convert("RGB"), (gx * S, gy * S))
+                    return (gx, gy, rr.content)
+            except Exception:
+                return None
+            return None
+
+        # Fetch the 3x3 tile grid concurrently (was serial, up to 9x slower and prone to stalling).
+        from concurrent.futures import ThreadPoolExecutor
+        coords = [(gx, gy) for gx in range(grid) for gy in range(grid)]
+        with ThreadPoolExecutor(max_workers=9) as _ex:
+            for res in _ex.map(lambda t: _tile(*t), coords):
+                if not res:
+                    continue
+                gx, gy, content = res
+                try:
+                    canvas.paste(Image.open(io.BytesIO(content)).convert("RGB"), (gx * S, gy * S))
+                except Exception:
+                    pass
         px = int((xf - (x0 - 1)) * S)
         py = int((yf - (y0 - 1)) * S)
         dr = ImageDraw.Draw(canvas)
@@ -1311,7 +1328,7 @@ def _solar_lookup_sync(lat, lon):
     common = {"location.latitude": lat, "location.longitude": lon, "requiredQuality": "BASE", "key": key}
     out = {"latitude": lat, "longitude": lon}
     try:
-        ri = requests.get(f"{base}/buildingInsights:findClosest", params=common, timeout=(3.05, 30))
+        ri = requests.get(f"{base}/buildingInsights:findClosest", params=common, timeout=(3.05, 18))
         if ri.status_code == 200:
             j = ri.json()
             sp = j.get("solarPotential") or {}
@@ -1335,7 +1352,7 @@ def _solar_lookup_sync(lat, lon):
         logger.warning("solar insights failed: %s", e)
     try:
         dl = requests.get(f"{base}/dataLayers:get", params={**common, "radiusMeters": 55,
-                          "view": "IMAGERY_AND_ANNUAL_FLUX_LAYERS", "pixelSizeMeters": 0.25}, timeout=(3.05, 30))
+                          "view": "IMAGERY_AND_ANNUAL_FLUX_LAYERS", "pixelSizeMeters": 0.25}, timeout=(3.05, 18))
         if dl.status_code == 200:
             layers = dl.json() or {}
             from PIL import Image
@@ -1344,7 +1361,7 @@ def _solar_lookup_sync(lat, lon):
                 if not u:
                     return None
                 sep = "&" if "?" in u else "?"
-                r = requests.get(f"{u}{sep}key={key}", timeout=(3.05, 60))
+                r = requests.get(f"{u}{sep}key={key}", timeout=(3.05, 22))
                 return r.content if r.status_code == 200 else None
             rgb_b = _dl(layers.get("rgbUrl"))
             if rgb_b:
@@ -2979,32 +2996,39 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     if hero_is_property:
         hero_uri = _crop_hero_banner(hero_uri)
     h0 = p.get("heritage") or {}
-    if h0.get("latitude") is not None and h0.get("longitude") is not None:
-        if not h0.get("_map_data"):
-            md = await asyncio.to_thread(_static_map_data_uri, h0["latitude"], h0["longitude"], 16, "osm")
-            if md:
-                h0["_map_data"] = md
-        if not h0.get("_aerial_data"):
-            ad = await asyncio.to_thread(_static_map_data_uri, h0["latitude"], h0["longitude"], 18, "aerial")
-            if ad:
-                h0["_aerial_data"] = ad
-        p["heritage"] = h0
     sol = p.get("solar") or {}
-    if not sol.get("aerialImage"):
-        _la = (p.get("heritage") or {}).get("latitude")
-        _lo = (p.get("heritage") or {}).get("longitude")
-        if _la is not None and _lo is not None:
-            _s = await asyncio.to_thread(_solar_lookup_sync, _la, _lo)
-            if _s and _s.get("aerialImage"):
-                _pv = _pv_from_solar(_s)
-                if _pv:
-                    _s["recommendedPv"] = _pv
-                p["solar"] = _s
-                try:
-                    await db.projects.update_one({"id": project_id}, {"$set": {"solar": _s}})
-                    await _apply_pv_autofill(project_id, p, _s)
-                except Exception:
-                    pass
+    _la, _lo = h0.get("latitude"), h0.get("longitude")
+    if _la is not None and _lo is not None:
+        # Run the three heavy external lookups (OSM map, aerial map, Google Solar) concurrently
+        # instead of one-after-another — this was the main cause of very slow / hung pack builds.
+        need_osm = not h0.get("_map_data")
+        need_aerial = not h0.get("_aerial_data")
+        need_solar = not sol.get("aerialImage")
+        _tasks, _order = [], []
+        if need_osm:
+            _tasks.append(asyncio.to_thread(_static_map_data_uri, _la, _lo, 16, "osm")); _order.append("osm")
+        if need_aerial:
+            _tasks.append(asyncio.to_thread(_static_map_data_uri, _la, _lo, 18, "aerial")); _order.append("aerial")
+        if need_solar:
+            _tasks.append(asyncio.to_thread(_solar_lookup_sync, _la, _lo)); _order.append("solar")
+        _res = await asyncio.gather(*_tasks, return_exceptions=True) if _tasks else []
+        _byk = {k: (v if not isinstance(v, Exception) else None) for k, v in zip(_order, _res)}
+        if need_osm and _byk.get("osm"):
+            h0["_map_data"] = _byk["osm"]
+        if need_aerial and _byk.get("aerial"):
+            h0["_aerial_data"] = _byk["aerial"]
+        p["heritage"] = h0
+        _s = _byk.get("solar")
+        if need_solar and _s and _s.get("aerialImage"):
+            _pv = _pv_from_solar(_s)
+            if _pv:
+                _s["recommendedPv"] = _pv
+            p["solar"] = _s
+            try:
+                await db.projects.update_one({"id": project_id}, {"$set": {"solar": _s}})
+                await _apply_pv_autofill(project_id, p, _s)
+            except Exception:
+                pass
     token = p.get("shareToken")
     if not token:
         token = uuid.uuid4().hex[:20]
@@ -3021,24 +3045,19 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             fp["_data"] = None
         p["floorPlan"] = fp
     for d in (p.get("defects") or []):
-        u = d.get("photo") or ""
-        if u:
-            try:
-                d["_photo_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
-            except Exception:
-                d["_photo_data"] = None
+        if not d.get("photo"):
+            d["_photo_data"] = None
+    _defs = [d for d in (p.get("defects") or []) if d.get("photo")]
+    if _defs:
+        _dres = await asyncio.gather(*[_uri(d.get("photo") or "") for d in _defs], return_exceptions=True)
+        for d, r in zip(_defs, _dres):
+            d["_photo_data"] = r if not isinstance(r, Exception) else None
     for e in (((p.get("property") or {}).get("siteConditions") or {}).get("evidence") or []):
         gal = [ph.get("url") for ph in (e.get("photos") or []) if ph.get("url")]
         if not gal and e.get("url"):
             gal = [e["url"]]
-        datas = []
-        for u in gal[:12]:
-            try:
-                d = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
-            except Exception:
-                d = None
-            if d:
-                datas.append(d)
+        _gres = await asyncio.gather(*[_uri(u) for u in gal[:12]], return_exceptions=True)
+        datas = [r for r in _gres if r and not isinstance(r, Exception)]
         e["_photos_data"] = datas
         e["_data"] = datas[0] if datas else None
     try:

@@ -181,5 +181,13 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Dashboard KPIs now real**: activeProjects/readyForQA/requireAttention/avgDesignTime computed from live data (were hardcoded 42/8/3/47).
 - **Dashboard Clients section**: new "Clients · Designs Completed" card on the Command Centre showing each active client with "N completed / M total" (completed = status approved or 100% completion), each card links to the client detail page. `GET /api/clients` now returns `completedCount` alongside `projectCount`.
 
+## DONE — Pack-build performance RCA + fixes (Jun 2026)
+- **RCA**: server has 32 GB RAM / 8 CPU, ~16 GB free, 0 swap — NOT resource-starved. The 15-min hang/timeout was algorithmic in the PDF pack build (`_render_pack_html` in pdf_builder.py): heavy external network calls (Google Solar API, OSM + aerial map tiles, heritage/planning) ran serially with long timeouts, plus a 3×3 map-tile grid fetched one tile at a time (up to 18 requests × 12 s).
+- **Fixes**: (1) map tile grid now fetched concurrently via ThreadPoolExecutor with 7 s timeout (measured 0.7–0.9 s per map vs potential minutes); (2) Solar lookup + OSM map + aerial map now run concurrently (asyncio.gather) instead of one-after-another; (3) tightened Solar timeouts (buildingInsights/dataLayers 30→18 s, imagery 60→22 s); (4) defect-photo and site-condition gallery image loads parallelised. Appendix behaviour unchanged (all source docs still bound per user request). Export already runs as a background job with progress polling (`/pack/generate`) — safe from ingress timeout.
+- **Not yet E2E-verified**: full pack build couldn't be reproduced because all projects were wiped this session; verified helper-level (maps) + backend health. Validate on the client's next real import.
+
+## Note — Client datasheet upload already exists
+Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
