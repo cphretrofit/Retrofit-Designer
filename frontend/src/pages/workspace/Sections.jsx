@@ -35,6 +35,19 @@ export function MeasureCards({ measures, onOpen }) {
                   <Meter value={m.completion} />
                 </div>
               </div>
+              {m.outstanding.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-border/60" data-testid={`measure-outstanding-${m.code}`}>
+                  <div className="text-[9px] uppercase tracking-[0.1em] text-muted-foreground mb-1.5">To reach 100% · complete these</div>
+                  <ul className="space-y-1">
+                    {m.outstanding.map((o, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-[11.5px] text-foreground/80">
+                        <span className="mt-1 h-1.5 w-1.5 rounded-full shrink-0" style={{ background: "var(--c-warning)" }} />
+                        <span>{typeof o === "string" ? o : (o.text || o.label || o.name || "Outstanding item")}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
             <div className="flex items-center justify-between px-4 h-9 border-t border-border bg-secondary/30 text-[12px] text-muted-foreground group-hover:text-foreground transition-colors">
               <span>{m.outstanding.length > 0 ? `${m.outstanding.length} outstanding` : "No outstanding items"}</span>

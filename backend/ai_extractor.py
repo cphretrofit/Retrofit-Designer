@@ -1994,7 +1994,7 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
         pass
 
     # Redraw as a clean CAD floor plan from AI-reconstructed geometry
-    cad_svg, cad_data = None, None
+    cad_svg, cad_data, cad_anchors = None, None, None
     try:
         from cad_floorplan import build_cad_floorplan_svg
         geo = await call_claude_vision_json(
@@ -2011,14 +2011,14 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
                         geo["loftCoverage"] = "loft insulation"
             except Exception:
                 pass
-            cad_svg = build_cad_floorplan_svg(geo)
+            cad_svg, cad_anchors = build_cad_floorplan_svg(geo, with_anchors=True)
             cad_data = geo
     except Exception as e:
         logger.warning("cad floorplan build failed: %s", e)
 
     return {"imageUrl": f"/api/documents/{pid}/download", "markers": [],
             "autoDetected": True, "source": chosen["label"],
-            "cadSvg": cad_svg, "cadData": cad_data,
+            "cadSvg": cad_svg, "cadData": cad_data, "anchors": cad_anchors,
             "detectedAt": datetime.now(timezone.utc).isoformat()}
 
 
@@ -2291,7 +2291,7 @@ def extract_jobcard_pv_kwp(text):
     t = re.sub(r"[\u0000-\u001f\ue000-\uf8ff]", " ", text)
     t = re.sub(r"\s+", " ", t)
     cands = []
-    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*k[wW]p", t):
+    for m in re.finditer(r"(\d+(?:\.\d+)?)\s*[kK][wW]p", t):
         val = float(m.group(1))
         if val < 1.0 or val > 100:
             continue
@@ -2300,6 +2300,24 @@ def extract_jobcard_pv_kwp(text):
             continue
         weight = 2 if any(k in ctx for k in ("system size", "maximum", "total", "array", "installed", "up to")) else 1
         cands.append((weight, val))
+    # Job-card Solar PV row commonly reads "… kWh 2.7KW" — the array size sits right after the
+    # 'kWh' label. Treat this as high-confidence (weight 3) so it beats a per-panel/modelled figure.
+    for m in re.finditer(r"kwh\s*(\d+(?:\.\d+)?)\s*[kK][wW]\b", t, re.I):
+        val = float(m.group(1))
+        if 1.0 <= val <= 100:
+            cands.append((3, val))
+    if not cands:
+        # bare "kW" only in an unmistakable solar/PV context (avoid ASHP / inverter kW figures)
+        for m in re.finditer(r"(\d+(?:\.\d+)?)\s*[kK][wW]\b", t):
+            val = float(m.group(1))
+            if val < 1.0 or val > 100:
+                continue
+            ctx = t[max(0, m.start() - 90):m.end() + 25].lower()
+            if not any(k in ctx for k in ("solar", " pv", "photovolt", "array")):
+                continue
+            if any(k in ctx for k in ("each", "per panel", "rated at", "panel rated")):
+                continue
+            cands.append((1, val))
     if not cands:
         return None
     best_w = max(w for w, _ in cands)

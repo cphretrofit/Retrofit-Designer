@@ -1352,6 +1352,154 @@ async def floorplan_room_photos(project_id: str):
     return _room_photos_payload(p)
 
 
+@api_router.get("/projects/{project_id}/floorplan/auto-markers")
+async def floorplan_auto_markers(project_id: str):
+    """Compute indicative measure/ventilation marker placements from the ventilation
+    strategy + the CAD room geometry, so the plan can be pre-populated without manual work."""
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fp = p.get("floorPlan") or {}
+    anchors = fp.get("anchors") or {}
+    room_anchors = anchors.get("rooms") or []
+    win_anchors = anchors.get("windows") or []
+    vent = p.get("ventilation") or {}
+    vsum = p.get("ventSummary") or {}
+    cad = fp.get("cadData") or {}
+    txt = " ".join(str(x) for x in (
+        [vent.get("strategy"), vent.get("background"), vent.get("wholeDwelling"), vsum.get("system")]
+        + (vent.get("notes") or []) + (cad.get("legend") or []) + (cad.get("measuresKey") or [])
+    )).lower()
+    tvr = bool(cad.get("trickleVentsRemoved")) or ("trickle" in txt and any(w in txt for w in ("remov", "delet", "block", "replac")))
+    used: set = set()
+    markers: list = []
+
+    def _mk(t, label, x, y):
+        markers.append({"id": uuid.uuid4().hex[:8], "type": t, "label": label, "x": x, "y": y})
+
+    def _match(rt):
+        for i, a in enumerate(room_anchors):
+            if i in used:
+                continue
+            if a.get("wet") and _rt(a.get("name")) == rt:
+                used.add(i)
+                return a
+        for i, a in enumerate(room_anchors):
+            if i in used:
+                continue
+            if _rt(a.get("name")) == rt:
+                used.add(i)
+                return a
+        return None
+
+    for r in (vent.get("rooms") or []):
+        system = (r.get("system") or "").lower()
+        rt = _rt(r.get("room") or "")
+        if rt not in ("kitchen", "bath"):
+            continue
+        if not any(k in system for k in ("dmev", "mev", "extract", "continuous", "intermittent", "fan")):
+            continue
+        a = _match(rt)
+        if not a:
+            continue
+        continuous = "dmev" in system or "continuous" in system
+        if tvr and continuous:
+            _mk("DMEV_TVR", "dMEV (TVR)", a["x"], a["y"])
+        else:
+            _mk("DMEV", "dMEV" if continuous else "Extract", a["x"], a["y"])
+
+    # Fallback — no explicit vent room schedule, so drop a dMEV on every wet room on the plan.
+    if not any(m["type"] in ("DMEV", "DMEV_TVR") for m in markers):
+        for a in room_anchors:
+            if _rt(a.get("name")) in ("kitchen", "bath"):
+                _mk("DMEV_TVR" if tvr else "DMEV", "dMEV (TVR)" if tvr else "dMEV", a["x"], a["y"])
+
+    # Trickle-vent-removed tags at the affected windows.
+    if tvr:
+        for a in win_anchors[:8]:
+            _mk("DMEV_TVR", "TVR", a["x"], a["y"])
+
+    return {"markers": markers, "tvr": tvr, "count": len(markers)}
+
+
+@api_router.get("/projects/{project_id}/photos/all")
+async def project_all_photos(project_id: str):
+    """Every survey photo available on the project (curated pack gallery + all image
+    documents), deduped — used to populate the site-conditions photo picker."""
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    out, seen = [], set()
+    for ph in ((p.get("designPack") or {}).get("photos") or []):
+        u = ph.get("url")
+        if u and u not in seen:
+            seen.add(u)
+            out.append({"url": u, "caption": ph.get("caption") or "", "fig": ph.get("fig") or ""})
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(500)
+    for d in docs:
+        ct = d.get("content_type") or ""
+        dt = d.get("doc_type") or ""
+        if not (ct.startswith("image/") or dt in ("Survey Photo", "Floor Plan")):
+            continue
+        u = f"/api/documents/{d['id']}/download"
+        if u in seen:
+            continue
+        seen.add(u)
+        out.append({"url": u, "caption": d.get("original_filename") or "Photo", "fig": ""})
+    return {"photos": out}
+
+
+@api_router.post("/projects/{project_id}/measures/{mi}/autofill-compliance")
+async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Query(False)):
+    """Auto-populate a measure's Design Requirements & Compliance, Site Actions and
+    evidence photos from the assessment — deterministic PAS 2035 content, no manual typing."""
+    from pdf_builder import PHOTO_NEG
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    measures = proj.get("measures") or []
+    if mi < 0 or mi >= len(measures):
+        raise HTTPException(status_code=404, detail="Measure not found")
+    m = measures[mi]
+    changed = []
+    if force or not (m.get("evidenceRequirements") or "").strip():
+        items = _measure_compliance(m, proj)
+        m["evidenceRequirements"] = "\n".join(f"- {cat}: {txt}" for cat, txt in items)
+        changed.append("evidenceRequirements")
+    if force or not (m.get("evidenceActions") or "").strip():
+        fam = _mfam(m.get("code"), m.get("name"))
+        m["evidenceActions"] = "\n".join(f"- {s}" for s in _measure_methodology(fam))
+        changed.append("evidenceActions")
+    if force or not (m.get("evidencePhotos") or []):
+        code = (m.get("code") or "").upper()
+        kws = PHOTO_KW.get(code) or PHOTO_KW.get(_mfam(m.get("code"), m.get("name"))) or []
+        neg = PHOTO_NEG.get(code) or PHOTO_NEG.get(_mfam(m.get("code"), m.get("name"))) or []
+        ev = []
+        for ph in ((proj.get("designPack") or {}).get("photos") or []):
+            text = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
+            if any(k in text for k in neg):
+                continue
+            if kws and not any(k in text for k in kws):
+                continue
+            b = await _photo_bytes_from_url(ph.get("url"))
+            if not b:
+                continue
+            du = await asyncio.to_thread(_img_to_data_uri, b)
+            if du:
+                ev.append({"data": du, "caption": ph.get("caption") or "", "note": ph.get("observation") or ""})
+            if len(ev) >= 4:
+                break
+        if ev:
+            m["evidencePhotos"] = ev
+            changed.append("evidencePhotos")
+    if changed:
+        await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return {"changed": changed,
+            "evidenceRequirements": m.get("evidenceRequirements") or "",
+            "evidenceActions": m.get("evidenceActions") or "",
+            "evidencePhotos": m.get("evidencePhotos") or []}
+
+
 @api_router.post("/projects/{project_id}/floorplan/classify-photos")
 async def classify_walkthrough_photos(project_id: str):
     from ai_extractor import classify_room_photos
@@ -1556,7 +1704,7 @@ async def _run_solar_name_backfill_bg():
         targets = []
         for p in projects:
             sm = next((m for m in (p.get("measures") or []) if (m.get("code") or "").upper() == "SOLAR"), None)
-            if sm and sm.get("jobCardKwp") is None and not re.search(r"[\d.]+\s*kwp", sm.get("name") or "", re.I):
+            if sm and sm.get("jobCardKwp") is None:
                 targets.append(p["id"])
         _solar_backfill.update({"total": len(targets), "done": 0, "updated": 0, "nofigure": 0, "errors": 0})
         for pid in targets:
@@ -1585,7 +1733,8 @@ async def _run_solar_name_backfill_bg():
                 for m in measures:
                     if (m.get("code") or "").upper() == "SOLAR":
                         m["jobCardKwp"] = kwp
-                        m["name"] = _compose_solar_name(m.get("name"), kwp)
+                        if not re.search(r"[\d.]+\s*kwp", m.get("name") or "", re.I):
+                            m["name"] = _compose_solar_name(m.get("name"), kwp)
                 await db.projects.update_one({"id": pid}, {"$set": {"measures": measures}})
                 _solar_backfill["updated"] += 1
             except Exception:
@@ -2082,6 +2231,33 @@ async def upload_measure_evidence(project_id: str, mi: int, file: UploadFile = F
         raise HTTPException(status_code=400, detail="Could not read that image")
     photos = (measures[mi].get("evidencePhotos") or [])
     photos.append({"data": data_uri, "caption": (caption or "").strip()})
+    measures[mi]["evidencePhotos"] = photos[:8]
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return {"evidencePhotos": measures[mi]["evidencePhotos"]}
+
+
+class EvidencePhotoUrlIn(BaseModel):
+    url: str
+    caption: Optional[str] = None
+
+
+@api_router.post("/projects/{project_id}/measures/{mi}/evidence-photo-url")
+async def add_measure_evidence_url(project_id: str, mi: int, payload: EvidencePhotoUrlIn):
+    """Attach an existing photopack photo (by URL) as evidence for a measure."""
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    measures = proj.get("measures") or []
+    if mi < 0 or mi >= len(measures):
+        raise HTTPException(status_code=404, detail="Measure not found")
+    b = await _photo_bytes_from_url(payload.url)
+    if not b:
+        raise HTTPException(status_code=422, detail="Could not load that photo")
+    du = await asyncio.to_thread(_img_to_data_uri, b)
+    if not du:
+        raise HTTPException(status_code=422, detail="Could not read that photo")
+    photos = measures[mi].get("evidencePhotos") or []
+    photos.append({"data": du, "caption": (payload.caption or "").strip()})
     measures[mi]["evidencePhotos"] = photos[:8]
     await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
     return {"evidencePhotos": measures[mi]["evidencePhotos"]}

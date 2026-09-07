@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { detectSiteConditions, saveSiteConditions, mediaUrl } from "@/lib/api";
+import { detectSiteConditions, saveSiteConditions, mediaUrl, getAllPhotos } from "@/lib/api";
 import { toast } from "sonner";
 import { Sparkles, Loader2, Save, Maximize2, ImagePlus, X } from "lucide-react";
 
@@ -23,9 +23,13 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(null);
   const [pick, setPick] = useState(null);
-  const photos = (project.designPack && project.designPack.photos) || [];
+  const [allPhotos, setAllPhotos] = useState(null);
+  const photos = allPhotos || (project.designPack && project.designPack.photos) || [];
   const evidence = sc.evidence || [];
   useEffect(() => { setSc((project.property && project.property.siteConditions) || {}); }, [project.property?.siteConditions]);
+  useEffect(() => {
+    getAllPhotos(projectId).then((r) => { if (r?.photos) setAllPhotos(r.photos); }).catch(() => {});
+  }, [projectId]);
 
   const detect = async () => {
     if (evidence.length > 0 && !window.confirm("Re-detect will overwrite the current answers (including any manual edits). Continue?")) return;

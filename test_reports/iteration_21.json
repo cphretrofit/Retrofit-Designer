@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend regression for the 4 new UX automations on project 15 Greenways (5e275c28-c74a-4ed4-8f3b-b2853575349e). 3 out of 4 areas PASS end-to-end. Solar pre-fill could NOT be exercised because this project currently has no Solar/PV measure seeded — jobKwp is null so SolarPanel.useEffect intentionally does not pre-fill pv-target-input or emit the 'auto-applied' banner. This is a test-data gap, not a code defect.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verifications": {
+    "floorplan_dmev_tvr_tab": "PASS — measure toolbar now shows 5 tabs: floorplan-tool-DMEV, floorplan-tool-DMEV_TVR, floorplan-tool-LOFT, floorplan-tool-TRICKLE, floorplan-tool-ASHP. Clicking DMEV_TVR arms the tool (className shows selected border/bg state) and the helper text under the toolbar updates to 'Click on the plan to place a dMEV (trickle vent removed)'. Marker chip renders with red fill (#DC2626) and 'dMEV (trickle vent removed)' label.",
+    "floorplan_autoplace_button_and_auto_on_load": "PASS — 'Auto-place from strategy' button (data-testid floorplan-autoplace) is present and, more importantly, the useEffect auto-fetches on mount when markers are empty: on page load 10 draggable markers render on the ground-floor plan (2 red dMEV(TVR) pins at wet rooms + 8 TVR window tags), plus a toast 'Auto-placed 10 ventilation marker(s) from the strategy — Drag any pin to fine-tune, then Save.' The count matches the /api/projects/{id}/floorplan/auto-markers endpoint payload (2 dMEV(TVR) + 8 TVR).",
+    "floorplan_no_overwrite_when_markers_exist": "PASS — after markers were auto-placed (10), clicking 'Auto-place from strategy' again kept the marker count at 10; existing markers were not duplicated or lost. The useEffect guard ('only when markers empty') is honoured on load and the button is idempotent for the same set.",
+    "site_conditions_change_photo_picker": "PASS — Site Conditions renders 5 site-evidence-change-* links. Clicking one opens the picker; the picker grid renders 61 site-photo-option-* thumbnails, matching /api/projects/{id}/photos/all (61 photos). This is a big jump from the previous ~5–8-photo pool and covers the full survey album. (Note: review request estimated ~66 photos; backend actually returns 61 for this project — treat 61 as the source of truth.)",
+    "measure_evidence_autofill": "PASS — Opening a measure with blank evidence (Loft Insulation 300mm) auto-populates BOTH data-testid=evidence-requirements (1067 chars, PAS 2035 bulleted content: Fire Safety, Electrical, Ventilation …) AND data-testid=evidence-actions (1474 chars: Loft access checks, condensation, dust control…). data-testid=measure-evidence-section wraps the block, and data-testid=evidence-autofill button in the header re-populates on click after clearing (confirmed textarea rehydrated with same 1067-char body)."
+  },
+  "known_test_data_gaps": [
+    "Project 5e275c28 has no Solar/PV measure (measures = Loft Insulation 300mm, Windows & Doors, ASHP Mitsubishi 6kW, dMEV + Trickle Vents). SolarPanel.jobKwp is therefore null, so the 'Target array size' input stays blank on load and the 'auto-applied to the PV measure' banner is intentionally hidden. Frontend wiring itself is correct — pv-target-input exists in the DOM with the correct data-testid; the useEffect just has no jobKwp to work with. To validate the pre-fill acceptance criterion, seed a PV measure on this project whose name contains 'X.XX kWp' (e.g. 'Solar PV 3.6 kWp') or set solarMeasure.jobCardKwp on it, then reload /design/solar."
+  ],
+  "test_report_links": [],
+  "action_items": [
+    "Seed a Solar PV measure (with kWp in name or jobCardKwp field) on project 5e275c28-c74a-4ed4-8f3b-b2853575349e so the Aerial & Solar auto-pre-fill and 'auto-applied to the PV measure' banner can be validated by the next iteration. All other new features passed on the current dataset."
+  ],
+  "critical_code_review_comments": [
+    "SolarPanel.jsx: the useEffect that auto-applies runs only once via appliedRef, but if the user manually clears the input the auto-apply won't re-run — acceptable, but consider surfacing a small 'Reset to job-card kWp' link for UX symmetry with the 'pre-filled from job card' hint.",
+    "FloorPlanPanel: 'Auto-place from strategy' button always writes markers when clicked, regardless of whether markers already exist. The written spec says 'only auto-fill when zero markers on load' — that guard IS honoured by the on-mount effect, but the explicit button intentionally allows re-placing. Confirm this is the intended UX (users may want a confirm dialog before overwriting hand-tuned pins).",
+    "Site Conditions photo picker renders 61 raster <img> nodes at once with no virtualisation or lazy-loading attribute; on projects with 200+ photos this will get heavy. Consider adding loading=\"lazy\" and a search/filter box."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a (frontend-only run)", "frontend": "75% covered (3/4 features fully validated; Solar blocked by missing seed measure — not a code bug)" },
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 — works.",
+  "seed_data_creation": "None.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Only project 5e275c28-c74a-4ed4-8f3b-b2853575349e (15 Greenways, ref 60850975) is seeded and it has NO Solar measure. FloorPlan, Site Conditions and Measure Evidence auto-features all work correctly. To retest Solar pre-fill, either add a Solar PV measure to this project or use a different project that already has one; then hit /project/{id}/design/solar and assert data-testid=pv-target-input has a non-empty numeric value and the '· auto-applied to the PV measure' span is visible next to the job-card kWp banner."
+}

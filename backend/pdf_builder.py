@@ -159,6 +159,22 @@ PHOTO_KW = {
     "VENT": ["vent", "extract", "fan", "damp", "moisture", "mould", "trickle"],
 }
 
+# Negative keywords — a photo whose caption/observation hits these is NOT valid evidence for
+# that measure even if it matched a positive keyword (e.g. a "roof — loft insulation" photo
+# must never be pulled into the Solar PV section just because it says "roof").
+PHOTO_NEG = {
+    "SOLAR": ["loft", "insulation", "attic", "joist", "rafter", "eaves", "ceiling", "cavity", "internal"],
+    "RIR": ["loft insulation", "attic"],
+    "ASHP": ["loft", "solar", "pv panel"],
+    "VENT": ["solar", "pv panel"],
+}
+
+
+def _photo_excluded(fam_or_code, text):
+    neg = PHOTO_NEG.get((fam_or_code or "").upper(), [])
+    return any(k in text for k in neg)
+
+
 
 def _photos_for_measure(code, photos, used):
     kws = PHOTO_KW.get(code, [])
@@ -168,6 +184,8 @@ def _photos_for_measure(code, photos, used):
         if fig in used or not ph.get("data"):
             continue
         text = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
+        if _photo_excluded(code, text):
+            continue
         if any(k in text for k in kws):
             out.append(ph)
             used.add(fig)
@@ -3168,7 +3186,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     # Site conditions & evidence page
     site_pages = []
-    if _sc_evidence:
+    _fams = {_mfam(_m.get("code"), _m.get("name")) for _m in measures}
+    _solar_only = bool(_fams) and _fams <= {"SOLAR"}
+    if _sc_evidence and not _solar_only:
         card_list = []
         for e in _sc_evidence:
             present = e.get("present")
@@ -3238,7 +3258,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         ("loft_tank", "Cold-water storage tank in the loft",
          "If present, insulate the tank sides and top (never underneath) and lag all loft pipework against freezing (BS 6700 / good practice) — see detail LD."),
     ]
-    if any(_sc.get(_k) is not None for _k, _, _ in _lc_defs):
+    if any(_sc.get(_k) is not None for _k, _, _ in _lc_defs) and not _solar_only:
         _ev_photo = {}
         for _e in (_sc_evidence or []):
             if _e.get("_data") and _e.get("key"):

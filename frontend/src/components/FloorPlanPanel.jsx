@@ -1,11 +1,12 @@
 import { useRef, useState, useEffect } from "react";
-import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof, getPinSpecs } from "@/lib/api";
+import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof, getPinSpecs, getFloorplanAutoMarkers } from "@/lib/api";
 import { FloorPlan3D } from "@/components/FloorPlan3D";
 import { toast } from "sonner";
-import { Upload, Save, Loader2, X, Sparkles } from "lucide-react";
+import { Upload, Save, Loader2, X, Sparkles, Wand2 } from "lucide-react";
 
 const TYPES = [
   { key: "DMEV", label: "dMEV / extract", color: "#0891B2" },
+  { key: "DMEV_TVR", label: "dMEV (trickle vent removed)", color: "#DC2626" },
   { key: "LOFT", label: "Loft insulation", color: "#B45309" },
   { key: "TRICKLE", label: "Trickle vent", color: "#16A34A" },
   { key: "ASHP", label: "ASHP unit", color: "#0055FF" },
@@ -21,6 +22,7 @@ const NorthArrow = () => (
 
 const SYM = {
   DMEV: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="C"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="C" stroke-width="1.3"/>',
+  DMEV_TVR: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="C"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="C" stroke-width="1.3"/>',
   TRICKLE: '<rect x="3" y="8.5" width="18" height="7" rx="1" fill="none" stroke="C" stroke-width="1.4"/><path d="M8 8.5v7M12 8.5v7M16 8.5v7" stroke="C" stroke-width="1.2"/>',
   ASHP: '<rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="9" cy="12" r="3" fill="none" stroke="C" stroke-width="1.2"/><path d="M14 9.5h4M14 12h4M14 14.5h4" stroke="C" stroke-width="1.1"/>',
   LOFT: '<path d="M3 15.5 q3 -6 6 0 t6 0 t6 0" fill="none" stroke="C" stroke-width="1.4"/><path d="M3 15.5 h18" stroke="C" stroke-width="1.1"/>',
@@ -47,10 +49,34 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [view3d, setView3d] = useState(false);
   const [snapping, setSnapping] = useState(false);
   const [pinSpecs, setPinSpecs] = useState(null);
+  const [autoTried, setAutoTried] = useState(false);
+  const [placing, setPlacing] = useState(false);
   const threeDRef = useRef(null);
   const ref = useRef(null);
   const fileRef = useRef(null);
   const markers = fp.markers || [];
+
+  const autoPlace = async (silent) => {
+    if (!silent) setPlacing(true);
+    try {
+      const r = await getFloorplanAutoMarkers(projectId);
+      if (r?.markers?.length) {
+        setFp((s) => ({ ...s, markers: r.markers }));
+        toast[silent ? "info" : "success"](`Auto-placed ${r.markers.length} ventilation marker(s) from the strategy`, { description: "Drag any pin to fine-tune, then Save." });
+      } else if (!silent) {
+        toast.info("Nothing to auto-place yet", { description: "Add the ventilation strategy or a detected floor plan first." });
+      }
+    } catch { if (!silent) toast.error("Could not auto-place markers"); }
+    finally { if (!silent) setPlacing(false); }
+  };
+
+  useEffect(() => {
+    if (fp.imageUrl && (fp.markers || []).length === 0 && !autoTried && fp.anchors) {
+      setAutoTried(true);
+      autoPlace(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fp.imageUrl, fp.anchors]);
   const has3d = !!(fp.cadData && (((fp.cadData.floors || []).some((f) => (f?.rooms || []).length)) || (fp.cadData.rooms || []).length));
   const saveSnap = async () => {
     const url = threeDRef.current?.capture();
@@ -210,7 +236,11 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
                 <MeasureSymbol type={t.key} color={arm === t.key ? "#fff" : t.color} size={16} /> {t.label}
               </button>
             ))}
-            {arm && <span className="text-[11px] text-muted-foreground">Click on the plan to place a {TYPES.find((t) => t.key === arm)?.label}</span>}
+            <button onClick={() => autoPlace(false)} disabled={placing} data-testid="floorplan-autoplace"
+              className="flex items-center gap-1.5 h-8 px-3 ml-auto border border-[var(--c-action)] text-[var(--c-action)] rounded-sm text-[12px] font-medium hover:bg-[var(--c-action)]/5 disabled:opacity-50">
+              {placing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />} Auto-place from strategy
+            </button>
+            {arm && <span className="text-[11px] text-muted-foreground w-full">Click on the plan to place a {TYPES.find((t) => t.key === arm)?.label}</span>}
           </div>
 
           {/* Professional drawing sheet */}

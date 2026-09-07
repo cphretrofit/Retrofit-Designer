@@ -623,28 +623,72 @@ def _render_single(d: dict):
     parts.append(f'<text x="{col_x-60}" y="{by+98:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">Date: {_esc(dt)}</text>')
     parts.append(f'<text x="1010" y="{col_bottom-8:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">7</text>')
 
+    # measure-placement anchors (SVG coords here; caller converts to percent)
+    room_anchors = []
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        nm = (r.get("name") or "").strip()
+        room_anchors.append({
+            "name": nm,
+            "cx": mx(rx + rw / 2),
+            "cy": my(ry + rh / 2),
+            "wet": any(w in nm.lower() for w in _WET_ROOMS),
+        })
+    win_anchors = []
+    for wdw in (d.get("windows") or []):
+        wall = (wdw.get("wall") or "").lower()
+        if wall == "top":
+            ax, ay = mx(_num(wdw.get("x"))), my(0)
+        elif wall == "bottom":
+            ax, ay = mx(_num(wdw.get("x"))), my(H)
+        elif wall == "left":
+            ax, ay = mx(0), my(_num(wdw.get("y")))
+        elif wall == "right":
+            ax, ay = mx(W), my(_num(wdw.get("y")))
+        else:
+            continue
+        win_anchors.append({"cx": ax, "cy": ay, "wall": wall, "label": wdw.get("label") or ""})
+
     VB_H = col_bottom + 28
-    return "".join(parts), VB_H
+    return "".join(parts), VB_H, {"rooms": room_anchors, "windows": win_anchors}
 
 
-def build_cad_floorplan_svg(d: dict) -> str:
+def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
     """Render one sheet, or — when `d` has a `floors` list — a separate labelled
-    plan per floor stacked vertically (Ground Floor, First Floor, ...)."""
+    plan per floor stacked vertically (Ground Floor, First Floor, ...).
+    When `with_anchors=True`, also returns measure-placement anchors (percent coords)."""
     VB_W = 1040
     floors = d.get("floors")
     if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
         shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "loftCoverage", "measuresKey") if d.get(k)}
         groups, total = [], 0.0
+        raw = {"rooms": [], "windows": []}
         for fl in floors:
-            inner, h = _render_single({**shared, **fl})
+            inner, h, anc = _render_single({**shared, **fl})
             groups.append(f'<g transform="translate(0,{total:.0f})">{inner}</g>')
+            for a in anc["rooms"]:
+                raw["rooms"].append({**a, "cy": a["cy"] + total})
+            for a in anc["windows"]:
+                raw["windows"].append({**a, "cy": a["cy"] + total})
             total += h + 28
-        head = (f'<svg viewBox="0 0 {VB_W} {total:.0f}" xmlns="http://www.w3.org/2000/svg" '
+        VB_H = total
+        head = (f'<svg viewBox="0 0 {VB_W} {VB_H:.0f}" xmlns="http://www.w3.org/2000/svg" '
                 f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
-                f'<rect x="0" y="0" width="{VB_W}" height="{total:.0f}" fill="#fff"/>')
-        return head + "".join(groups) + '</svg>'
-    inner, h = _render_single(d)
-    head = (f'<svg viewBox="0 0 {VB_W} {h:.0f}" xmlns="http://www.w3.org/2000/svg" '
-            f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
-            f'<rect x="0" y="0" width="{VB_W}" height="{h:.0f}" fill="#fff"/>')
-    return head + inner + '</svg>'
+                f'<rect x="0" y="0" width="{VB_W}" height="{VB_H:.0f}" fill="#fff"/>')
+        svg = head + "".join(groups) + '</svg>'
+    else:
+        inner, VB_H, raw = _render_single(d)
+        head = (f'<svg viewBox="0 0 {VB_W} {VB_H:.0f}" xmlns="http://www.w3.org/2000/svg" '
+                f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
+                f'<rect x="0" y="0" width="{VB_W}" height="{VB_H:.0f}" fill="#fff"/>')
+        svg = head + inner + '</svg>'
+    if not with_anchors:
+        return svg
+
+    def _pct(a):
+        return {"x": round(a["cx"] / VB_W * 100, 2), "y": round(a["cy"] / (VB_H or 1) * 100, 2)}
+    anchors = {
+        "rooms": [{"name": a["name"], "wet": a["wet"], **_pct(a)} for a in raw["rooms"]],
+        "windows": [{"wall": a["wall"], "label": a["label"], **_pct(a)} for a in raw["windows"]],
+    }
+    return svg, anchors

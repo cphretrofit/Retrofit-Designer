@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { solarLookup, applyPvTarget } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2, Satellite, Zap, MapPin, AlertTriangle } from "lucide-react";
@@ -6,13 +6,23 @@ import { Loader2, Satellite, Zap, MapPin, AlertTriangle } from "lucide-react";
 export function SolarPanel({ projectId, initial, onChange, solarMeasure, address }) {
   const [solar, setSolar] = useState(initial || null);
   const [busy, setBusy] = useState(false);
-  const [target, setTarget] = useState(initial?.targetKwp || "");
+  const [target, setTarget] = useState(initial?.targetKwp ?? "");
   const [applying, setApplying] = useState(false);
+  const appliedRef = useRef(false);
 
-  const applyTarget = async () => {
+  // PV system size stated on the job card — read from the Solar measure NAME only.
+  const jobKwp = (() => {
+    if (solarMeasure?.jobCardKwp != null) return Number(solarMeasure.jobCardKwp);
+    const s = `${solarMeasure?.name || ""}`;
+    const m = s.match(/([\d.]+)\s*kwp/i) || s.match(/([\d.]+)\s*kw(?![p\w])/i);
+    return m ? parseFloat(m[1]) : null;
+  })();
+
+  const applyTarget = async (override) => {
     setApplying(true);
     try {
-      const t = target === "" ? null : Number(target);
+      const raw = override !== undefined ? override : target;
+      const t = raw === "" || raw == null ? null : Number(raw);
       const r = await applyPvTarget(projectId, t);
       const next = { ...(solar || {}), targetKwp: t };
       setSolar(next); onChange?.(next);
@@ -35,17 +45,20 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
     } finally { setBusy(false); }
   };
 
+  // Pre-fill the target from the job card, and auto-apply it once when solar data is ready.
+  useEffect(() => {
+    if (jobKwp == null) return;
+    if (target === "" && initial?.targetKwp == null) setTarget(String(jobKwp));
+    const ready = solar && (solar.panelCapacityWatts || solar.maxArrayPanelsCount);
+    if (!appliedRef.current && ready && initial?.targetKwp == null) {
+      appliedRef.current = true;
+      applyTarget(jobKwp);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobKwp, solar]);
+
   const kwp = solar?.maxArrayPanelsCount && solar?.panelCapacityWatts
     ? (solar.maxArrayPanelsCount * solar.panelCapacityWatts / 1000).toFixed(2) : null;
-  // PV system size stated on the job card — read from the Solar measure NAME only.
-  // (The measure `system` string gets overwritten with the Google-modelled figure by PV autofill,
-  //  so it must NOT be used as the job-card source.)
-  const jobKwp = (() => {
-    if (solarMeasure?.jobCardKwp != null) return Number(solarMeasure.jobCardKwp);
-    const s = `${solarMeasure?.name || ""}`;
-    const m = s.match(/([\d.]+)\s*kwp/i) || s.match(/([\d.]+)\s*kw(?![p\w])/i);
-    return m ? parseFloat(m[1]) : null;
-  })();
   const pvOver = jobKwp != null && kwp != null && Number(jobKwp) > Number(kwp);
   const stat = (l, v, u) => (
     <div className="border border-border rounded-sm p-3">
@@ -71,6 +84,7 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
           <span className="text-muted-foreground">Job card PV system:</span>
           <span className="font-display text-base">{jobKwp} kWp</span>
           {solarMeasure?.name ? <span className="text-[11px] text-muted-foreground">(per job card · {solarMeasure.name})</span> : null}
+          <span className="text-[11px] text-primary font-medium">· auto-applied to the PV measure</span>
           {kwp ? (
             <span data-testid="pv-delta-note" className={`ml-auto text-[11px] ${pvOver ? "text-amber-600 font-medium" : "text-muted-foreground"}`}>
               {pvOver ? `Exceeds roof modelled max ${kwp} kWp — verify the array physically fits` : `Roof modelled max ${kwp} kWp`}
@@ -83,7 +97,6 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
           {solar.aerialImage && (
             <div className="relative border border-border rounded-sm overflow-hidden" data-testid="aerial-image">
               <img src={solar.aerialImage} alt="Aerial roof view" className="w-full block" />
-              {/* Subject-property highlight — Google Solar centres the imagery on this property */}
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                 <span className="rounded-full" style={{ width: 76, height: 76, boxShadow: "0 0 0 9999px rgba(8,12,20,0.5)", border: "2.5px solid #fde047", outline: "2px solid rgba(0,0,0,0.4)" }} />
               </div>
@@ -103,12 +116,12 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
             {stat("Annual yield", solar.maxYearlyEnergyDcKwh ? Math.round(solar.maxYearlyEnergyDcKwh).toLocaleString() : null, "kWh")}
           </div>
           <div className="border border-border rounded-sm p-3" data-testid="pv-target-row">
-            <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Zap className="h-3 w-3" strokeWidth={1.75} /> Target array size</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Zap className="h-3 w-3" strokeWidth={1.75} /> Target array size {jobKwp != null && <span className="text-primary normal-case tracking-normal">· pre-filled from job card</span>}</div>
             <div className="flex items-center gap-2 mt-2">
               <input type="number" step="0.1" min="0" value={target} onChange={(e) => setTarget(e.target.value)} data-testid="pv-target-input"
                 placeholder={kwp || "e.g. 4"} className="w-24 px-2.5 h-8 bg-background border border-border rounded-sm text-[13px] outline-none focus:border-foreground/40" />
               <span className="text-[12px] text-muted-foreground">kWp</span>
-              <button onClick={applyTarget} disabled={applying} data-testid="pv-target-apply"
+              <button onClick={() => applyTarget()} disabled={applying} data-testid="pv-target-apply"
                 className="flex items-center gap-1.5 h-8 px-3 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 disabled:opacity-50">
                 {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Apply to PV measure
               </button>
