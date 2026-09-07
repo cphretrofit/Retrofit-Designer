@@ -103,6 +103,27 @@ function buildRoomShell(w, d) {
   return g;
 }
 
+function buildPanoRing(urls) {
+  const g = new THREE.Group();
+  const R = 3.0, H = 3.0;
+  const bg = new THREE.Mesh(new THREE.CylinderGeometry(R + 0.4, R + 0.4, H, 48, 1, true), new THREE.MeshBasicMaterial({ color: 0xece7dd, side: THREE.BackSide }));
+  bg.position.y = 1.5; g.add(bg);
+  const fl = new THREE.Mesh(new THREE.CircleGeometry(R + 0.5, 48), new THREE.MeshBasicMaterial({ color: 0xd9b489 })); fl.rotation.x = -Math.PI / 2; fl.position.y = 0.02; g.add(fl);
+  const cl = new THREE.Mesh(new THREE.CircleGeometry(R + 0.5, 48), new THREE.MeshBasicMaterial({ color: 0xf4f1ea, side: THREE.BackSide })); cl.rotation.x = -Math.PI / 2; cl.position.y = H; g.add(cl);
+  const loader = new THREE.TextureLoader(); loader.setCrossOrigin("use-credentials");
+  const N = urls.length || 1;
+  urls.forEach((u, i) => {
+    const ang = (i / N) * Math.PI * 2;
+    const tex = loader.load(u); tex.colorSpace = THREE.SRGBColorSpace;
+    const w = Math.min(3.6, (2 * Math.PI * R) / N * 0.92), h = Math.min(2.4, w * 0.7);
+    const pl = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide, toneMapped: false }));
+    pl.position.set(Math.cos(ang) * R, 1.5, Math.sin(ang) * R);
+    pl.lookAt(0, 1.5, 0);
+    g.add(pl);
+  });
+  return g;
+}
+
 export function HomeWalkthrough({ cadData, projectId, onClose }) {
   const mountRef = useRef(null);
   const S = useRef({});
@@ -121,25 +142,49 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
   floors = floors.filter((f) => (f?.rooms || []).length);
   const photosCountFor = (i) => (roomPhotos?.floors?.[activeFloor]?.[i]?.photos || []).length;
   const photosForActive = (roomPhotos?.floors?.[activeFloor]?.[activeRoom]?.photos) || [];
+  const spinTo = (i) => {
+    const st = S.current; setPhotoIdx(i);
+    if (!st.photoAngles || !st.photoAngles.length) return;
+    let goalA = st.photoAngles[i];
+    while (goalA - st.lon > 180) goalA -= 360;
+    while (goalA - st.lon < -180) goalA += 360;
+    st.lonGoal = goalA;
+  };
 
   const enterRoom = (i) => {
-    const st = S.current; const rm = st.roomsMeta?.[i]; if (!rm) return;
+    const st = S.current; const rm = st.roomsMeta?.[i]; if (!rm || !st.scene) return;
     setActiveRoom(i); setMode("room"); setPhotoIdx(0);
     st.mode = "room";
     if (st.dollGroup) st.dollGroup.visible = false;
-    (st.furnGroups || []).forEach((g, j) => { if (g) g.visible = j === i; });
+    (st.furnGroups || []).forEach((g) => { if (g) g.visible = false; });
     if (st.shell) { st.scene.remove(st.shell); st.shell = null; }
-    const shell = buildRoomShell(rm.w, rm.d); shell.position.set(rm.wx, 0, rm.wz); st.scene.add(shell); st.shell = shell;
-    st.goal = { pos: new THREE.Vector3(rm.wx + rm.w * 0.3, 1.55, rm.wz + rm.d * 0.42), look: new THREE.Vector3(rm.wx - rm.w * 0.12, 1.05, rm.wz - rm.d * 0.18) };
-    st.controls.enabled = false; st.controls.minDistance = 0.4; st.controls.maxDistance = Math.max(rm.w, rm.d) * 1.6;
+    if (st.pano) { st.scene.remove(st.pano); st.pano = null; }
+    const photos = (roomPhotos?.floors?.[activeFloor]?.[i]?.photos) || [];
+    if (photos.length) {
+      const ring = buildPanoRing(photos.map((p) => mediaUrl(p.url)));
+      ring.position.set(rm.wx, 0, rm.wz); st.scene.add(ring); st.pano = ring;
+      st.panoCenter = new THREE.Vector3(rm.wx, 1.5, rm.wz);
+      st.lon = 0; st.lat = 0; st.lonGoal = null; st.panoMode = true; st.panoActive = false;
+      st.photoAngles = photos.map((_, k) => (k / photos.length) * 360);
+      st.goal = { pos: st.panoCenter.clone(), look: st.panoCenter.clone().add(new THREE.Vector3(1, 0, 0)) };
+    } else {
+      const shell = buildRoomShell(rm.w, rm.d); shell.position.set(rm.wx, 0, rm.wz); st.scene.add(shell); st.shell = shell;
+      (st.furnGroups || []).forEach((g, j) => { if (g) g.visible = j === i; });
+      st.panoMode = false; st.panoActive = false;
+      st.goal = { pos: new THREE.Vector3(rm.wx + rm.w * 0.3, 1.55, rm.wz + rm.d * 0.42), look: new THREE.Vector3(rm.wx - rm.w * 0.12, 1.05, rm.wz - rm.d * 0.18) };
+    }
+    st.controls.enabled = false;
   };
   const backToOverview = () => {
     const st = S.current; setMode("overview"); setActiveRoom(null); st.mode = "overview";
     if (st.shell) { st.scene.remove(st.shell); st.shell = null; }
+    if (st.pano) { st.scene.remove(st.pano); st.pano = null; }
+    st.panoMode = false; st.panoActive = false;
     if (st.dollGroup) st.dollGroup.visible = true;
     (st.furnGroups || []).forEach((g) => { if (g) g.visible = true; });
     if (st.overviewPose) st.goal = { pos: st.overviewPose.pos.clone(), look: st.overviewPose.look.clone() };
-    st.controls.enabled = false; st.controls.minDistance = st.span * 0.4; st.controls.maxDistance = st.span * 4;
+    st.controls.enabled = false; st.controls.enablePan = true; st.controls.enableZoom = true;
+    st.controls.minDistance = st.span * 0.4; st.controls.maxDistance = st.span * 4;
   };
 
   useEffect(() => {
@@ -209,6 +254,13 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     controls.enableDamping = true; controls.dampingFactor = 0.08; controls.target.copy(overviewPose.look);
     controls.minDistance = span * 0.4; controls.maxDistance = span * 4; controls.maxPolarAngle = Math.PI / 2.02; controls.update();
 
+    const cv = renderer.domElement;
+    let dragging = false, dpx = 0, dpy = 0, lon0 = 0, lat0 = 0;
+    const pDown = (e) => { const st = S.current; if (!st.panoActive) return; dragging = true; dpx = e.clientX; dpy = e.clientY; lon0 = st.lon; lat0 = st.lat; st.lonGoal = null; };
+    const pMove = (e) => { const st = S.current; if (!dragging || !st.panoActive) return; st.lon = lon0 - (e.clientX - dpx) * 0.18; st.lat = Math.max(-35, Math.min(35, lat0 + (e.clientY - dpy) * 0.18)); };
+    const pUp = () => { dragging = false; };
+    cv.addEventListener("pointerdown", pDown); cv.addEventListener("pointermove", pMove); window.addEventListener("pointerup", pUp);
+
     S.current = { scene, camera, renderer, controls, dollGroup, furnGroups, roomsMeta, overviewPose, span, goal: null, mode: "overview", shell: null };
     setRooms(roomsMeta);
 
@@ -217,10 +269,21 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     const loop = () => {
       const st = S.current;
       if (st.goal) {
-        camera.position.lerp(st.goal.pos, 0.09); controls.target.lerp(st.goal.look, 0.09);
-        if (camera.position.distanceTo(st.goal.pos) < 0.1) { st.goal = null; controls.enabled = true; }
+        camera.position.lerp(st.goal.pos, 0.12); controls.target.lerp(st.goal.look, 0.12);
+        if (camera.position.distanceTo(st.goal.pos) < 0.06) {
+          st.goal = null;
+          if (st.panoMode) { st.panoActive = true; controls.enabled = false; }
+          else { controls.enabled = true; controls.enablePan = true; controls.enableZoom = true; controls.minDistance = 0.4; controls.maxDistance = st.span * 4; }
+        }
       }
-      controls.update();
+      if (st.panoMode && st.panoActive) {
+        if (st.lonGoal != null) { st.lon += (st.lonGoal - st.lon) * 0.12; if (Math.abs(st.lonGoal - st.lon) < 0.4) { st.lon = st.lonGoal; st.lonGoal = null; } }
+        const phi = (90 - st.lat) * Math.PI / 180, th = st.lon * Math.PI / 180;
+        camera.position.copy(st.panoCenter);
+        camera.lookAt(st.panoCenter.x + Math.sin(phi) * Math.cos(th), st.panoCenter.y + Math.cos(phi), st.panoCenter.z + Math.sin(phi) * Math.sin(th));
+      } else {
+        controls.update();
+      }
       // position room pills
       roomsMeta.forEach((rm, i) => {
         const el = pillRefs.current[i]; if (!el) return;
@@ -240,6 +303,7 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     window.addEventListener("resize", onResize);
     return () => {
       cancelAnimationFrame(raf); window.removeEventListener("resize", onResize);
+      cv.removeEventListener("pointerdown", pDown); cv.removeEventListener("pointermove", pMove); window.removeEventListener("pointerup", pUp);
       controls.dispose(); renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       S.current = {};
@@ -302,24 +366,21 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
         {/* viewport */}
         <div className="relative flex-1 min-w-0 bg-[#eeeeec]">
           <div ref={mountRef} data-testid="walkthrough-canvas" className="absolute inset-0" style={{ cursor: mode === "room" ? "default" : "grab" }} />
-          {/* immersive real-photo backdrop when stepping inside a room that has survey photos */}
+          {/* interactive spin-around controls over the real-photo panorama (rendered in the 3D canvas) */}
           {mode === "room" && photosForActive.length > 0 && (
-            <div className="absolute inset-0 bg-black" data-testid="walkthrough-photo">
-              <img key={photoIdx} src={mediaUrl(photosForActive[Math.min(photoIdx, photosForActive.length - 1)].url)} alt="Survey photo"
-                className="w-full h-full object-cover anim-in" />
-              <div className="absolute inset-0 pointer-events-none" style={{ background: "linear-gradient(to bottom, rgba(0,0,0,0.28), rgba(0,0,0,0) 22%, rgba(0,0,0,0) 68%, rgba(0,0,0,0.42))" }} />
+            <>
               {photosForActive.length > 1 && (
                 <>
-                  <button onClick={() => setPhotoIdx((k) => (k - 1 + photosForActive.length) % photosForActive.length)} data-testid="walkthrough-photo-prev"
-                    className="absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/85 hover:bg-white flex items-center justify-center shadow transition-colors"><ChevronLeft className="h-5 w-5" /></button>
-                  <button onClick={() => setPhotoIdx((k) => (k + 1) % photosForActive.length)} data-testid="walkthrough-photo-next"
-                    className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/85 hover:bg-white flex items-center justify-center shadow transition-colors"><ChevronRight className="h-5 w-5" /></button>
+                  <button onClick={() => spinTo((Math.min(photoIdx, photosForActive.length - 1) - 1 + photosForActive.length) % photosForActive.length)} data-testid="walkthrough-photo-prev"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow transition-colors z-10"><ChevronLeft className="h-5 w-5" /></button>
+                  <button onClick={() => spinTo((Math.min(photoIdx, photosForActive.length - 1) + 1) % photosForActive.length)} data-testid="walkthrough-photo-next"
+                    className="absolute right-4 top-1/2 -translate-y-1/2 h-11 w-11 rounded-full bg-white/90 hover:bg-white flex items-center justify-center shadow transition-colors z-10"><ChevronRight className="h-5 w-5" /></button>
                 </>
               )}
-              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 text-white text-[12px] px-3.5 py-1.5 rounded-full">
-                <Camera className="h-3.5 w-3.5" strokeWidth={1.75} /> Actual survey photo · {Math.min(photoIdx, photosForActive.length - 1) + 1} / {photosForActive.length}
+              <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/60 text-white text-[12px] px-3.5 py-1.5 rounded-full z-10" data-testid="walkthrough-photo-chip">
+                <Camera className="h-3.5 w-3.5" strokeWidth={1.75} /> {photosForActive.length} survey photo{photosForActive.length > 1 ? "s" : ""} &middot; drag to look around
               </div>
-            </div>
+            </>
           )}
           {/* view card */}
           <div className="absolute top-5 left-5 bg-white/95 backdrop-blur border border-border rounded-lg px-5 py-4 shadow-sm pointer-events-none" data-testid="walkthrough-viewcard">

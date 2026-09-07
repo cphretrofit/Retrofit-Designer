@@ -1054,6 +1054,21 @@ def _rt(name):
     return "other"
 
 
+def _interior_pool(photos):
+    bad = ("elevation", "external", "window", "loft", "roof", "dpc", "soffit", "fascia", "garden", "driveway", "meter", "boiler", "chimney", "gutter", "damp proof")
+    good = ("interior", "lounge", "living", "kitchen", "dining", "bedroom", "hall", "landing", "stair", "reception", "bathroom", "room")
+    out = []
+    for ph in photos:
+        if not ph.get("url"):
+            continue
+        cap = (ph.get("caption") or "").lower()
+        if any(b in cap for b in bad):
+            continue
+        if any(g in cap for g in good):
+            out.append(ph)
+    return out
+
+
 def _room_photos_payload(p):
     import re
     photos = ((p.get("designPack") or {}).get("photos") or [])
@@ -1089,6 +1104,14 @@ def _room_photos_payload(p):
                     urls.append({"url": u, "caption": ph.get("caption") or ""})
                 if len(urls) >= 8:
                     break
+            if not urls:
+                for ph in _interior_pool(photos):
+                    u = ph.get("url")
+                    if u and u not in seen:
+                        seen.add(u)
+                        urls.append({"url": u, "caption": ph.get("caption") or ""})
+                    if len(urls) >= 4:
+                        break
             rout.append({"name": nm, "photos": urls})
         out.append(rout)
     return {"floors": out}
