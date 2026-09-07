@@ -98,6 +98,8 @@ export const detectRoof = (id) => api.post(`/projects/${id}/floorplan/detect-roo
 export const getPinSpecs = (id) => api.get(`/projects/${id}/floorplan/pin-specs`).then((r) => r.data);
 export const getRoomPhotos = (id) => api.get(`/projects/${id}/floorplan/room-photos`).then((r) => r.data);
 export const saveWalkthroughSnapshot = (id, dataUrl, room) => api.post(`/projects/${id}/floorplan/walkthrough-snapshot`, { dataUrl, room }).then((r) => r.data);
+export const classifyWalkthroughPhotos = (id) => api.post(`/projects/${id}/floorplan/classify-photos`).then((r) => r.data);
+export const createWalkthroughShare = (id) => api.post(`/projects/${id}/walkthrough/share`).then((r) => r.data);
 export const uploadVentilationWorkbook = (id, file) => { const fd = new FormData(); fd.append("file", file); return api.post(`/projects/${id}/ventilation/upload`, fd).then((r) => r.data); };
 export const uploadFloorPlan = (id, file) => {
   const fd = new FormData();

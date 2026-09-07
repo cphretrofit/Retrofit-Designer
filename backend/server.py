@@ -1112,6 +1112,14 @@ def _interior_pool(photos):
 def _room_photos_payload(p):
     import re
     photos = ((p.get("designPack") or {}).get("photos") or [])
+    pv = ((p.get("floorPlan") or {}).get("photoVision") or {})
+
+    def _score(ph):
+        r = _photo_rank(ph.get("caption"))
+        v = pv.get(ph.get("url"))
+        if v:
+            r += (7 if v.get("interior") else -14) + (4 if v.get("wide") else 0) + (v.get("q") or 0) * 5
+        return r
     cd = (p.get("floorPlan") or {}).get("cadData") or {}
     floors = cd.get("floors") or ([{"rooms": cd.get("rooms")}] if cd.get("rooms") else [])
     floors = [f for f in floors if (f or {}).get("rooms")]
@@ -1136,10 +1144,10 @@ def _room_photos_payload(p):
                 matched.append(ph)
             if t == "bed" and bn and not matched:
                 matched = [ph for ph in photos if ph.get("url") and "bedroom" in (ph.get("caption") or "").lower()]
-            good = [ph for ph in matched if _photo_rank(ph.get("caption")) > -4]
+            good = [ph for ph in matched if _score(ph) > -6]
             if good:
                 matched = good
-            matched = sorted(matched, key=lambda ph: _photo_rank(ph.get("caption")), reverse=True)
+            matched = sorted(matched, key=_score, reverse=True)
             urls, seen = [], set()
             for ph in matched:
                 u = ph.get("url")
@@ -1149,7 +1157,7 @@ def _room_photos_payload(p):
                 if len(urls) >= 8:
                     break
             if not urls:
-                for ph in sorted(_interior_pool(photos), key=lambda ph: _photo_rank(ph.get("caption")), reverse=True):
+                for ph in sorted(_interior_pool(photos), key=_score, reverse=True):
                     u = ph.get("url")
                     if u and u not in seen:
                         seen.add(u)
@@ -1167,6 +1175,67 @@ async def floorplan_room_photos(project_id: str):
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     return _room_photos_payload(p)
+
+
+@api_router.post("/projects/{project_id}/floorplan/classify-photos")
+async def classify_walkthrough_photos(project_id: str):
+    from ai_extractor import classify_room_photos
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    rp = _room_photos_payload(p)
+    urls = []
+    for fl in rp["floors"]:
+        for r in fl:
+            for ph in r["photos"]:
+                if ph["url"] not in urls:
+                    urls.append(ph["url"])
+    asyncio.create_task(classify_room_photos(project_id, urls, 18))
+    return {"queued": len(urls)}
+
+
+@api_router.post("/projects/{project_id}/walkthrough/share")
+async def create_walkthrough_share(project_id: str):
+    proj = await db.projects.find_one({"id": project_id}, {"walkthroughShareId": 1})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    token = proj.get("walkthroughShareId") or uuid.uuid4().hex[:12]
+    await db.projects.update_one({"id": project_id}, {"$set": {"walkthroughShareId": token}})
+    return {"token": token}
+
+
+def _public_photo_url(token, u):
+    if u and "/documents/" in u:
+        did = u.split("/documents/")[1].split("/")[0]
+        return f"/api/public/walkthrough/{token}/photo/{did}"
+    return u
+
+
+@public_router.get("/public/walkthrough/{token}")
+async def public_walkthrough(token: str):
+    from pdf_builder import _pin_specs
+    proj = await db.projects.find_one({"walkthroughShareId": token})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Walkthrough not found")
+    rp = _room_photos_payload(proj)
+    for fl in rp["floors"]:
+        for r in fl:
+            r["photos"] = [{"url": _public_photo_url(token, ph["url"]), "caption": ph.get("caption", "")} for ph in r["photos"]]
+    return {"name": proj.get("name") or proj.get("ref") or "Home",
+            "cadData": (proj.get("floorPlan") or {}).get("cadData") or {},
+            "roomPhotos": rp, "pinSpecs": _pin_specs(proj)}
+
+
+@public_router.get("/public/walkthrough/{token}/photo/{doc_id}")
+async def public_walkthrough_photo(token: str, doc_id: str):
+    proj = await db.projects.find_one({"walkthroughShareId": token}, {"id": 1})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Not found")
+    rec = await db.documents.find_one({"id": doc_id, "project_id": proj["id"], "is_deleted": False})
+    if not rec or not rec.get("storage_path"):
+        raise HTTPException(status_code=404, detail="Not found")
+    data, ctype = await asyncio.to_thread(get_object, rec["storage_path"])
+    return Response(content=data, media_type=rec.get("content_type", ctype))
 
 
 @api_router.post("/projects/{project_id}/floorplan")

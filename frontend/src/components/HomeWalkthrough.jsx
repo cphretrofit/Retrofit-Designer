@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { X, ArrowUpRight, ArrowLeft, Camera, ChevronLeft, ChevronRight, Play, Square, Save, MapPin } from "lucide-react";
-import { getRoomPhotos, mediaUrl, saveWalkthroughSnapshot, getPinSpecs } from "@/lib/api";
+import { X, ArrowUpRight, ArrowLeft, Camera, ChevronLeft, ChevronRight, Play, Square, Save, MapPin, Share2 } from "lucide-react";
+import { getRoomPhotos, mediaUrl, saveWalkthroughSnapshot, getPinSpecs, classifyWalkthroughPhotos, createWalkthroughShare } from "@/lib/api";
 import { toast } from "sonner";
 
 const FLOOR_NAMES = ["Ground floor", "First floor", "Second floor", "Third floor"];
@@ -125,7 +125,7 @@ function buildPanoRing(urls) {
   return g;
 }
 
-export function HomeWalkthrough({ cadData, projectId, onClose }) {
+export function HomeWalkthrough({ cadData, projectId, onClose, roomPhotosData, pinSpecsData, readOnly, title }) {
   const mountRef = useRef(null);
   const S = useRef({});
   const pillRefs = useRef([]);
@@ -140,8 +140,20 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
   const [saving, setSaving] = useState(false);
   const tourRef = useRef({});
 
-  useEffect(() => { if (projectId) getRoomPhotos(projectId).then(setRoomPhotos).catch(() => {}); }, [projectId]);
-  useEffect(() => { if (projectId) getPinSpecs(projectId).then((r) => setPinSpecs(r.pinSpecs)).catch(() => {}); }, [projectId]);
+  useEffect(() => {
+    if (roomPhotosData) { setRoomPhotos(roomPhotosData); return; }
+    if (projectId) getRoomPhotos(projectId).then(setRoomPhotos).catch(() => {});
+  }, [projectId, roomPhotosData]);
+  useEffect(() => {
+    if (pinSpecsData) { setPinSpecs(pinSpecsData); return; }
+    if (projectId) getPinSpecs(projectId).then((r) => setPinSpecs(r.pinSpecs)).catch(() => {});
+  }, [projectId, pinSpecsData]);
+  useEffect(() => {
+    if (readOnly || !projectId) return;
+    classifyWalkthroughPhotos(projectId).catch(() => {});
+    const t = setTimeout(() => { getRoomPhotos(projectId).then(setRoomPhotos).catch(() => {}); }, 12000);
+    return () => clearTimeout(t);
+  }, [projectId, readOnly]);
   useEffect(() => () => clearTimeout(tourRef.current.t), []);
 
   const cad = cadData || {};
@@ -158,7 +170,7 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     st.lonGoal = goalA;
   };
 
-  const enterRoom = (i) => {
+  const enterRoom = (i, floorIdx = activeFloor) => {
     const st = S.current; const rm = st.roomsMeta?.[i]; if (!rm || !st.scene) return;
     setActiveRoom(i); setMode("room"); setPhotoIdx(0);
     st.mode = "room";
@@ -166,7 +178,7 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     (st.furnGroups || []).forEach((g) => { if (g) g.visible = false; });
     if (st.shell) { st.scene.remove(st.shell); st.shell = null; }
     if (st.pano) { st.scene.remove(st.pano); st.pano = null; }
-    const photos = (roomPhotos?.floors?.[activeFloor]?.[i]?.photos) || [];
+    const photos = (roomPhotos?.floors?.[floorIdx]?.[i]?.photos) || [];
     if (photos.length) {
       const ring = buildPanoRing(photos.map((p) => mediaUrl(p.url)));
       ring.position.set(rm.wx, 0, rm.wz); st.scene.add(ring); st.pano = ring;
@@ -212,16 +224,36 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     try { await saveWalkthroughSnapshot(projectId, url, rooms[activeRoom]?.name || ""); toast.success("View saved to the design pack"); }
     catch { toast.error("Could not save the view"); } finally { setSaving(false); }
   };
+  const share = async () => {
+    if (!projectId) return;
+    try {
+      const r = await createWalkthroughShare(projectId);
+      const link = `${window.location.origin}/w/${r.token}`;
+      await navigator.clipboard.writeText(link);
+      toast.success("Share link copied — homeowners can open it without logging in");
+    } catch { toast.error("Could not create a share link"); }
+  };
   const startTour = () => {
-    if (!rooms.length) return;
-    setTour(true); if (S.current) S.current.autoSpin = true;
-    let i = 0;
-    const step = () => {
+    if (!floors.length) return;
+    setTour(true);
+    let fi = 0, ri = 0;
+    const stepRoom = () => {
       if (!S.current || !S.current.scene) { stopTour(); return; }
-      enterRoom(i);
-      tourRef.current.t = setTimeout(() => { i += 1; if (i >= rooms.length) { stopTour(); return; } step(); }, 6500);
+      const meta = S.current.roomsMeta || [];
+      if (ri >= meta.length) {
+        fi += 1; ri = 0;
+        if (fi >= floors.length) { stopTour(); return; }
+        setActiveFloor(fi);
+        tourRef.current.t = setTimeout(stepRoom, 1800);
+        return;
+      }
+      S.current.autoSpin = true;
+      enterRoom(ri, fi);
+      ri += 1;
+      tourRef.current.t = setTimeout(stepRoom, 6500);
     };
-    step();
+    if (activeFloor !== 0) { setActiveFloor(0); tourRef.current.t = setTimeout(stepRoom, 1800); }
+    else stepRoom();
   };
   const stopTour = () => {
     setTour(false); clearTimeout(tourRef.current.t);
@@ -364,9 +396,16 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
             <div className="text-[12px] text-muted-foreground leading-tight">Your floor plan, in three dimensions</div>
           </div>
         </div>
-        <button onClick={onClose} data-testid="walkthrough-close" className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-full text-[12.5px] font-medium hover:bg-secondary transition-colors">
-          <X className="h-4 w-4" strokeWidth={1.75} /> Close
-        </button>
+        <div className="flex items-center gap-2">
+          {!readOnly && (
+            <button onClick={share} data-testid="walkthrough-share" className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-full text-[12.5px] font-medium hover:bg-secondary transition-colors">
+              <Share2 className="h-4 w-4" strokeWidth={1.75} /> Share
+            </button>
+          )}
+          <button onClick={onClose} data-testid="walkthrough-close" className="flex items-center gap-1.5 h-9 px-3 border border-border rounded-full text-[12.5px] font-medium hover:bg-secondary transition-colors">
+            <X className="h-4 w-4" strokeWidth={1.75} /> {readOnly ? "Exit" : "Close"}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-1 min-h-0">
@@ -466,7 +505,7 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
                 <Square className="h-4 w-4" strokeWidth={1.75} /> Stop tour
               </button>
             )}
-            {mode === "room" && !tour && photosForActive.length > 0 && (
+            {mode === "room" && !tour && !readOnly && photosForActive.length > 0 && (
               <button onClick={saveView} disabled={saving} data-testid="walkthrough-save-view"
                 className="flex items-center gap-2 h-10 px-4 bg-[var(--c-action)] text-white rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60">
                 <Save className="h-4 w-4" strokeWidth={1.75} /> {saving ? "Saving…" : "Save view"}

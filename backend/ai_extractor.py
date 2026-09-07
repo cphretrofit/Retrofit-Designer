@@ -1047,6 +1047,38 @@ def _img_b64(data, max_px=1100, quality=70):
         return base64.b64encode(data).decode()
 
 
+async def classify_room_photos(project_id, urls, limit=18):
+    """Vision-grade the candidate walkthrough photos so the panorama can lead with the
+    clearest WIDE interior shot. Verdicts cached on floorPlan.photoVision keyed by url."""
+    if not EMERGENT_LLM_KEY:
+        return {}
+    p = await db.projects.find_one({"id": project_id}, {"floorPlan": 1})
+    pv = dict(((p or {}).get("floorPlan") or {}).get("photoVision") or {})
+    todo = [u for u in (urls or []) if u and u not in pv][:limit]
+    if not todo:
+        return pv
+
+    async def one(u):
+        data = await _photo_bytes_from_url(u)
+        if not data:
+            return
+        try:
+            out = await call_claude_vision_json(
+                "You assess UK domestic interior survey photos for a virtual home walkthrough.",
+                'Return ONLY JSON {"interior":true,"wide":true,"quality":0.0}. '
+                "interior=true only if this is the inside of a habitable room (NOT a close-up of a fitting/meter/socket/window detail, "
+                "NOT an external elevation). wide=true if it shows a broad view of the room rather than a tight close-up. "
+                "quality=0..1 for how clear, well-lit and representative the room view is.",
+                [_img_b64(data, 900, 70)])
+            pv[u] = {"interior": bool(out.get("interior")), "wide": bool(out.get("wide")),
+                     "q": max(0.0, min(1.0, float(out.get("quality") or 0)))}
+        except Exception as e:
+            logger.warning("room photo vision failed: %s", e)
+    await asyncio.gather(*[one(u) for u in todo])
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan.photoVision": pv}})
+    return pv
+
+
 def _rasterize_pdf(data, max_pages=3, dpi=140):
     out = []
     try:
