@@ -1987,6 +1987,27 @@ def _massing_3d_page(p, issued_date=""):
             f'<div class="muted" style="font-size:10px; margin-top:6px;">{_addr}</div>')
 
 
+def _walkthrough_pages(p):
+    """Photographic 'Home Walkthrough' views the user captured from the interactive model."""
+    fp = p.get("floorPlan") or {}
+    shots = fp.get("_walkData") or []
+    if not shots:
+        return []
+    pages = []
+    for i in range(0, len(shots), 2):
+        chunk = shots[i:i + 2]
+        cells = "".join(
+            '<div style="margin-top:12px; border:1.5px solid #171717; padding:10px; background:#fff; text-align:center;">'
+            f'<img src="{s.get("uri")}" style="display:block; max-width:100%; max-height:300px; margin:0 auto;">'
+            f'<div class="muted" style="font-size:10px; margin-top:6px;">{_esc(s.get("room") or "Room view")} &mdash; captured from the interactive walkthrough</div></div>'
+            for s in chunk if s.get("uri"))
+        head = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'
+                '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Home Walkthrough &mdash; Saved Views</div>'
+                '<div class="muted" style="font-size:11px; margin-top:8px;">Photographic views of the dwelling captured from the interactive walkthrough, taken from the site survey photography.</div>') if i == 0 else ''
+        pages.append(head + cells)
+    return pages
+
+
 def _adf1_ventilation_pages(p, measures):
     """Dedicated ADF1 Ventilation Strategy Sheet: dwelling data, ADF1 minimum-rate reference
     tables, the wet-room extract schedule (required vs proposed) and the ADF1 Table D1
@@ -3343,6 +3364,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *site_pages, *considerations_pages,
              ventilation_page, *_adf1_ventilation_pages(p, measures), *([floorplan_page] if floorplan_page else []),
              *([_massing_3d_page(p)] if _massing_3d_page(p) else []),
+             *_walkthrough_pages(p),
              preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
@@ -3511,6 +3533,15 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             fp["_threeDData"] = await _uri(fp["threeDUrl"])
         except Exception:
             fp["_threeDData"] = None
+        p["floorPlan"] = fp
+    if fp.get("walkthroughShots"):
+        wd = []
+        for sh in fp["walkthroughShots"]:
+            try:
+                wd.append({"room": sh.get("room") or "", "uri": await _uri(sh.get("path"))})
+            except Exception:
+                pass
+        fp["_walkData"] = wd
         p["floorPlan"] = fp
     if fp.get("cadData") and not fp.get("roof"):
         try:

@@ -984,6 +984,11 @@ class ThreeDSnapshotIn(BaseModel):
     dataUrl: str
 
 
+class WalkthroughSnapshotIn(BaseModel):
+    dataUrl: str
+    room: str = ""
+
+
 @api_router.post("/projects/{project_id}/floorplan/threeD-snapshot")
 async def save_3d_snapshot(project_id: str, payload: ThreeDSnapshotIn):
     import base64 as _b64
@@ -1001,6 +1006,29 @@ async def save_3d_snapshot(project_id: str, payload: ThreeDSnapshotIn):
     fp["threeDUrl"] = stored
     await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "packHash": ""}})
     return {"threeDUrl": stored}
+
+
+@api_router.post("/projects/{project_id}/floorplan/walkthrough-snapshot")
+async def save_walkthrough_snapshot(project_id: str, payload: WalkthroughSnapshotIn):
+    import base64 as _b64
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    du = payload.dataUrl or ""
+    if "," not in du:
+        raise HTTPException(status_code=422, detail="Invalid image data")
+    raw = _b64.b64decode(du.split(",", 1)[1])
+    pid = str(uuid.uuid4())
+    ct = "image/jpeg" if "jpeg" in du.split(",", 1)[0] else "image/png"
+    ext = "jpg" if ct == "image/jpeg" else "png"
+    path = f"{APP_NAME}/uploads/{pid}.{ext}"
+    stored = (await asyncio.to_thread(put_object, path, raw, ct))["path"]
+    fp = p.get("floorPlan") or {}
+    shots = list(fp.get("walkthroughShots") or [])
+    shots.append({"room": (payload.room or "").strip(), "path": stored, "at": datetime.now(timezone.utc).isoformat()})
+    fp["walkthroughShots"] = shots[-8:]
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "packHash": ""}})
+    return {"count": len(fp["walkthroughShots"])}
 
 
 @api_router.post("/projects/{project_id}/floorplan/detect-roof")
@@ -1054,6 +1082,18 @@ def _rt(name):
     return "other"
 
 
+def _photo_rank(cap):
+    c = (cap or "").lower()
+    s = 0
+    for g in ("interior", "general view", "wide", "overview", "room"):
+        if g in c:
+            s += 3
+    for b in ("elevation", "external", "window", "close-up", "close up", "macro", "undercut", "meter", "socket", "detail", "fan photograph"):
+        if b in c:
+            s -= 4
+    return s
+
+
 def _interior_pool(photos):
     bad = ("elevation", "external", "window", "loft", "roof", "dpc", "soffit", "fascia", "garden", "driveway", "meter", "boiler", "chimney", "gutter", "damp proof")
     good = ("interior", "lounge", "living", "kitchen", "dining", "bedroom", "hall", "landing", "stair", "reception", "bathroom", "room")
@@ -1096,6 +1136,10 @@ def _room_photos_payload(p):
                 matched.append(ph)
             if t == "bed" and bn and not matched:
                 matched = [ph for ph in photos if ph.get("url") and "bedroom" in (ph.get("caption") or "").lower()]
+            good = [ph for ph in matched if _photo_rank(ph.get("caption")) > -4]
+            if good:
+                matched = good
+            matched = sorted(matched, key=lambda ph: _photo_rank(ph.get("caption")), reverse=True)
             urls, seen = [], set()
             for ph in matched:
                 u = ph.get("url")
@@ -1105,7 +1149,7 @@ def _room_photos_payload(p):
                 if len(urls) >= 8:
                     break
             if not urls:
-                for ph in _interior_pool(photos):
+                for ph in sorted(_interior_pool(photos), key=lambda ph: _photo_rank(ph.get("caption")), reverse=True):
                     u = ph.get("url")
                     if u and u not in seen:
                         seen.add(u)

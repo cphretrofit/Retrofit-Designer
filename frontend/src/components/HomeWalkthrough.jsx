@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { X, ArrowUpRight, ArrowLeft, Camera, ChevronLeft, ChevronRight } from "lucide-react";
-import { getRoomPhotos, mediaUrl } from "@/lib/api";
+import { X, ArrowUpRight, ArrowLeft, Camera, ChevronLeft, ChevronRight, Play, Square, Save, MapPin } from "lucide-react";
+import { getRoomPhotos, mediaUrl, saveWalkthroughSnapshot, getPinSpecs } from "@/lib/api";
+import { toast } from "sonner";
 
 const FLOOR_NAMES = ["Ground floor", "First floor", "Second floor", "Third floor"];
 const num = (v) => (isFinite(+v) ? +v : 0);
@@ -134,8 +135,14 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
   const [activeRoom, setActiveRoom] = useState(null);
   const [roomPhotos, setRoomPhotos] = useState(null);
   const [photoIdx, setPhotoIdx] = useState(0);
+  const [pinSpecs, setPinSpecs] = useState(null);
+  const [tour, setTour] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const tourRef = useRef({});
 
   useEffect(() => { if (projectId) getRoomPhotos(projectId).then(setRoomPhotos).catch(() => {}); }, [projectId]);
+  useEffect(() => { if (projectId) getPinSpecs(projectId).then((r) => setPinSpecs(r.pinSpecs)).catch(() => {}); }, [projectId]);
+  useEffect(() => () => clearTimeout(tourRef.current.t), []);
 
   const cad = cadData || {};
   let floors = Array.isArray(cad.floors) && cad.floors.length ? cad.floors : (cad.rooms ? [{ rooms: cad.rooms }] : []);
@@ -185,6 +192,41 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
     if (st.overviewPose) st.goal = { pos: st.overviewPose.pos.clone(), look: st.overviewPose.look.clone() };
     st.controls.enabled = false; st.controls.enablePan = true; st.controls.enableZoom = true;
     st.controls.minDistance = st.span * 0.4; st.controls.maxDistance = st.span * 4;
+  };
+
+  const MEASURE_META = { DMEV: ["dMEV extract", "#0891b2"], TRICKLE: ["Trickle vent", "#16a34a"], LOFT: ["Loft insulation", "#b45309"], ASHP: ["ASHP", "#0055ff"] };
+  const measuresForRoom = (type, floorIdx) => {
+    const keys = [];
+    if (type === "kitchen" || type === "bath") keys.push("DMEV");
+    if (["lounge", "dining", "bed"].includes(type)) keys.push("TRICKLE");
+    if (type === "kitchen" || type === "hall") keys.push("ASHP");
+    if (type === "hall" && floorIdx === floors.length - 1) keys.push("LOFT");
+    return keys;
+  };
+  const saveView = async () => {
+    const st = S.current; if (!st.renderer) return;
+    st.renderer.render(st.scene, st.camera);
+    let url; try { url = st.renderer.domElement.toDataURL("image/jpeg", 0.85); } catch { url = null; }
+    if (!url) { toast.error("Couldn't capture the view"); return; }
+    setSaving(true);
+    try { await saveWalkthroughSnapshot(projectId, url, rooms[activeRoom]?.name || ""); toast.success("View saved to the design pack"); }
+    catch { toast.error("Could not save the view"); } finally { setSaving(false); }
+  };
+  const startTour = () => {
+    if (!rooms.length) return;
+    setTour(true); if (S.current) S.current.autoSpin = true;
+    let i = 0;
+    const step = () => {
+      if (!S.current || !S.current.scene) { stopTour(); return; }
+      enterRoom(i);
+      tourRef.current.t = setTimeout(() => { i += 1; if (i >= rooms.length) { stopTour(); return; } step(); }, 6500);
+    };
+    step();
+  };
+  const stopTour = () => {
+    setTour(false); clearTimeout(tourRef.current.t);
+    if (S.current) { S.current.autoSpin = false; }
+    backToOverview();
   };
 
   useEffect(() => {
@@ -278,6 +320,7 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
       }
       if (st.panoMode && st.panoActive) {
         if (st.lonGoal != null) { st.lon += (st.lonGoal - st.lon) * 0.12; if (Math.abs(st.lonGoal - st.lon) < 0.4) { st.lon = st.lonGoal; st.lonGoal = null; } }
+        else if (st.autoSpin) { st.lon += 0.22; }
         const phi = (90 - st.lat) * Math.PI / 180, th = st.lon * Math.PI / 180;
         camera.position.copy(st.panoCenter);
         camera.lookAt(st.panoCenter.x + Math.sin(phi) * Math.cos(th), st.panoCenter.y + Math.cos(phi), st.panoCenter.z + Math.sin(phi) * Math.sin(th));
@@ -390,12 +433,52 @@ export function HomeWalkthrough({ cadData, projectId, onClose }) {
               {mode === "room" && rooms[activeRoom] ? `${rooms[activeRoom].w.toFixed(2)} × ${rooms[activeRoom].d.toFixed(2)} m · approximate` : "Click any room to step inside"}
             </div>
           </div>
-          {mode === "room" && (
-            <button onClick={backToOverview} data-testid="walkthrough-back"
-              className="absolute top-5 right-5 flex items-center gap-2 h-10 px-4 bg-[var(--c-primary,#1f2937)] bg-neutral-900 text-white rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity">
-              <ArrowLeft className="h-4 w-4" strokeWidth={1.75} /> Back to overview
-            </button>
-          )}
+          {/* measure pins for this room — the tour doubles as a measure map */}
+          {mode === "room" && rooms[activeRoom] && (() => {
+            const ms = measuresForRoom(rooms[activeRoom].type, activeFloor);
+            if (!ms.length) return null;
+            return (
+              <div className="absolute bottom-5 left-5 flex flex-col gap-1.5 z-10" data-testid="walkthrough-measures">
+                {ms.map((k) => {
+                  const [label, color] = MEASURE_META[k];
+                  return (
+                    <div key={k} title={(pinSpecs && pinSpecs[k]) || label}
+                      className="flex items-center gap-2 bg-white/92 border border-border rounded-full pl-1.5 pr-3 py-1 text-[11.5px] shadow-sm">
+                      <span className="inline-flex items-center justify-center h-5 w-5 rounded-full" style={{ background: color }}><MapPin className="h-3 w-3 text-white" strokeWidth={2} /></span>
+                      <span className="font-medium">{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+          {/* top-right controls: tour / save / back */}
+          <div className="absolute top-5 right-5 flex items-center gap-2">
+            {mode === "overview" && !tour && rooms.length > 0 && (
+              <button onClick={startTour} data-testid="walkthrough-tour-play"
+                className="flex items-center gap-2 h-10 px-4 bg-neutral-900 text-white rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity">
+                <Play className="h-4 w-4" strokeWidth={1.75} /> Play tour
+              </button>
+            )}
+            {tour && (
+              <button onClick={stopTour} data-testid="walkthrough-tour-stop"
+                className="flex items-center gap-2 h-10 px-4 bg-[var(--c-warning)] text-white rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity">
+                <Square className="h-4 w-4" strokeWidth={1.75} /> Stop tour
+              </button>
+            )}
+            {mode === "room" && !tour && photosForActive.length > 0 && (
+              <button onClick={saveView} disabled={saving} data-testid="walkthrough-save-view"
+                className="flex items-center gap-2 h-10 px-4 bg-[var(--c-action)] text-white rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60">
+                <Save className="h-4 w-4" strokeWidth={1.75} /> {saving ? "Saving…" : "Save view"}
+              </button>
+            )}
+            {mode === "room" && !tour && (
+              <button onClick={backToOverview} data-testid="walkthrough-back"
+                className="flex items-center gap-2 h-10 px-4 bg-neutral-900 text-white rounded-lg text-[13px] font-medium hover:opacity-90 transition-opacity">
+                <ArrowLeft className="h-4 w-4" strokeWidth={1.75} /> Back
+              </button>
+            )}
+          </div>
           {/* room pills */}
           {rooms.map((r, i) => (
             r.type === "hall" || r.type === "other" ? (
