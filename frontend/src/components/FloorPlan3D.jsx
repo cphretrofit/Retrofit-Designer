@@ -112,6 +112,88 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
       });
     });
 
+    // ── survey-driven openings (windows + doors) and staircase ──
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x9fc6e0, transparent: true, opacity: 0.5, roughness: 0.1, metalness: 0.1, side: THREE.DoubleSide });
+    const doorMat = new THREE.MeshStandardMaterial({ color: 0x9c6b3f, roughness: 0.85 });
+    const frontDoorMat = new THREE.MeshStandardMaterial({ color: 0x2f5d50, roughness: 0.7 });
+    const SILL = 0.85, WIN_H = 1.15, WIN_W = 1.05, EPS = 0.04;
+    const addWindow = (wx, wz, faceX, yc) => {
+      const g = new THREE.PlaneGeometry(WIN_W, WIN_H);
+      const glass = new THREE.Mesh(g, glassMat);
+      const frame = new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({ color: 0x3f5060 }));
+      glass.position.set(wx, yc, wz); frame.position.set(wx, yc, wz);
+      if (faceX) { glass.rotation.y = Math.PI / 2; frame.rotation.y = Math.PI / 2; }
+      root.add(glass); root.add(frame);
+    };
+    floors.forEach((f, fi) => {
+      const zBase = fi * (WALL_H + FLOOR_GAP);
+      const yc = zBase + SILL + WIN_H / 2;
+      (f.windows || []).forEach((w) => {
+        const wall = (w.wall || "").toLowerCase();
+        if ((w.label || "").toUpperCase() === "NEI") return; // neighbour / party wall — not a window
+        const along = (w.y != null ? num(w.y) : num(w.x)); // survey stores along-wall pos under x or y
+        if (wall === "top") addWindow(num(w.x) - cx, -cy + EPS, false, yc);
+        else if (wall === "bottom") addWindow(num(w.x) - cx, maxy - cy - EPS, false, yc);
+        else if (wall === "left") addWindow(-cx + EPS, along - cy, true, yc);
+        else if (wall === "right") addWindow(maxx - cx - EPS, along - cy, true, yc);
+      });
+      (f.doors || []).forEach((dr) => {
+        const g = new THREE.BoxGeometry(0.85, 2.0, 0.05); g.translate(0.425, 0, 0);
+        const leaf = new THREE.Mesh(g, doorMat);
+        leaf.position.set(num(dr.x) - cx, zBase + 1.02, num(dr.y) - cy); leaf.rotation.y = -Math.PI / 5;
+        root.add(leaf);
+      });
+    });
+    // front door on the ground-floor external wall
+    const fd = floors[0] && floors[0].frontDoor;
+    if (fd && (fd.x != null || fd.y != null)) {
+      const W = maxx, H = maxy;
+      let wall = (fd.wall || "").toLowerCase();
+      const px = num(fd.x), py = num(fd.y);
+      if (!["top", "bottom", "left", "right"].includes(wall)) {
+        const dist = { top: Math.abs(py), bottom: Math.abs(py - H), left: Math.abs(px), right: Math.abs(px - W) };
+        wall = Object.keys(dist).reduce((a, b) => (dist[a] < dist[b] ? a : b));
+      }
+      let fx, fz, faceX = false;
+      if (wall === "top") { fx = (fd.x != null ? px : W / 2) - cx; fz = -cy; }
+      else if (wall === "bottom") { fx = (fd.x != null ? px : W / 2) - cx; fz = maxy - cy; }
+      else if (wall === "left") { faceX = true; fx = -cx; fz = (fd.y != null ? py : H / 2) - cy; }
+      else { faceX = true; fx = maxx - cx; fz = (fd.y != null ? py : H / 2) - cy; }
+      const g = new THREE.BoxGeometry(1.0, 2.1, 0.08); g.translate(0.5, 0, 0);
+      const door = new THREE.Mesh(g, frontDoorMat);
+      door.position.set(fx, 1.05, fz);
+      door.rotation.y = faceX ? (Math.PI / 2 - Math.PI / 6) : -Math.PI / 6;
+      root.add(door);
+      door.userData = { kind: "pin", title: "Front Door", spec: "Main entrance" }; pickables.push(door);
+    }
+    // staircase rising from the ground-floor Hall to the First-floor Landing
+    if (floors.length >= 2) {
+      const g0 = floors[0].rooms || [];
+      const hall = g0.find((r) => /hall|hallway|entrance|lobby|corridor|foyer/i.test(r.name || ""))
+        || g0.find((r) => /stair/i.test(r.name || ""));
+      if (hall) {
+        const hx = num(hall.x), hy = num(hall.y), hw = num(hall.w), hh = num(hall.h);
+        const riser = 0.21, totalRise = WALL_H + FLOOR_GAP;
+        const n = Math.max(6, Math.round(totalRise / riser));
+        const alongX = hw >= hh;
+        const stairW = Math.min(0.95, (alongX ? hh : hw) * 0.7) || 0.8;
+        const going = Math.min(0.26, ((alongX ? hw : hh) * 0.85) / n) || 0.2;
+        const runLen = n * going;
+        const cxm = hx + hw / 2, cym = hy + hh / 2;
+        const startAlong = (alongX ? cxm : cym) - runLen / 2;
+        const stMat = new THREE.MeshStandardMaterial({ color: 0xc2c7cf, roughness: 0.9 });
+        const stair = new THREE.Group();
+        for (let i = 0; i < n; i++) {
+          const bh = (i + 1) * (totalRise / n);
+          const step = new THREE.Mesh(new THREE.BoxGeometry(alongX ? going : stairW, bh, alongX ? stairW : going), stMat);
+          const alongPos = startAlong + i * going + going / 2;
+          step.position.set((alongX ? alongPos : cxm) - cx, bh / 2, (alongX ? cym : alongPos) - cy);
+          stair.add(step);
+        }
+        root.add(stair);
+      }
+    }
+
     // pitched roof over the top storey (form taken from the property photos where available)
     const rtype = (roof?.type || "hipped").toLowerCase();
     const rtop = (floors[floors.length - 1].rooms || []);

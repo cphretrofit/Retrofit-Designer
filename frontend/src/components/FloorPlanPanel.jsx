@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from "react";
 import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof, getPinSpecs } from "@/lib/api";
 import { FloorPlan3D } from "@/components/FloorPlan3D";
+import { HomeWalkthrough } from "@/components/HomeWalkthrough";
 import { toast } from "sonner";
-import { Upload, Save, Loader2, X, Sparkles } from "lucide-react";
+import { Upload, Save, Loader2, X, Sparkles, DoorOpen } from "lucide-react";
 
 const TYPES = [
   { key: "DMEV", label: "dMEV / extract", color: "#0891B2" },
@@ -47,6 +48,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [view3d, setView3d] = useState(false);
   const [snapping, setSnapping] = useState(false);
   const [pinSpecs, setPinSpecs] = useState(null);
+  const [walk, setWalk] = useState(false);
   const threeDRef = useRef(null);
   const ref = useRef(null);
   const fileRef = useRef(null);
@@ -173,9 +175,15 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
       ) : (
         <>
           {has3d && (
-            <div className="inline-flex rounded-sm border border-border overflow-hidden" data-testid="floorplan-view-toggle">
-              <button onClick={() => setView3d(false)} data-testid="floorplan-view-2d" className={`h-8 px-3 text-[12px] font-medium ${!view3d ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>2D Plan</button>
-              <button onClick={() => setView3d(true)} data-testid="floorplan-view-3d" className={`h-8 px-3 text-[12px] font-medium ${view3d ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>3D View</button>
+            <div className="flex items-center gap-2 flex-wrap" data-testid="floorplan-view-row">
+              <div className="inline-flex rounded-sm border border-border overflow-hidden" data-testid="floorplan-view-toggle">
+                <button onClick={() => setView3d(false)} data-testid="floorplan-view-2d" className={`h-8 px-3 text-[12px] font-medium ${!view3d ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>2D Plan</button>
+                <button onClick={() => setView3d(true)} data-testid="floorplan-view-3d" className={`h-8 px-3 text-[12px] font-medium ${view3d ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>3D View</button>
+              </div>
+              <button onClick={() => setWalk(true)} data-testid="floorplan-walkthrough-open"
+                className="flex items-center gap-1.5 h-8 px-3 rounded-sm bg-[var(--c-action)] text-white text-[12px] font-medium hover:opacity-90 transition-opacity">
+                <DoorOpen className="h-3.5 w-3.5" strokeWidth={1.75} /> Home Walkthrough
+              </button>
             </div>
           )}
           {view3d && has3d ? (
@@ -283,6 +291,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
           )}
         </>
       )}
+      {walk && <HomeWalkthrough cadData={fp.cadData} projectId={projectId} onClose={() => setWalk(false)} />}
     </div>
   );
 }

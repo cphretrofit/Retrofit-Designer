@@ -1027,6 +1027,81 @@ async def floorplan_pin_specs(project_id: str):
     return {"pinSpecs": _pin_specs(p)}
 
 
+_ROOM_KW = {
+    "kitchen": ["kitchen"],
+    "dining": ["dining"],
+    "lounge": ["lounge", "living", "sitting", "reception", "front room"],
+    "bath": ["bathroom", "shower", "en-suite", "ensuite", "cloakroom", "sanitary"],
+    "bed": ["bedroom", "bed room"],
+    "hall": ["hall", "landing", "stair", "corridor", "entrance", "lobby", "foyer"],
+}
+
+
+def _rt(name):
+    n = (name or "").lower()
+    if "kitchen" in n:
+        return "kitchen"
+    if "dining" in n:
+        return "dining"
+    if any(k in n for k in ("lounge", "living", "sitting", "reception")):
+        return "lounge"
+    if "bed" in n:
+        return "bed"
+    if any(k in n for k in ("bath", "shower", "ensuite", "en-suite", "wc", "toilet", "cloak")):
+        return "bath"
+    if any(k in n for k in ("hall", "landing", "stair", "corridor", "lobby", "entrance", "foyer")):
+        return "hall"
+    return "other"
+
+
+def _room_photos_payload(p):
+    import re
+    photos = ((p.get("designPack") or {}).get("photos") or [])
+    cd = (p.get("floorPlan") or {}).get("cadData") or {}
+    floors = cd.get("floors") or ([{"rooms": cd.get("rooms")}] if cd.get("rooms") else [])
+    floors = [f for f in floors if (f or {}).get("rooms")]
+    out = []
+    for f in floors:
+        rout = []
+        for r in (f.get("rooms") or []):
+            nm = (r.get("name") or "").strip()
+            t = _rt(nm)
+            kws = _ROOM_KW.get(t, [])
+            mnum = re.search(r"(\d+)", nm)
+            bn = mnum.group(1) if (t == "bed" and mnum) else None
+            matched = []
+            for ph in photos:
+                if not ph.get("url"):
+                    continue
+                cap = (ph.get("caption") or "").lower()
+                if not any(k in cap for k in kws):
+                    continue
+                if t == "bed" and bn and not re.search(r"bedroom\s*" + bn + r"\b", cap):
+                    continue
+                matched.append(ph)
+            if t == "bed" and bn and not matched:
+                matched = [ph for ph in photos if ph.get("url") and "bedroom" in (ph.get("caption") or "").lower()]
+            urls, seen = [], set()
+            for ph in matched:
+                u = ph.get("url")
+                if u and u not in seen:
+                    seen.add(u)
+                    urls.append({"url": u, "caption": ph.get("caption") or ""})
+                if len(urls) >= 8:
+                    break
+            rout.append({"name": nm, "photos": urls})
+        out.append(rout)
+    return {"floors": out}
+
+
+@api_router.get("/projects/{project_id}/floorplan/room-photos")
+async def floorplan_room_photos(project_id: str):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _room_photos_payload(p)
+
+
 @api_router.post("/projects/{project_id}/floorplan")
 async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
     p = await db.projects.find_one({"id": project_id})
