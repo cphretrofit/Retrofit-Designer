@@ -1546,6 +1546,11 @@ async def heritage_lookup(project_id: str):
     h = await asyncio.to_thread(_heritage_lookup_sync, pc)
     if h:
         h.update(_heritage_statement(h))
+        try:
+            from pdf_builder import _heritage_map_svg
+            h["mapSvg"] = _heritage_map_svg(h)
+        except Exception:
+            pass
     await db.projects.update_one({"id": project_id}, {"$set": {"heritage": h}})
     return h
 
@@ -1568,9 +1573,8 @@ async def solar_lookup(project_id: str):
     s = await asyncio.to_thread(_solar_lookup_sync, lat, lon)
     if not s:
         raise HTTPException(status_code=502, detail="Aerial / solar imagery is not available for this location")
-    pv = _pv_from_solar(s)
-    if pv:
-        s["recommendedPv"] = pv
+    from pdf_builder import _constrain_solar_to_dwelling
+    s = _constrain_solar_to_dwelling(s, proj)
     await db.projects.update_one({"id": project_id}, {"$set": {"solar": s}})
     await _apply_pv_autofill(project_id, proj, s)
     return s

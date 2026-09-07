@@ -1382,10 +1382,10 @@ def _num(v, d=0):
         return "\u2014"
 
 
-def _realistic_max_panels(solar, prop):
+def _realistic_max_panels(solar, prop, footprint_m2=0.0):
     """Google Solar returns the whole building footprint (a terrace can be one
     'building'), giving absurd panel counts. Constrain to a single dwelling's own
-    roof using its floor area / storeys, so we never present a full-street array."""
+    roof using the traced floor-plan footprint (preferred) or floor area / storeys."""
     gmax = solar.get("maxArrayPanelsCount")
     prop = prop or {}
     fa = 0.0
@@ -1399,15 +1399,54 @@ def _realistic_max_panels(solar, prop):
         storeys = max(1, int(prop.get("storeys") or 1))
     except Exception:
         storeys = 1
-    ceiling = 24
-    if fa:
-        footprint = fa / storeys
+    footprint = footprint_m2 if (footprint_m2 and footprint_m2 > 8) else (fa / storeys if fa else 0.0)
+    if footprint:
         usable = footprint * 0.45          # portion of the roof suitable for PV
         est = int(usable / 2.0)            # ~2 m2 per panel
-        ceiling = max(4, min(est, 24))
+        ceiling = max(4, min(est, 20))
+    else:
+        ceiling = 12                       # conservative domestic default (never a whole terrace)
     if gmax:
         return max(1, min(int(gmax), ceiling))
     return ceiling
+
+
+def _dwelling_footprint_m2(p):
+    """Best-effort single-dwelling footprint (m2) from the traced floor-plan rooms."""
+    cd = ((p.get("floorPlan") or {}).get("cadData")) or {}
+    floors = cd.get("floors") or ([{"rooms": cd.get("rooms")}] if cd.get("rooms") else [])
+    best = 0.0
+    for f in floors:
+        area = 0.0
+        for r in (f.get("rooms") or []):
+            try:
+                area += float(r.get("w") or 0) * float(r.get("h") or 0)
+            except Exception:
+                pass
+        best = max(best, area)
+    return best
+
+
+def _constrain_solar_to_dwelling(solar, p, target_kwp=None):
+    """Google Solar reports the whole building (a terrace can be a single 'building'), giving
+    absurd single-dwelling arrays. Scale the figures down to THIS dwelling's own roof so the
+    app never presents a full-street array for one house."""
+    if not solar:
+        return solar
+    gmax = solar.get("maxArrayPanelsCount")
+    if gmax:
+        cap = _realistic_max_panels(solar, (p.get("property") or {}), _dwelling_footprint_m2(p))
+        if cap and cap < gmax:
+            ratio = cap / float(gmax)
+            solar["maxArrayPanelsCount"] = cap
+            if solar.get("configPanelsCount"):
+                solar["configPanelsCount"] = min(int(solar["configPanelsCount"]), cap)
+            for k in ("maxArrayAreaMeters2", "roofAreaMeters2", "maxYearlyEnergyDcKwh"):
+                if isinstance(solar.get(k), (int, float)):
+                    solar[k] = round(solar[k] * ratio, 2)
+            solar["dwellingConstrained"] = True
+    solar["recommendedPv"] = _pv_from_solar(solar, target_kwp)
+    return solar
 
 
 def _subject_highlight(img_uri, zoom=1.5, label="SUBJECT PROPERTY"):
@@ -2984,23 +3023,33 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                                     "floor plan", "floorplan", "site plan", "location plan",
                                     "datasheet", "scope of works", "job card", "bar chart"))
     _real = [ph for ph in photo_uris if not _is_doc_img(ph)]
+    _DETAIL = ("window", "extractor", "fan", "socket", "meter", "loft", "shower", "boiler",
+               "cylinder", "tank", "downlight", "spotlight", "vent", "hatch", "radiator",
+               "fuse", "consumer unit", "purge", "trickle", "wet room", "bathroom", "kitchen")
+    def _cap(ph):
+        return ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
     hero_uri = None
-    # 1) explicit manual override — a photo the user flagged as the main / cover image
+    # 1) manual override — a photo flagged as the main / cover image
     _main = next((ph for ph in photo_uris if (ph.get("isMain") or ph.get("main")) and ph.get("data")), None)
     if _main:
         hero_uri = _main["data"]
-    # 2) RdSAP convention — the FIRST survey photo is almost always the external / front elevation
-    if not hero_uri and _real and photo_uris:
-        _first = photo_uris[0]
-        if not _is_doc_img(_first) and _first.get("data"):
-            hero_uri = _first["data"]
-    # 3) keyword fallback
+    # 2) a full FRONT elevation of the whole dwelling (never a component close-up)
     if not hero_uri:
         for ph in _real:
-            t = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
-            if any(k in t for k in ("front", "elevation", "frontage", "street", "property", "dwelling", "facade", "exterior")):
-                hero_uri = ph.get("data")
-                break
+            t = _cap(ph)
+            if any(k in t for k in ("front elevation", "front of", "frontage", "principal elevation")) and not any(x in t for x in _DETAIL):
+                hero_uri = ph.get("data"); break
+    # 3) any elevation / exterior shot that isn't a component close-up
+    if not hero_uri:
+        for ph in _real:
+            t = _cap(ph)
+            if any(k in t for k in ("elevation", "exterior", "facade", "dwelling", "street", "property")) and not any(x in t for x in _DETAIL):
+                hero_uri = ph.get("data"); break
+    # 4) first survey photo that isn't an obvious component close-up
+    if not hero_uri:
+        for ph in _real:
+            if not any(x in _cap(ph) for x in _DETAIL):
+                hero_uri = ph.get("data"); break
     if not hero_uri and _real:
         hero_uri = _real[0].get("data")
     hero_is_property = hero_uri is not None

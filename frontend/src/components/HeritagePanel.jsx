@@ -85,6 +85,11 @@ export function HeritagePanel({ projectId, initial, postcode, onChange }) {
             {h.error && <div className="text-[12px] mt-3" style={{ color: "var(--c-warning)" }}>{h.error} — confirm with the Local Planning Authority.</div>}
           </div>
 
+          {h.mapSvg && (
+            <div className="border border-border rounded-sm bg-card p-5" data-testid="heritage-map"
+              dangerouslySetInnerHTML={{ __html: h.mapSvg }} />
+          )}
+
           {h.summary && (
             <div className="border border-border rounded-sm bg-card p-5">
               <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-2">Assessment</div>

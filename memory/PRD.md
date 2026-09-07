@@ -207,6 +207,16 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Loft depth photos**: new `insulation_depth` vision category (tape-measure/depth shots) + a `loft_insulation` evidence card so measuring-tape loft photos are captured, not dropped; `loft_general` loft interiors also now retained.
 - ⚠️ Prompt/logic changes verified at syntax + unit level only (projects wiped) — validate on the next 15 Crossways / real import.
 
+## DONE — Solar dwelling-cap, heritage map, cover-photo picker (Jun 2026)
+- **Solar oversizing FIXED**: Google Solar returns the whole building (a terrace = one "building"), giving absurd single-dwelling arrays (52 panels / 20.8 kWp for one house). New `_constrain_solar_to_dwelling` scales the figures down to the dwelling using the traced floor-plan footprint (`_dwelling_footprint_m2`) / floor area, wired into the solar-lookup endpoint + PDF render + PV autofill. Verified on the live Saffron project: 52→**9 panels / 3.6 kWp / 3,362 kWh**.
+- **Heritage map in workspace**: the heritage lookup now returns `mapSvg` (`_heritage_map_svg`) and HeritagePanel renders it. NOTE: it only draws when the property has designations with boundaries — the current Saffron property has none, so nothing shows (correct).
+- **Cover photo**: the "first RdSAP photo" heuristic was grabbing detail close-ups (extractor fan). Rewritten to prefer a full FRONT elevation and to EXCLUDE component close-ups (window/fan/loft/shower/etc.); manual "Set main" remains the override. Needs a pack rebuild to confirm the exact chosen photo.
+
+## OPEN — needs follow-up (reported to user)
+- **Datasheet parser extracts 0 products**: `POST /datasheets/parse` + `apply-client-library` return count:0 for the Saffron project despite 6 Datasheet docs attached → loft still shows the Scope-of-Works "Knauf Loft Roll 44" instead of the selected ISOVER Spacesaver. The app DOES raise the discrepancy as outstanding item #03, but auto-supersede can't fire without parsed products. Root cause = datasheet PDF parsing not extracting products. NEEDS investigation of the datasheet parser.
+- **Loft full top-floor coverage on plan**: plan uses the prebuilt `cadSvg` (built in ai_extractor ~1809/1824 from cadData whose floors have loftCoverage=None) → only a legend tab, no area fill. Fix = set loftCoverage on the TOP floor at cad build time when a LOFT measure exists, then regenerate the plan (floorplan rebatch). NOT yet implemented.
+- **Crossflow felt image / electric shower / loft-depth**: vision-prompt rules were strengthened earlier but need a re-extract to verify classification on the felt/eaves photos.
+
 ## Note — Client datasheet upload already exists
 Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.
 
