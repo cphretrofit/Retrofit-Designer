@@ -259,14 +259,16 @@ export default function ProjectOverview() {
               </div>
               <div className="space-y-2">
                 {p.readiness.breakdown.map((b) => {
-                  const nav = READINESS_NAV[b.label] || { section: "overview", hint: "" };
-                  const done = b.value >= 100;
+                  const fallback = READINESS_NAV[b.label] || { section: "overview", hint: "" };
+                  const section = b.section || fallback.section;
+                  const done = b.done ?? (b.value >= 100);
+                  const hint = b.detail || fallback.hint || "";
                   return (
                     <button
                       key={b.label}
                       type="button"
-                      onClick={() => navigate(`/project/${id}/design/${nav.section}`)}
-                      data-testid={`readiness-row-${nav.section}`}
+                      onClick={() => navigate(`/project/${id}/design/${section}`)}
+                      data-testid={`readiness-row-${section}`}
                       className="w-full text-left group rounded-sm -mx-1.5 px-1.5 py-1.5 hover:bg-secondary/60 transition-colors"
                     >
                       <div className="flex items-center justify-between text-[12px] mb-1">
@@ -282,8 +284,8 @@ export default function ProjectOverview() {
                         </span>
                       </div>
                       <Meter value={b.value} />
-                      {!done && nav.hint && (
-                        <div className="text-[10.5px] text-muted-foreground/80 mt-1 leading-snug">{nav.hint}</div>
+                      {!done && hint && (
+                        <div className="text-[10.5px] text-muted-foreground/80 mt-1 leading-snug">{hint}</div>
                       )}
                     </button>
                   );

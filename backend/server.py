@@ -627,6 +627,170 @@ def _loft_checklist_gap(p):
     return any(flag(k) is None for k in _LOFT_CHECK_KEYS)
 
 
+_FABRIC_CODES = {"LOFT", "EWI", "IWI", "WIN", "FLOOR", "RIR", "PARTY", "FRWL", "RIRI"}
+
+
+def _rd_filled(v):
+    if v is None:
+        return False
+    if isinstance(v, (list, dict)):
+        return len(v) > 0
+    s = str(v).strip().lower()
+    return s not in ("", "—", "-", "n/a", "na", "not stated", "unknown", "tbc", "tbd", "none", "0")
+
+
+def _rd_pct(passed, total):
+    return 100 if total <= 0 else max(0, min(100, round(100 * passed / total)))
+
+
+def _rd_frac_bar(label, section, passed, total, missing=None, noun="item"):
+    val = _rd_pct(passed, total)
+    gap = max(0, total - passed)
+    if total <= 0:
+        detail = "Not applicable to this project"
+    elif gap == 0:
+        detail = "Complete"
+    else:
+        names = [str(n) for n in (missing or []) if n]
+        if names and len(names) <= 2:
+            detail = "Needs: " + ", ".join(names[:2])
+        else:
+            detail = f"{gap} {noun}{'s' if gap != 1 else ''} outstanding"
+    return {"label": label, "section": section, "value": val, "detail": detail, "done": val >= 100}
+
+
+def _compute_readiness(p):
+    """Live, gap-based readiness so 100% genuinely means issue-ready."""
+    prop = p.get("property") or {}
+    ec = prop.get("existingConstruction") or {}
+    ms = p.get("measures") or []
+    codes = {(m.get("code") or "").upper() for m in ms}
+    sc = prop.get("siteConditions") or {}
+    ev = sc.get("evidence") or []
+    items = p.get("itemsBeforeIssue") or []
+    cons = p.get("designConsiderations") or []
+    bars = []
+
+    # Property Data — coverage of key dwelling & survey fields
+    pd_fields = [prop.get("type"), prop.get("age"), prop.get("floorArea"), prop.get("storeys"),
+                 prop.get("occupancy"), prop.get("orientation"),
+                 ec.get("Wall Construction"), ec.get("Roof Construction"), ec.get("Floor Construction"),
+                 p.get("client"), p.get("address"), p.get("ref"), p.get("windowSchedule")]
+    pd_pass = sum(1 for v in pd_fields if _rd_filled(v))
+    bars.append(_rd_frac_bar("Property Data", "survey", pd_pass, len(pd_fields), noun="field"))
+
+    # Measures — average of each measure's own completion
+    if ms:
+        vals = []
+        for m in ms:
+            c = m.get("completion")
+            if isinstance(c, (int, float)):
+                vals.append(max(0, min(100, int(c))))
+            else:
+                designed = bool(m.get("system")) and (len(m.get("buildup") or []) > 0 or len(m.get("products") or []) > 0)
+                vals.append(100 if designed else 40)
+        v = round(sum(vals) / len(vals))
+        miss = sum(1 for x in vals if x < 100)
+        bars.append({"label": "Measures", "section": "overview", "value": v,
+                     "detail": "Complete" if miss == 0 else f"{miss} measure{'s' if miss != 1 else ''} not fully designed",
+                     "done": v >= 100})
+    else:
+        bars.append({"label": "Measures", "section": "overview", "value": 0, "detail": "No measures added yet", "done": False})
+
+    # Specifications — each measure carries the right spec content
+    spec_pass, spec_missing = 0, []
+    for m in ms:
+        code = (m.get("code") or "").upper()
+        prods = len(m.get("products") or [])
+        bu = len(m.get("buildup") or [])
+        if code == "WIN":
+            ok = prods >= 1 and (bu >= 1 or _rd_filled(p.get("windowSchedule")))
+        elif code in _FABRIC_CODES:
+            ok = prods >= 1 and bu >= 1
+        else:
+            ok = prods >= 1 and bool(m.get("system"))
+        if ok:
+            spec_pass += 1
+        else:
+            spec_missing.append(m.get("name") or code)
+    bars.append(_rd_frac_bar("Specifications", "specifications", spec_pass, len(ms), spec_missing, "spec"))
+
+    # Calculations — U-values (fabric), heat loss (ASHP), ventilation rates (VENT)
+    calc_pass, calc_total, calc_missing = 0, 0, []
+    for m in ms:
+        code = (m.get("code") or "").upper()
+        if code in _FABRIC_CODES:
+            calc_total += 1
+            if _rd_filled(m.get("targetU")) and _rd_filled(m.get("calculatedU")):
+                calc_pass += 1
+            else:
+                calc_missing.append(f"{m.get('name') or code} U-value")
+    if "ASHP" in codes or "HEAT" in codes:
+        calc_total += 1
+        if p.get("heatLoss"):
+            calc_pass += 1
+        else:
+            calc_missing.append("Heat-loss calc")
+    if "VENT" in codes:
+        calc_total += 1
+        if p.get("ventilation") or p.get("ventSummary"):
+            calc_pass += 1
+        else:
+            calc_missing.append("Ventilation rates")
+    bars.append(_rd_frac_bar("Calculations", "calculations", calc_pass, calc_total, calc_missing, "calc"))
+
+    # Junctions — thermal-bridge details for each fabric measure
+    j_pass, j_total, j_missing = 0, 0, []
+    for m in ms:
+        if (m.get("code") or "").upper() in _FABRIC_CODES:
+            j_total += 1
+            if len(m.get("junctions") or []) > 0:
+                j_pass += 1
+            else:
+                j_missing.append(m.get("name") or m.get("code"))
+    bars.append(_rd_frac_bar("Junctions", "junctions", j_pass, j_total, j_missing, "junction set"))
+
+    # Evidence — every claim backed by a photo or datasheet
+    e_pass, e_total, e_missing = 0, 0, []
+    for e in ev:
+        e_total += 1
+        if e.get("url") or e.get("photos") or e.get("_data"):
+            e_pass += 1
+        else:
+            e_missing.append(e.get("label") or e.get("key"))
+    for m in ms:
+        e_total += 1
+        if len(m.get("products") or []) > 0:
+            e_pass += 1
+        else:
+            e_missing.append(f"{m.get('name') or m.get('code')} datasheet")
+    for c in cons:
+        e_total += 1
+        if c.get("evidence_fig") or c.get("fig") or c.get("photo") or c.get("evidenceUrl") or c.get("citation"):
+            e_pass += 1
+        else:
+            e_missing.append(c.get("topic") or c.get("title") or "consideration")
+    bars.append(_rd_frac_bar("Evidence", "evidence", e_pass, e_total, e_missing, "unbacked claim"))
+
+    # QA — items before issue cleared, plus coordinator sign-off
+    resolved = sum(1 for it in items if it.get("resolved") or it.get("confirmedBy"))
+    open_items = len(items) - resolved
+    signed = p.get("status") in ("approved",)
+    qa_pass = resolved + (1 if signed else 0)
+    qa_total = len(items) + 1
+    qa_val = _rd_pct(qa_pass, qa_total)
+    if open_items > 0:
+        qa_detail = f"{open_items} item{'s' if open_items != 1 else ''} before issue still open"
+    elif not signed:
+        qa_detail = "Awaiting coordinator sign-off"
+    else:
+        qa_detail = "Complete"
+    bars.append({"label": "QA", "section": "outstanding", "value": qa_val, "detail": qa_detail, "done": qa_val >= 100})
+
+    overall = round(sum(b["value"] for b in bars) / len(bars)) if bars else 0
+    return {"overall": overall, "breakdown": bars}
+
+
 @api_router.get("/dashboard")
 async def dashboard():
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
@@ -709,6 +873,7 @@ async def get_project(project_id: str, request: Request):
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
         doc["defects"] = defects
     doc["partner"] = _resolve_partner(doc)
+    doc["readiness"] = _compute_readiness(doc)
     if doc.get("templateName"):
         doc["templateName"] = display_template_name(
             doc["templateName"], [m.get("code") for m in (doc.get("measures") or [])])

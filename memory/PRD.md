@@ -333,3 +333,12 @@ All in `pdf_builder.py`:
 - Added a plain-English helper line ("Tap any row to jump to what needs finishing… get every bar to 100%"), a completion tick per area (green check at 100%, else open circle), a per-area hint of what to do, and a hover → arrow affordance.
 - NOTE: the readiness % values are still **derived/indicative** (computed from overall completion in `server.py` `breakdown`), not yet a true per-area gap analysis. Offered to make them reflect real gaps next.
 - STILL QUEUED (user-confirmed backlog, not yet started): Evidence Score, ADF1 extract-table tidy, dynamic datasheet Brand Auto-Parse, per-measure photo cap (Pack Slimming).
+
+## DONE — Real (gap-based) Readiness (Jun 2026, verified via curl)
+- Added `_compute_readiness(p)` in `server.py` (helpers `_rd_filled`, `_rd_pct`, `_rd_frac_bar`, `_FABRIC_CODES`); `get_project` now overrides stored readiness with a live computation.
+- Each bar = real gaps: Property Data (field coverage), Measures (avg measure.completion), Specifications (products + build-up/system per measure; WIN allows windowSchedule), Calculations (fabric U-values + heat-loss for ASHP + vent rates for VENT), Junctions (fabric measures with junctions), Evidence (site-condition/measure/consideration claims backed by photo or datasheet), QA (items-before-issue cleared + coordinator sign-off). Overall = mean of bars.
+- Each bar returns `section` + `detail`; `ProjectOverview.jsx` shows the backend detail and jumps to that section. Verified on RTF-2026-0160: overall 81; e.g. Calculations 50% "Needs Loft/Windows U-value", Evidence 50% "9 unbacked claims", QA 92% "Awaiting coordinator sign-off".
+
+## AUDIT vs legacy pack (Jun 2026)
+- Compared our generated pack against the user's old-style PDF (Saffron Solar PV, 39pp). Ours is materially more rigorous/evidence-defensible (site-specific drawings, per-measure photos, U-value calcs, PSI/fRsi, evidenced checklist, auto datasheets/BBA, QA register). Old pack's only edge = brevity (39pp vs our 584pp).
+- Strict gaps to be issue-ready: (1) clear unbacked claims (Evidence 50%) + missing calculatedU (Calculations 50%); (2) Pack Slimming (photo cap + datasheet trim) to cut 584pp bloat; (3) ADF1 extract-table crowding; (4) add radon note; (5) prominent designer/client sign-off panel.
