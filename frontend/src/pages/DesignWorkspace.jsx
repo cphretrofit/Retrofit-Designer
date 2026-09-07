@@ -38,6 +38,7 @@ export default function DesignWorkspace() {
   const [focus, setFocus] = useState(false);
   const [dragIdx, setDragIdx] = useState(null);
   const [dsBusy, setDsBusy] = useState(false);
+  const [dsOver, setDsOver] = useState(false);
 
   const load = () => getProject(id).then(setP).catch(() => {});
   useEffect(() => { load(); }, [id]);
@@ -394,18 +395,28 @@ export default function DesignWorkspace() {
       case "evidence":
         return (
           <div className="anim-in space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="text-[12px] text-muted-foreground">Surveys &amp; evidence for this job. Add job-specific product datasheets (PDF) below — they’re stored on this design and parsed into the spec — or use “Apply client library” to pull the client’s saved products.</div>
-              <div className="flex items-center gap-2 shrink-0">
-                <input id="ds-upload" type="file" multiple accept=".pdf" className="hidden" data-testid="datasheet-upload-input" onChange={(e) => { uploadDs(e.target.files); e.target.value = ""; }} />
-                <label htmlFor="ds-upload" data-testid="datasheet-upload-btn"
-                  className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer">
-                  <Upload className="h-3.5 w-3.5" strokeWidth={1.75} /> Add datasheets
-                </label>
-                <button onClick={parseDs} disabled={dsBusy} data-testid="parse-datasheets-btn"
-                  className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0">
-                  {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />} Apply client library
-                </button>
+            <div
+              onDragOver={(e) => { e.preventDefault(); setDsOver(true); }}
+              onDragLeave={() => setDsOver(false)}
+              onDrop={(e) => { e.preventDefault(); setDsOver(false); uploadDs(e.dataTransfer.files); }}
+              data-testid="datasheet-dropzone"
+              className={cn("border rounded-sm bg-card p-4 transition-colors", dsOver ? "border-solid border-[var(--c-action)] bg-secondary/40" : "border-dashed border-border")}
+            >
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="text-[12px] text-muted-foreground max-w-xl">
+                  Surveys &amp; evidence for this job. <span className="text-foreground font-medium">Drag &amp; drop product datasheets (PDF) here</span> — or click “Add datasheets”. They’re stored on this design and parsed into the spec. Use “Apply client library” to pull the client’s saved products.
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input id="ds-upload" type="file" multiple accept=".pdf" className="hidden" data-testid="datasheet-upload-input" onChange={(e) => { uploadDs(e.target.files); e.target.value = ""; }} />
+                  <label htmlFor="ds-upload" data-testid="datasheet-upload-btn"
+                    className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer bg-background">
+                    {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />} Add datasheets
+                  </label>
+                  <button onClick={parseDs} disabled={dsBusy} data-testid="parse-datasheets-btn"
+                    className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0 bg-background">
+                    {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />} Apply client library
+                  </button>
+                </div>
               </div>
             </div>
             <DocumentsList projectId={id} />

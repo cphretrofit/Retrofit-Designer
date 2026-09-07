@@ -509,6 +509,33 @@ async def _classify_loft_photos(labels, limit=18):
     return out
 
 
+async def _read_insulation_depth(labels, idxs, limit=4):
+    """Vision-read the loft insulation DEPTH in mm from the tape-measure / ruler photos."""
+    imgs = []
+    for i in idxs[:limit]:
+        try:
+            data, _ = labels[i]["image"]
+            b = _img_b64(data)
+            if b:
+                imgs.append(b)
+        except Exception:
+            continue
+    if not imgs:
+        return ""
+    prompt = ("Each image shows loft insulation with a tape measure or ruler standing in / laid across it. "
+              "Read the DEPTH of the existing insulation (from the ceiling/joist level up to the top of the insulation), in MILLIMETRES, from the tape. "
+              'Return ONLY JSON {"depth_mm": <integer or null>} giving the single most reliable reading across the images. Use null if it cannot be read.')
+    try:
+        res = await call_claude_vision_json(
+            "You are a meticulous retrofit surveyor reading a tape measure in a loft photograph.", prompt, imgs)
+        v = (res or {}).get("depth_mm")
+        if isinstance(v, (int, float)) and 10 <= v <= 600:
+            return f"{int(round(v))}mm"
+    except Exception as e:
+        logger.warning("loft depth read failed: %s", e)
+    return ""
+
+
 async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
     """Give each DETECTED site condition an evidence photo pulled from the surveyor's
     site notes (e.g. 'Photo of shower:' -> electric shower) when the vision sweep found none."""
@@ -560,6 +587,32 @@ async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
     # Content-based vision classification of the loft photos so each loft card shows only its own evidence.
     loft_cat = await _classify_loft_photos(labels) if any(e.get("key") in loft_keys for e in need) else {}
     use_vision = bool(loft_cat)
+
+    # Loft Depth Callout — read the measured mm off the tape-measure photos and surface it on the
+    # plan (via loftCoverage), the loft spec and the loft-insulation evidence card.
+    if use_vision and any(e.get("key") == "loft_insulation" for e in need):
+        depth_idxs = [i for i, c in loft_cat.items() if c == "insulation_depth"]
+        depth = await _read_insulation_depth(labels, depth_idxs) if depth_idxs else ""
+        if depth:
+            sc["loft_depth_mm"] = depth
+            fp = proj.get("floorPlan") or {}
+            if fp:
+                lc = str(fp.get("loftCoverage") or "loft insulation")
+                if "mm" not in lc:
+                    fp["loftCoverage"] = f"{lc} — {depth} existing"
+                    proj["floorPlan"] = fp
+            for m in (proj.get("measures") or []):
+                if (m.get("code") or "").upper() in ("LOFT", "RIR") or "loft" in (m.get("name") or "").lower():
+                    m["existingDepth"] = depth
+                    note = f"Existing loft insulation measured at ~{depth} on site (survey tape-measure photograph)."
+                    ns = m.get("notes")
+                    if isinstance(ns, list) and note not in ns:
+                        ns.append(note)
+                        m["notes"] = ns
+            for e2 in ev:
+                if e2.get("key") == "loft_insulation":
+                    e2["detail"] = f"Existing loft insulation measured at ~{depth} from the survey tape-measure photographs."
+                    e2["label"] = f"Loft insulation — measured ~{depth}"
 
     changed, used = 0, set()
     for e in need:
@@ -1120,6 +1173,32 @@ def _merge_doc_site_facts(sc, docfacts):
             by_key[k] = entry
     sc["evidence"] = ev
     return sc
+
+
+def _auto_actions_from_conditions(project):
+    """Auto-raise design actions that follow from detected site conditions (e.g. an electric
+    shower requires an electrical isolation / circuit check on the design)."""
+    sc = (project.get("property") or {}).get("siteConditions") or {}
+
+    def _present(key):
+        if sc.get(key) is True:
+            return True
+        return any(e.get("key") == key and e.get("present") is True for e in (sc.get("evidence") or []))
+
+    items = project.get("itemsBeforeIssue") or []
+
+    def _add(text, measure="QA", severity="warning"):
+        for it in items:
+            if (it.get("text") if isinstance(it, dict) else str(it)) == text:
+                return
+        items.append({"text": text, "measure": measure, "severity": severity, "auto": True})
+
+    if _present("electric_shower"):
+        _add("Electric shower present — isolate the existing dedicated shower circuit during works and have it "
+             "inspected, re-energised and RCD-protection verified by a qualified electrician (BS 7671). Retain or "
+             "upgrade the dedicated shower supply and include it on the design.")
+    project["itemsBeforeIssue"] = items
+    return project
 
 
 DESIGN_CONSIDERATIONS_SYSTEM = """You are a PAS 2035:2023 Retrofit Designer writing the "Design Considerations" section of a retrofit design for ONE dwelling, in the professional house style of a UK retrofit design pack.
