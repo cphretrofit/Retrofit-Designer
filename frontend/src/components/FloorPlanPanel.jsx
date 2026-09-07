@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof } from "@/lib/api";
+import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof, getPinSpecs } from "@/lib/api";
 import { FloorPlan3D } from "@/components/FloorPlan3D";
 import { toast } from "sonner";
 import { Upload, Save, Loader2, X, Sparkles } from "lucide-react";
@@ -30,6 +30,14 @@ const MeasureSymbol = ({ type, color, size = 20 }) => (
     dangerouslySetInnerHTML={{ __html: (SYM[(type || "").toUpperCase()] || '<circle cx="12" cy="12" r="4" fill="C"/>').replaceAll("C", color) }} />
 );
 
+const roofHex = (c = "") => {
+  c = c.toLowerCase();
+  if (c.includes("slate")) return "#4e5c6b";
+  if (c.includes("metal") || c.includes("steel") || c.includes("zinc")) return "#8a949e";
+  if (c.includes("felt") || c.includes("bitumen")) return "#40403f";
+  return "#b4573b";
+};
+
 export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [fp, setFp] = useState(initial || { imageUrl: null, markers: [] });
   const [arm, setArm] = useState(null);
@@ -38,6 +46,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [detecting, setDetecting] = useState(false);
   const [view3d, setView3d] = useState(false);
   const [snapping, setSnapping] = useState(false);
+  const [pinSpecs, setPinSpecs] = useState(null);
   const threeDRef = useRef(null);
   const ref = useRef(null);
   const fileRef = useRef(null);
@@ -53,6 +62,9 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   useEffect(() => {
     if (view3d && has3d && !fp.roof) {
       detectRoof(projectId).then((r) => { if (r?.roof) { setFp((s) => ({ ...s, roof: r.roof })); onChange?.({ ...fp, roof: r.roof }); } }).catch(() => {});
+    }
+    if (view3d && has3d && !pinSpecs) {
+      getPinSpecs(projectId).then((r) => { if (r?.pinSpecs) setPinSpecs(r.pinSpecs); }).catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view3d, has3d]);
@@ -168,15 +180,20 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
           )}
           {view3d && has3d ? (
             <div className="border-[1.5px] border-foreground bg-white p-2" data-testid="floorplan-3d-sheet">
-              <FloorPlan3D ref={threeDRef} cadData={fp.cadData} markers={markers} roof={fp.roof} className="rounded-sm overflow-hidden border border-neutral-300" />
+              <FloorPlan3D ref={threeDRef} cadData={fp.cadData} markers={markers} roof={fp.roof} pinSpecs={pinSpecs} className="rounded-sm overflow-hidden border border-neutral-300" />
               <div className="flex items-center gap-3 mt-2 px-1 flex-wrap text-[10.5px] text-muted-foreground" data-testid="floorplan-3d-legend">
                 {[["dMEV", "#0891b2"], ["Loft", "#b45309"], ["Trickle", "#16a34a"], ["ASHP", "#0055ff"]].map(([l, c]) => (
                   <span key={l} className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: c }} />{l}</span>
                 ))}
-                {fp.roof?.type && <span className="ml-auto capitalize">Roof: {fp.roof.type}{fp.roof.covering ? ` · ${fp.roof.covering}` : ""}</span>}
+                {fp.roof?.type && (
+                  <span className="ml-auto flex items-center gap-1 capitalize" data-testid="floorplan-3d-roof-legend">
+                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: roofHex(fp.roof.covering) }} />
+                    Roof: {fp.roof.type}{fp.roof.covering ? ` · ${fp.roof.covering}` : ""}{fp.roof.ridge && fp.roof.ridge !== "unknown" ? ` · ridge ${fp.roof.ridge}` : ""}
+                  </span>
+                )}
               </div>
               <div className="flex items-center justify-between gap-3 mt-1.5 px-1">
-                <div className="text-[11px] text-muted-foreground">Drag to orbit &middot; scroll to zoom. Measure pins &amp; the roof are derived from your survey — the same data as the 2D plan.</div>
+                <div className="text-[11px] text-muted-foreground">Drag to orbit &middot; scroll to zoom &middot; hover a pin for its spec &middot; click a room to highlight. Measure pins &amp; the roof are derived from your survey.</div>
                 <button onClick={saveSnap} disabled={snapping} data-testid="floorplan-3d-snapshot"
                   className="flex items-center gap-1.5 h-8 px-3 shrink-0 border border-border rounded-sm text-[12px] font-medium hover:bg-secondary disabled:opacity-50">
                   {snapping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" strokeWidth={1.75} />} Save this view to pack

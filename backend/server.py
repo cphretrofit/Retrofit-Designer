@@ -1018,6 +1018,15 @@ async def detect_roof_endpoint(project_id: str):
     return {"roof": roof}
 
 
+@api_router.get("/projects/{project_id}/floorplan/pin-specs")
+async def floorplan_pin_specs(project_id: str):
+    from pdf_builder import _pin_specs
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return {"pinSpecs": _pin_specs(p)}
+
+
 @api_router.post("/projects/{project_id}/floorplan")
 async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
     p = await db.projects.find_one({"id": project_id})

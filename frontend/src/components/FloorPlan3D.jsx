@@ -15,6 +15,15 @@ const ROOM_TONE = (name) => {
   return 0xcdd6e0;
 };
 
+const ROOF_HEX = (covering) => {
+  const c = (covering || "").toLowerCase();
+  if (c.includes("slate")) return 0x4e5c6b;
+  if (c.includes("metal") || c.includes("steel") || c.includes("zinc")) return 0x8a949e;
+  if (c.includes("felt") || c.includes("bitumen")) return 0x40403f;
+  return 0xb4573b; // clay / concrete tile (default terracotta)
+};
+
+
 function labelSprite(text) {
   const c = document.createElement("canvas");
   const dpr = 2;
@@ -35,7 +44,7 @@ function labelSprite(text) {
   return sp;
 }
 
-export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, roof, className }, ref) {
+export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, roof, pinSpecs, className }, ref) {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const sceneStateRef = useRef(null);
@@ -79,6 +88,7 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
 
     const root = new THREE.Group();
     scene.add(root);
+    const pickables = [];
 
     floors.forEach((f, fi) => {
       const zBase = fi * (WALL_H + FLOOR_GAP);
@@ -91,6 +101,7 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
         slab.position.set(x, zBase + 0.04, y); slab.receiveShadow = true; root.add(slab);
         const wall = new THREE.Mesh(new THREE.BoxGeometry(w, WALL_H, d), new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.16, roughness: 1 }));
         wall.position.set(x, zBase + WALL_H / 2, y); wall.castShadow = true; root.add(wall);
+        slab.userData = { kind: "room", name: (r.name || "").trim(), wall }; pickables.push(slab);
         const edges = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, WALL_H, d)), new THREE.LineBasicMaterial({ color: 0x6b7685 }));
         edges.position.set(x, zBase + WALL_H / 2, y); root.add(edges);
         if ((r.name || "").trim()) {
@@ -110,10 +121,13 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
       const OV = 0.3; a -= OV; b -= OV; cc += OV; dd += OV;
       const rw = cc - a, rd = dd - b, zt = (floors.length - 1) * (WALL_H + FLOOR_GAP) + WALL_H;
       const rh = (rtype === "flat" ? 0.14 : 0.5) * Math.min(rw, rd);
-      const rmat = new THREE.MeshStandardMaterial({ color: 0xb4573b, roughness: 0.9, flatShading: true });
+      const rmat = new THREE.MeshStandardMaterial({ color: ROOF_HEX(roof?.covering), roughness: 0.9, flatShading: true });
       let roofMesh;
       if (rtype === "gabled") {
-        const along = rw >= rd; const L = along ? rw : rd; const W = along ? rd : rw;
+        const ridge = (roof?.ridge || "").toLowerCase();
+        let along = rw >= rd;
+        if (ridge === "side-to-side") along = true; else if (ridge === "front-to-back") along = false;
+        const L = along ? rw : rd; const W = along ? rd : rw;
         const shp = new THREE.Shape(); shp.moveTo(-W / 2, 0); shp.lineTo(W / 2, 0); shp.lineTo(0, rh); shp.closePath();
         const g = new THREE.ExtrudeGeometry(shp, { depth: L, bevelEnabled: false }); g.translate(0, 0, -L / 2);
         roofMesh = new THREE.Mesh(g, rmat);
@@ -142,6 +156,7 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
       else if (t === "LOFT") { wx = 0; wz = 0; py = (N - 1) * (WALL_H + FLOOR_GAP) + WALL_H + 1.4; }
       const pin = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.6, 14), new THREE.MeshStandardMaterial({ color: col }));
       pin.rotation.x = Math.PI; pin.position.set(wx, py, wz); root.add(pin);
+      pin.userData = { kind: "pin", title: m.label || t, spec: (pinSpecs && pinSpecs[t]) || m.spec || "" }; pickables.push(pin);
       const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.85), new THREE.MeshBasicMaterial({ color: col }));
       stem.position.set(wx, py - 0.5, wz); root.add(stem);
       const lab = labelSprite(m.label || t); lab.position.set(wx, py + 0.55, wz); lab.scale.set(1.7, 0.42, 1); root.add(lab);
@@ -169,6 +184,57 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
     controls.maxPolarAngle = Math.PI / 2.05;
     controls.update();
 
+    // ─ interactivity: hover pins for a tooltip, click rooms to highlight ─
+    const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+    const tip = document.createElement("div");
+    Object.assign(tip.style, { position: "absolute", pointerEvents: "none", zIndex: 6, maxWidth: "240px", padding: "7px 9px", borderRadius: "6px", background: "rgba(17,24,39,0.94)", color: "#fff", font: "500 11px/1.4 Georgia, serif", boxShadow: "0 6px 18px rgba(0,0,0,0.28)", opacity: "0", transition: "opacity .12s", transform: "translate(-50%, calc(-100% - 14px))" });
+    tip.setAttribute("data-testid", "floorplan-3d-tooltip");
+    mount.appendChild(tip);
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let selected = null;
+    const setSel = (slab) => {
+      if (selected) { selected.material.emissive.setHex(0x000000); if (selected.userData.wall) selected.userData.wall.material.opacity = 0.16; }
+      selected = slab || null;
+      if (selected) { selected.material.emissive.setHex(0x1d4ed8); selected.material.emissiveIntensity = 0.3; if (selected.userData.wall) selected.userData.wall.material.opacity = 0.34; }
+    };
+    const pick = (e) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      ndc.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      ndc.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      ray.setFromCamera(ndc, camera);
+      return { hits: ray.intersectObjects(pickables, false), rect };
+    };
+    const onHover = (e) => {
+      const { hits, rect } = pick(e);
+      const o = hits[0] && hits[0].object;
+      if (o && o.userData.kind === "pin") {
+        tip.innerHTML = `<div style="font-weight:700;margin-bottom:2px;">${esc(o.userData.title)}</div>${o.userData.spec ? `<div style="opacity:.85;">${esc(o.userData.spec)}</div>` : ""}`;
+        tip.style.left = (e.clientX - rect.left) + "px"; tip.style.top = (e.clientY - rect.top) + "px"; tip.style.opacity = "1";
+        renderer.domElement.style.cursor = "pointer";
+      } else if (o && o.userData.kind === "room" && o.userData.name) {
+        tip.innerHTML = `<div style="font-weight:700;">${esc(o.userData.name)}</div><div style="opacity:.75;">Click to highlight</div>`;
+        tip.style.left = (e.clientX - rect.left) + "px"; tip.style.top = (e.clientY - rect.top) + "px"; tip.style.opacity = "1";
+        renderer.domElement.style.cursor = "pointer";
+      } else { tip.style.opacity = "0"; renderer.domElement.style.cursor = "grab"; }
+    };
+    let down = null;
+    const onDown = (e) => { down = [e.clientX, e.clientY]; };
+    const onUp = (e) => {
+      if (down && Math.hypot(e.clientX - down[0], e.clientY - down[1]) < 5) {
+        const { hits } = pick(e);
+        const room = hits.find((h) => h.object.userData.kind === "room");
+        if (room) setSel(selected === room.object ? null : room.object);
+      }
+      down = null;
+    };
+    const onLeave = () => { tip.style.opacity = "0"; };
+    const cv = renderer.domElement;
+    cv.addEventListener("pointermove", onHover);
+    cv.addEventListener("pointerdown", onDown);
+    cv.addEventListener("pointerup", onUp);
+    cv.addEventListener("pointerleave", onLeave);
+
     sceneStateRef.current = { renderer, scene, camera };
 
     let raf;
@@ -184,12 +250,17 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, r
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      cv.removeEventListener("pointermove", onHover);
+      cv.removeEventListener("pointerdown", onDown);
+      cv.removeEventListener("pointerup", onUp);
+      cv.removeEventListener("pointerleave", onLeave);
+      if (tip.parentNode === mount) mount.removeChild(tip);
       controls.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       sceneStateRef.current = null;
     };
-  }, [cadData, markers, roof]);
+  }, [cadData, markers, roof, pinSpecs]);
 
-  return <div ref={mountRef} className={className} data-testid="floorplan-3d-canvas" style={{ width: "100%", height: 460, cursor: "grab" }} />;
+  return <div ref={mountRef} className={className} data-testid="floorplan-3d-canvas" style={{ position: "relative", width: "100%", height: 460, cursor: "grab" }} />;
 });

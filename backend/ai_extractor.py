@@ -1120,11 +1120,14 @@ async def detect_roof(p):
     if not b64:
         return None
     prompt = ("These are photographs of ONE UK dwelling. Identify the MAIN ROOF over the dwelling.\n"
-              'Return ONLY JSON: {"type":"hipped|gabled|flat|mixed","covering":"concrete tiles|clay tiles|slate|metal|felt|unknown","pitch":"shallow|medium|steep"}.\n'
+              'Return ONLY JSON: {"type":"hipped|gabled|flat|mixed","covering":"concrete tiles|clay tiles|slate|metal|felt|unknown","pitch":"shallow|medium|steep","ridge":"front-to-back|side-to-side|unknown"}.\n'
               "hipped = all sides slope down to the eaves with no vertical triangular gable wall. "
               "gabled = a triangular gable wall at one or both ends with a straight ridge. "
               "flat = little or no visible pitch. mixed = a combination. "
-              "Judge the covering and pitch only from what is visible; use unknown if unsure.")
+              "ridge = which way the MAIN ridge line runs relative to the FRONT elevation (the wall with the front door, facing the street): "
+              '"side-to-side" = the ridge runs parallel to the front wall so the eaves/gutter run along the front (typical mid-terrace, semi, or fronted house); '
+              '"front-to-back" = the ridge runs from the front of the house to the rear, so a triangular gable wall faces the street. Use unknown if you cannot tell. '
+              "Judge the covering, pitch and ridge only from what is visible; use unknown if unsure.")
     try:
         res = await call_claude_vision_json(
             "You are a chartered surveyor identifying a dwelling's roof form from photographs.", prompt, b64)
@@ -1134,9 +1137,13 @@ async def detect_roof(p):
     t = str((res or {}).get("type") or "").lower().strip()
     if t not in ("hipped", "gabled", "flat", "mixed"):
         t = "hipped"
+    ridge = str((res or {}).get("ridge") or "unknown").strip().lower()
+    if ridge not in ("front-to-back", "side-to-side"):
+        ridge = "unknown"
     return {"type": t,
             "covering": (str((res or {}).get("covering") or "").strip() or "tiles"),
-            "pitch": (str((res or {}).get("pitch") or "medium").strip())}
+            "pitch": (str((res or {}).get("pitch") or "medium").strip()),
+            "ridge": ridge}
 
 
 

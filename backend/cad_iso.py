@@ -43,6 +43,29 @@ def _room_box(rx, ry, rw, rh, s, z0, z1, roof=False):
     return "".join(parts), (cx, cy)
 
 
+_ROOF_PALETTE = {
+    "slate": ("#5A6675", "#3E4854", "#4C5763", "#2C333C"),
+    "metal": ("#9AA4AF", "#7C868F", "#8A949E", "#5E666E"),
+    "felt":  ("#4A4A4E", "#333336", "#404043", "#242426"),
+    "tile":  ("#CE7458", "#A85B41", "#C06B4E", "#7A4130"),
+}
+
+
+def _roof_colours(covering):
+    """(light, dark, mid, edge) fills for the roof by its detected covering."""
+    c = (covering or "").lower()
+    if "slate" in c:
+        key = "slate"
+    elif "metal" in c or "steel" in c or "zinc" in c:
+        key = "metal"
+    elif "felt" in c or "bitumen" in c:
+        key = "felt"
+    else:
+        key = "tile"
+    return _ROOF_PALETTE[key]
+
+
+
 def build_isometric_svg(cad: dict, roof=None) -> str:
     cad = cad or {}
     floors = cad.get("floors")
@@ -97,26 +120,33 @@ def build_isometric_svg(cad: dict, roof=None) -> str:
         rmaxx = max(_num(r.get("x")) + _num(r.get("w")) for r in top) + OV
         rmaxy = max(_num(r.get("y")) + _num(r.get("h")) for r in top) + OV
         rtype = str((roof or {}).get("type") or "hipped").lower()
+        light, dark, mid, edge = _roof_colours((roof or {}).get("covering"))
         zt = (n - 1) * floor_span + WALL_H
         za = zt + min((rmaxx - rminx), (rmaxy - rminy)) * (0.14 if rtype == "flat" else 0.5)
         c1 = _iso(rminx, rminy, zt, s); c2 = _iso(rmaxx, rminy, zt, s)
         c3 = _iso(rmaxx, rmaxy, zt, s); c4 = _iso(rminx, rmaxy, zt, s)
-        edge = "#7A4130"
         if rtype == "gabled":
-            if (rmaxx - rminx) >= (rmaxy - rminy):
+            ridge = str((roof or {}).get("ridge") or "").lower()
+            if ridge == "side-to-side":
+                horiz = True
+            elif ridge == "front-to-back":
+                horiz = False
+            else:
+                horiz = (rmaxx - rminx) >= (rmaxy - rminy)
+            if horiz:
                 ym = (rminy + rmaxy) / 2
                 r1 = _iso(rminx, ym, za, s); r2 = _iso(rmaxx, ym, za, s)
-                roofsvg = (_poly([c4, c3, r2, r1], "#C06B4E", edge, 0.8) + _poly([c2, c3, r2], "#A85B41", edge, 0.8))
+                roofsvg = (_poly([c4, c3, r2, r1], light, edge, 0.8) + _poly([c2, c3, r2], mid, edge, 0.8))
             else:
                 xm = (rminx + rmaxx) / 2
                 r1 = _iso(xm, rminy, za, s); r2 = _iso(xm, rmaxy, za, s)
-                roofsvg = (_poly([c2, c3, r2, r1], "#C06B4E", edge, 0.8) + _poly([c3, c4, r2], "#A85B41", edge, 0.8))
+                roofsvg = (_poly([c2, c3, r2, r1], light, edge, 0.8) + _poly([c3, c4, r2], mid, edge, 0.8))
             rpts = (c1, c2, c3, c4, r1, r2)
         else:
             apex = _iso((rminx + rmaxx) / 2, (rminy + rmaxy) / 2, za, s)
-            roofsvg = (_poly([c2, c3, apex], "#C06B4E", edge, 0.8)
-                       + _poly([c3, c4, apex], "#A85B41", edge, 0.8)
-                       + _poly([c1, c2, apex], "#CE7458", edge, 0.8))
+            roofsvg = (_poly([c2, c3, apex], mid, edge, 0.8)
+                       + _poly([c3, c4, apex], dark, edge, 0.8)
+                       + _poly([c1, c2, apex], light, edge, 0.8))
             rpts = (c1, c2, c3, c4, apex)
         pending.append(f'<g>{roofsvg}</g>')
         for (px, py) in rpts:

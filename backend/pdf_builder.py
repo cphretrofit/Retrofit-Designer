@@ -1886,6 +1886,40 @@ def _adf1_checklist_items(p):
             "bedrooms": beds, "wholeDwellingRate": wdr, "items": items}
 
 
+def _pin_specs(p):
+    """Concise per-measure spec strings for the interactive 3D floor-plan pin tooltips,
+    derived from this project's ADF1 checklist and measures (a quick measure map)."""
+    try:
+        cl = _adf1_checklist_items(p)
+    except Exception:
+        cl = {"items": [], "systemLabel": None, "wholeDwellingRate": None}
+    items = {i.get("key"): i for i in (cl.get("items") or [])}
+    wdr = cl.get("wholeDwellingRate")
+    out = {}
+    ex = items.get("extract_high_rate") or items.get("extract_intermittent")
+    dmev = cl.get("systemLabel") or "Continuous mechanical extract to wet rooms"
+    if ex and ex.get("provision"):
+        dmev += " \u00b7 " + ex["provision"]
+    if wdr:
+        dmev += f" \u00b7 whole-dwelling {wdr} l/s"
+    out["DMEV"] = dmev
+    bg = items.get("background_vent")
+    out["TRICKLE"] = (bg.get("provision") if bg and bg.get("provision")
+                      else "Background trickle ventilators to habitable rooms (min 8,000 mm\u00b2 equivalent area each).")
+    for m in (p.get("measures") or []):
+        fam = _mfam(m.get("code"), m.get("name"))
+        nm = (m.get("name") or "").strip()
+        if fam in ("LOFT", "RIR") and "LOFT" not in out:
+            out["LOFT"] = nm or "Loft / roof insulation"
+        if fam == "ASHP" and "ASHP" not in out:
+            out["ASHP"] = nm or "Air source heat pump"
+    out.setdefault("LOFT", "Loft insulation \u2014 top-up to current standard")
+    out.setdefault("ASHP", "Air source heat pump")
+    return out
+
+
+
+
 def _gas_evidence_ok(p):
     sc0 = ((p.get("property") or {}).get("siteConditions") or {})
     mg = str(sc0.get("mainsGas") or sc0.get("mains_gas") or "").strip().lower()

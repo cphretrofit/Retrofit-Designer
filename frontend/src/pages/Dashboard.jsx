@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDashboard, getProjects, getClients } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList, Upload, Wind } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList, Upload, Wind, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -38,6 +38,9 @@ export default function Dashboard() {
   const ql = q.trim().toLowerCase();
   const partners = [...new Set(allProjects.map((p) => p.partner).filter(Boolean))].sort();
   const [vf, setVf] = useState(false);
+  const [sweepOpen, setSweepOpen] = useState(false);
+  const [sweepIdx, setSweepIdx] = useState(0);
+  const confirmList = allProjects.filter((p) => p.ventSummary?.status === "confirm");
   const filtersOn = ql || sf || pf || vf;
   const base = filtersOn ? allProjects : projects;
   const list = base.filter((p) => {
@@ -160,6 +163,12 @@ export default function Dashboard() {
               className={cn("flex items-center gap-1 text-[11px] px-2.5 h-7 rounded-sm border transition-colors", vf ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary")}>
               <Wind className="h-3 w-3" strokeWidth={1.75} />Ventilation to confirm
             </button>
+            {confirmList.length > 0 && (
+              <button onClick={() => { setSweepIdx(0); setSweepOpen(true); }} data-testid="vent-sweep-open"
+                className="flex items-center gap-1 text-[11px] px-2.5 h-7 rounded-sm border border-[var(--c-warning)] text-[var(--c-warning)] hover:bg-[var(--c-warning)]/10 transition-colors">
+                <Wind className="h-3 w-3" strokeWidth={1.75} />Auto-confirm sweep ({confirmList.length})
+              </button>
+            )}
             <select value={pf || ""} onChange={(e) => setPf(e.target.value || null)} data-testid="filter-partner"
               className="ml-auto h-7 px-2 bg-background border border-border rounded-sm text-[11.5px] text-muted-foreground outline-none">
               <option value="">All partners</option>
@@ -227,6 +236,39 @@ export default function Dashboard() {
             </div>
           )}
         </div>
+
+        {sweepOpen && confirmList.length > 0 && (() => {
+          const idx = Math.min(sweepIdx, confirmList.length - 1);
+          const cur = confirmList[idx];
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" data-testid="vent-sweep-modal" onClick={() => setSweepOpen(false)}>
+              <div className="bg-card border border-border rounded-sm w-full max-w-md shadow-xl anim-in" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-5 h-12 border-b border-border">
+                  <span className="flex items-center gap-2 text-[13px] font-medium"><Wind className="h-4 w-4 text-[var(--c-warning)]" strokeWidth={1.75} />Ventilation to confirm</span>
+                  <button onClick={() => setSweepOpen(false)} data-testid="vent-sweep-close" className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+                </div>
+                <div className="px-5 py-5">
+                  <div className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground mb-1">Job {idx + 1} of {confirmList.length}</div>
+                  <div className="text-lg font-display font-300" data-testid="vent-sweep-name">{cur.name}</div>
+                  <div className="text-[12px] text-muted-foreground font-mono mt-0.5">{cur.ref} · {cur.town}{cur.partner ? ` · ${cur.partner}` : ""}</div>
+                  <div className="mt-3 flex items-center gap-1.5 text-[12px]" style={{ color: "var(--c-warning)" }}>
+                    <AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.75} />Whole-dwelling ventilation rate still blank
+                  </div>
+                  <button onClick={() => navigate(`/project/${cur.id}/design/ventilation`)} data-testid="vent-sweep-open-job"
+                    className="mt-4 w-full flex items-center justify-center gap-2 h-10 bg-primary text-primary-foreground rounded-sm text-[13px] font-medium hover:opacity-90 transition-opacity">
+                    Open ventilation panel <ArrowRight className="h-4 w-4" strokeWidth={1.75} />
+                  </button>
+                </div>
+                <div className="flex items-center justify-between px-5 h-12 border-t border-border">
+                  <button onClick={() => setSweepIdx((i) => Math.max(0, i - 1))} disabled={idx <= 0} data-testid="vent-sweep-prev"
+                    className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors"><ChevronLeft className="h-4 w-4" />Previous</button>
+                  <button onClick={() => setSweepIdx((i) => Math.min(confirmList.length - 1, i + 1))} disabled={idx >= confirmList.length - 1} data-testid="vent-sweep-next"
+                    className="flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground disabled:opacity-40 transition-colors">Next<ChevronRight className="h-4 w-4" /></button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </main>
     </div>
   );
