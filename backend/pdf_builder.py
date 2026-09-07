@@ -1657,7 +1657,7 @@ def _measure_evidence_html(m):
     return html
 
 
-def _eem_requirements_html(measures):
+def _eem_requirements_html(measures, uploaded_airtight=False):
     fams = {_mfam(m.get("code"), m.get("name")) for m in measures}
     cols = [f for f in ["WALL", "LOFT", "FLOOR", "WIN", "ASHP", "SOLAR", "VENT"] if f in fams]
     FLBL = {"WALL": "Wall", "LOFT": "Loft", "FLOOR": "Floor", "WIN": "Glazing", "ASHP": "ASHP", "SOLAR": "PV", "VENT": "Vent"}
@@ -1681,6 +1681,8 @@ def _eem_requirements_html(measures):
     head = '<th style="width:52%;">EEM-specific design requirement</th>' + "".join(f'<th style="text-align:center;">{FLBL[f]}</th>' for f in cols)
     rows = ""
     for label, applies in REQS:
+        if uploaded_airtight and "Airtightness" in label:
+            continue
         if not (applies & fams):
             continue
         tds = ""
@@ -1696,6 +1698,10 @@ def _eem_requirements_html(measures):
               '<span style="font-size:9.5px; color:#525252;">Required for this measure</span></div>'
               '<div style="display:flex; align-items:center; gap:7px;"><span style="width:14px; height:14px; background:#f5f5f5; border:1px solid #e5e5e5; display:inline-block; border-radius:2px;"></span>'
               '<span style="font-size:9.5px; color:#525252;">Not applicable</span></div></div>')
+    if uploaded_airtight:
+        legend += ('<div style="margin-top:12px; font-size:10px; color:#525252; line-height:1.5;">'
+                   'Air-tightness &amp; air-leakage testing strategy: refer to the project\u2019s completed '
+                   '<strong>Air Tightness Strategy</strong>, bound in Appendix B of this pack.</div>')
     return _np("PAS 2035:2023 &middot; EEM Requirements", "EEM-Specific Design Requirements",
                grid + legend,
                "The design requirements that apply to each proposed measure (PAS 2035:2023). A filled cell indicates the requirement is addressed for that measure within this design.")
@@ -1786,7 +1792,7 @@ def _compliance_html(p, measures):
                 + handover_tbl
                 + '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Building Ventilation</div>'
                 + vent_qa)
-    return [page1, page2, page3, _eem_requirements_html(measures)]
+    return [page1, page2, page3, _eem_requirements_html(measures, p.get("_uploadedAirtight"))]
 
 
 # --- ADF1 Ventilation Strategy Sheet (modelled on the ecmk/CoreLogic ADF1 Table D1 checklist
@@ -3663,7 +3669,8 @@ async def _collect_source_docs(project_id: str):
         recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
                 "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Solar", "Scope of Works",
                                      "Assessment", "Heat Pump Report", "Report", "Certificate",
-                                     "Ventilation", "Ventilation Strategy", "Air Tightness", "ADF1", "Checklist"]}}, {"_id": 0}).to_list(60)
+                                     "Ventilation", "Ventilation Strategy", "Air Tightness", "ADF1", "Checklist",
+                                     "Supporting Document", "Other"]}}, {"_id": 0}).to_list(60)
         proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1})
         cname = (proj or {}).get("client")
         if cname:

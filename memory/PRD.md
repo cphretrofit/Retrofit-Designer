@@ -341,6 +341,10 @@ All in `pdf_builder.py`:
 - U-values: `_ensure_uvalues` fills a fabric measure's calculatedU from its design target when absent, so Calculations completes.
 - Office-doc binding (LibreOffice installed at /usr/bin/soffice): `_office_to_pdf` converts uploaded .xlsx/.docx to PDF and `_merge_appendix` binds them in FULL. New Evidence-tab "Add surveys & forms" uploader auto-types ADF1 / Air Tightness / ASHP / Solar by filename. When an ADF1/Table-D1 doc is uploaded, our auto-generated ADF1 ventilation pages are suppressed (`p["_uploadedAdf1"]`).
 
+## DONE — Airtightness suppress + Other-docs uploader (Jun 2026)
+- Air Tightness suppress: when a doc named air-tight*/airtightness is uploaded (`p["_uploadedAirtight"]`), `_eem_requirements_html(measures, uploaded_airtight)` drops the "Air-tightness & air-leakage testing strategy" requirement row and prints an Appendix-B pointer to the uploaded strategy instead. Incidental "airtight seal" wording in other measures is intentionally left intact.
+- New Evidence-tab "Add other documents" uploader (doc_type "Supporting Document") for arbitrary client/scheme docs; `_collect_source_docs` now also binds "Supporting Document"/"Other" (and "Ventilation Strategy") in full. Decided AGAINST a per-file doc-type picker (uploaders are already section-labelled).
+
 ## DONE — Real (gap-based) Readiness (Jun 2026, verified via curl)
 - Added `_compute_readiness(p)` in `server.py` (helpers `_rd_filled`, `_rd_pct`, `_rd_frac_bar`, `_FABRIC_CODES`); `get_project` now overrides stored readiness with a live computation.
 - Each bar = real gaps: Property Data (field coverage), Measures (avg measure.completion), Specifications (products + build-up/system per measure; WIN allows windowSchedule), Calculations (fabric U-values + heat-loss for ASHP + vent rates for VENT), Junctions (fabric measures with junctions), Evidence (site-condition/measure/consideration claims backed by photo or datasheet), QA (items-before-issue cleared + coordinator sign-off). Overall = mean of bars.

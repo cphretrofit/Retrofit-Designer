@@ -83,6 +83,18 @@ export default function DesignWorkspace() {
     finally { setDsBusy(false); }
   };
 
+  const uploadOther = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    setDsBusy(true);
+    try {
+      await addDocuments(id, files, files.map(() => "Supporting Document"));
+      await load();
+      toast.success(`Added ${files.length} document(s) — bound into the design appendix in full`);
+    } catch (e) { toast.error("Could not add documents", { description: e?.response?.data?.detail }); }
+    finally { setDsBusy(false); }
+  };
+
   const setSection = (s) => navigate(`/project/${id}/design/${s}`);
 
   const activeMeasure = useMemo(() => {
@@ -463,6 +475,20 @@ export default function DesignWorkspace() {
                   <label htmlFor="sup-upload" data-testid="supporting-upload-btn"
                     className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer bg-background">
                     {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />} Add surveys &amp; forms
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div className="border border-dashed border-border rounded-sm bg-card p-4" data-testid="other-docs-zone">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="text-[12px] text-muted-foreground max-w-xl">
+                  <span className="text-foreground font-medium">Other documents</span> — anything else this client or scheme requires (warranties, consents, correspondence, extra reports). Upload .pdf / .xlsx / .docx and they’re bound into the design appendix in full.
+                </div>
+                <div className="shrink-0">
+                  <input id="other-upload" type="file" multiple accept=".xlsx,.xls,.docx,.doc,.pdf,.png,.jpg,.jpeg" className="hidden" data-testid="other-upload-input" onChange={(e) => { uploadOther(e.target.files); e.target.value = ""; }} />
+                  <label htmlFor="other-upload" data-testid="other-upload-btn"
+                    className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer bg-background">
+                    {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />} Add other documents
                   </label>
                 </div>
               </div>
