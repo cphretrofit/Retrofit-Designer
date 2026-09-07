@@ -1429,13 +1429,16 @@ _INS_BRANDS = ["Knauf", "Earthwool", "Rockwool", "Superglass", "Actis", "Celotex
                "Isover", "Ecotherm", "Recticel", "Xtratherm", "Mannok", "Ecose"]
 
 
-def _supersede_measure_brand(m, label, assigned_manufacturer):
+def _supersede_measure_brand(m, label, assigned_manufacturer, extra_brands=None):
     """Swap any competitor brand named in the measure's free-text fields (spec, scope of works,
-    thermal detail, notes) for the ACTUALLY specified datasheet product, so every section matches."""
+    thermal detail, notes) for the ACTUALLY specified datasheet product, so every section matches.
+    Brands are drawn from a base list PLUS any manufacturer names pulled dynamically from the
+    project's datasheets, so superseding works for any product type without a hardcoded list."""
     if not label:
         return
     amn = (assigned_manufacturer or "").lower()
-    brands = [b for b in _INS_BRANDS if not (b.lower() in amn or (amn and amn in b.lower()))]
+    vocab = list(dict.fromkeys([b for b in (_INS_BRANDS + [str(x).strip() for x in (extra_brands or []) if str(x).strip()]) ]))
+    brands = [b for b in vocab if not (b.lower() in amn or (amn and amn in b.lower()))]
     if not brands:
         return
     # brand (case-insensitive) + up to 3 following model tokens (Capitalised/numeric, case-sensitive)
@@ -1481,6 +1484,8 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
         s.add(key)
         by_code.setdefault(code, []).append(rec)
     matched = set()
+    _dyn_brands = [(pr.get("manufacturer") or "") for pr in products if pr.get("manufacturer")] \
+        + [(x.get("manufacturer") or "") for x in (project.get("datasheetProducts") or []) if x.get("manufacturer")]
     for m in project.get("measures") or []:
         c = (m.get("code") or "").upper()
         if c in by_code:
@@ -1506,7 +1511,7 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
                         # narrative names a different brand — replace the leading product clause, keep the detail
                         m["system"] = (_label + " \u2014 " + sys.split(" \u2014 ", 1)[1]) if " \u2014 " in sys else (_label + ". " + sys)
                     # Sweep the remaining spec / scope-of-works / thermal-detail text for competitor brands
-                    _supersede_measure_brand(m, _label, _man)
+                    _supersede_measure_brand(m, _label, _man, _dyn_brands)
             matched.add(c)
     leftover = []
     for code, recs in by_code.items():

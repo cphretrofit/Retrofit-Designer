@@ -2871,19 +2871,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     JSY = {"pass": "&#10003;", "warn": "&#9888;", "fail": "&#10007;", "not_started": "&#9675;", "n/a": "&#8211;"}
     RLV = {"high": "#DC2626", "medium": "#B45309", "low": "#16A34A"}
     CHUNK_SPEC, CHUNK_WORKS = 10, 12
+    _photo_cap = p.get("packPhotosPerMeasure")
+    _photo_cap = 6 if _photo_cap in (None, "") else max(0, int(_photo_cap))
     spec_pages = []
     used_figs = set()
     for idx, m in enumerate(measures, 1):
         title = _esc(m.get("name"))
         pas = _esc(m.get("pas") or m.get("code") or "")
-        # Per-measure chapter divider so each measure reads as a self-contained section
-        spec_pages.append(
-            '<div style="min-height:225mm; display:flex; flex-direction:column; justify-content:center;">'
-            f'<div class="ghost">{idx:02d}</div>'
-            f'<div class="faint upper" style="font-size:10px; letter-spacing:0.22em;">Measure &middot; {_esc(("PAS " + m["pas"]) if m.get("pas") else (m.get("code") or "Measure"))}</div>'
-            f'<div class="disp" style="font-size:40px; line-height:1.05; margin-top:6px;">{title}</div>'
-            + (f'<div class="muted" style="font-size:12px; margin-top:14px; max-width:150mm; line-height:1.6;">{_esc(m.get("system"))}</div>' if m.get("system") else "")
-            + '</div>')
         spec = _measure_spec(bp, m)
         specifications = (spec.get("specifications") or [])[:30]
         works = (spec.get("worksItems") or [])[:60]
@@ -2903,7 +2897,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                     f'<div style="flex:1; min-width:0; font-weight:400; font-size:22px; line-height:1.15; letter-spacing:-0.01em;">{icon}{title}</div>'
                     f'<span class="chip" style="margin:0; flex-shrink:0; white-space:nowrap; border-color:{col}; color:{col};">PAS {pas}</span></div>')
 
-        system_html = f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
+        _chapter = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.22em;">Measure {idx:02d} &middot; {_esc(("PAS " + m["pas"]) if m.get("pas") else (m.get("code") or "Measure"))}</div>'
+                    f'<div class="disp" style="font-size:30px; line-height:1.05; margin-top:2px;">{title}</div>')
+        system_html = _chapter + (f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else "")
         _mp = _photos_for_measure(m.get("code"), photo_uris or [], used_figs)
         # Captions are unreliable, so also pull the vision-curated survey imagery that the
         # site-conditions classifier filed under this measure (esp. loft photos).
@@ -2917,7 +2913,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                     if _d and _d not in _seen:
                         _seen.add(_d)
                         _gallery.append({"data": _d, "fig": "", "caption": _e.get("label") or "Survey photograph"})
-        _gallery = _gallery[:12]
+        _gallery = _gallery[:_photo_cap]
         if _gallery:
             _cells = "".join(
                 '<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 14px 0;">'
@@ -3304,12 +3300,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     if v_rooms:
         rows = ""
         for r in v_rooms:
-            rows += (f'<tr><td style="color:#262626;">{_esc(r.get("room") or "—")}</td>'
-                     f'<td>{_esc(r.get("system") or "—")}</td>'
-                     f'<td class="mono" style="text-align:right;">{_esc(r.get("rate") or "—")}</td>'
-                     f'<td class="muted" style="font-size:10.5px;">{_esc(r.get("note") or "")}</td></tr>')
+            rows += (f'<tr><td style="width:18%; color:#262626; vertical-align:top;">{_esc(r.get("room") or "—")}</td>'
+                     f'<td style="width:24%; vertical-align:top;">{_esc(r.get("system") or "—")}</td>'
+                     f'<td class="mono" style="width:22%; vertical-align:top;">{_esc(r.get("rate") or "—")}</td>'
+                     f'<td class="muted" style="font-size:10.5px; vertical-align:top;">{_esc(r.get("note") or "")}</td></tr>')
         vr_html = ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Wet-Room Extract Schedule (ADF1 Annex C)</div>'
-                   '<table><thead><tr><th>Room</th><th>System</th><th style="text-align:right;">Extract rate</th><th>Notes</th></tr></thead>'
+                   '<table style="table-layout:fixed; width:100%;"><thead><tr><th style="width:18%;">Room</th><th style="width:24%;">System</th><th style="width:22%;">Extract rate</th><th>Notes</th></tr></thead>'
                    f'<tbody>{rows}</tbody></table>')
     v_extra = ""
     if vent.get("wholeDwelling"):
@@ -3321,6 +3317,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         v_extra += '<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Strategy Notes</div>' + _spec_list(v_notes, False)
     v_extra += ('<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Internal Door Undercuts (ADF1 para 1.25)</div>'
                 '<div style="font-size:11.5px; line-height:1.55; color:#333;">All internal doors to habitable rooms are to have a clear air-transfer gap beneath the door leaf &mdash; a minimum <strong>10&nbsp;mm above the finished floor</strong> (or 20&nbsp;mm above an unfinished floor), equivalent to a 7,600&nbsp;mm&sup2; free area &mdash; so that air can move between rooms and support the whole-dwelling ventilation strategy. Undercuts are to be checked and adjusted after any new floor finishes (e.g. carpet, LVT) are laid.</div>')
+    v_extra += ('<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Radon</div>'
+                '<div style="font-size:11.5px; line-height:1.55; color:#333;">The dwelling has been checked against the UK Radon map (UKradon / BGS). Where the property falls within a radon Affected Area, radon protection is to be maintained in accordance with BR&nbsp;211: sealing works and mechanical extract must not reduce sub-floor ventilation below the level required for radon dispersal, and any floor measures are to preserve the existing radon barrier/membrane.</div>')
     v_strategy = (f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(vent.get("strategy"))}</div>' if vent.get("strategy")
                   else '<div class="muted" style="font-size:11px; margin-top:8px;">Ventilation strategy to Approved Document F / ADF1 Annex C. Complete the per-room extract schedule prior to issue.</div>')
     ventilation_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Ventilation</div>'
@@ -3434,7 +3432,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
-             ventilation_page, *_adf1_ventilation_pages(p, measures), *([floorplan_page] if floorplan_page else []),
+             ventilation_page, *([] if p.get("_uploadedAdf1") else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),
              *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
@@ -3647,6 +3645,14 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     except Exception:
         pass
     issued = datetime.now(timezone.utc).strftime("%d %b %Y")
+    try:
+        _alldocs = await db.documents.find({"project_id": project_id, "is_deleted": False},
+                                           {"_id": 0, "original_filename": 1, "doc_type": 1}).to_list(200)
+        _blob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs).lower()
+        p["_uploadedAdf1"] = any(k in _blob for k in ("adf1", "table d1", "ventilation checklist"))
+        p["_uploadedAirtight"] = any(k in _blob for k in ("air tight", "airtight", "air-tight"))
+    except Exception:
+        p["_uploadedAdf1"] = p["_uploadedAirtight"] = False
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued, hero_is_property)
     return p, html
 
@@ -3656,7 +3662,8 @@ async def _collect_source_docs(project_id: str):
     try:
         recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
                 "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Solar", "Scope of Works",
-                                     "Assessment", "Heat Pump Report", "Report", "Certificate"]}}, {"_id": 0}).to_list(60)
+                                     "Assessment", "Heat Pump Report", "Report", "Certificate",
+                                     "Ventilation", "Ventilation Strategy", "Air Tightness", "ADF1", "Checklist"]}}, {"_id": 0}).to_list(60)
         proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1})
         cname = (proj or {}).get("client")
         if cname:
@@ -3671,7 +3678,7 @@ async def _collect_source_docs(project_id: str):
             seen.add(sp)
             fn = (d.get("original_filename") or "").lower()
             ct = d.get("content_type") or ""
-            if not (fn.endswith(".pdf") or fn.endswith((".png", ".jpg", ".jpeg", ".webp")) or "pdf" in ct or "image" in ct):
+            if not (fn.endswith((".pdf", ".xlsx", ".xls", ".docx", ".doc", ".ods", ".odt")) or fn.endswith((".png", ".jpg", ".jpeg", ".webp")) or "pdf" in ct or "image" in ct):
                 continue
             _metas.append((d, ct))
             _tasks.append(asyncio.to_thread(get_object, sp))
@@ -3687,7 +3694,27 @@ async def _collect_source_docs(project_id: str):
     return out[:60]
 
 
-def _merge_appendix(pdf_bytes, docs):
+def _office_to_pdf(data, ext):
+    """Convert an Office document (xlsx/xls/docx/doc/ods/odt) to PDF via LibreOffice headless."""
+    import tempfile, subprocess, os, glob
+    for binname in ("soffice", "libreoffice"):
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                src = os.path.join(td, f"in.{ext}")
+                with open(src, "wb") as f:
+                    f.write(data)
+                subprocess.run([binname, "--headless", "--convert-to", "pdf", "--outdir", td, src],
+                               check=True, timeout=120, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                outs = glob.glob(os.path.join(td, "*.pdf"))
+                if outs:
+                    with open(outs[0], "rb") as f:
+                        return f.read()
+        except Exception as e:
+            logger.warning("office->pdf via %s failed: %s", binname, e)
+    return None
+
+
+def _merge_appendix(pdf_bytes, docs, max_pages=6):
     try:
         import pymupdf
     except Exception:
@@ -3730,11 +3757,27 @@ def _merge_appendix(pdf_bytes, docs):
                 break
             name, data, ct = d["name"], d["data"], (d.get("ct") or "")
             tgt = main.page_count  # divider is created at this page index
-            if name.lower().endswith(".pdf") or "pdf" in ct:
+            low = name.lower()
+            dtype = (d.get("type") or "").lower()
+            _is_office = low.endswith((".xlsx", ".xls", ".docx", ".doc", ".ods", ".odt"))
+            _pdf_data = data
+            if _is_office:
+                _conv = _office_to_pdf(data, low.rsplit(".", 1)[-1])
+                if not _conv:
+                    continue
+                _pdf_data = _conv
+            if low.endswith(".pdf") or "pdf" in ct or _is_office:
                 try:
-                    src = pymupdf.open(stream=data, filetype="pdf")
-                    divider(name, f"Source Document \u00b7 {d.get('type', '')}")
-                    n = min(src.page_count, 150)
+                    src = pymupdf.open(stream=_pdf_data, filetype="pdf")
+                    # Trim ONLY bulky manufacturer datasheets / certificates. Keep tech surveys,
+                    # assessments and completed ADF1 / air-tightness forms in FULL.
+                    _is_ds = ("datasheet" in dtype) or ("bba" in dtype) or ("certificate" in dtype) or ("datasheet" in low)
+                    _cap = max_pages if (_is_ds and not _is_office and max_pages and max_pages > 0) else 150
+                    n = min(src.page_count, _cap)
+                    if n < src.page_count:
+                        divider(name, f"Extract \u00b7 first {n} of {src.page_count} pages \u00b7 full document on file")
+                    else:
+                        divider(name, f"Source Document \u00b7 {d.get('type', '')}")
                     main.insert_pdf(src, from_page=0, to_page=n - 1)
                     added += n
                     src.close()

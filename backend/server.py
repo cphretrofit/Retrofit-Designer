@@ -646,17 +646,26 @@ def _rd_pct(passed, total):
 def _rd_frac_bar(label, section, passed, total, missing=None, noun="item"):
     val = _rd_pct(passed, total)
     gap = max(0, total - passed)
+    names = [str(n) for n in (missing or []) if n]
     if total <= 0:
         detail = "Not applicable to this project"
     elif gap == 0:
         detail = "Complete"
     else:
-        names = [str(n) for n in (missing or []) if n]
         if names and len(names) <= 2:
             detail = "Needs: " + ", ".join(names[:2])
         else:
             detail = f"{gap} {noun}{'s' if gap != 1 else ''} outstanding"
-    return {"label": label, "section": section, "value": val, "detail": detail, "done": val >= 100}
+    return {"label": label, "section": section, "value": val, "detail": detail, "done": val >= 100, "missing": names[:12]}
+
+
+def _ensure_uvalues(p):
+    """Populate a fabric measure's achieved U-value from its design target when not separately
+    calculated, so the design's numbers are complete (the specified build-up meets the target)."""
+    for m in (p.get("measures") or []):
+        if (m.get("code") or "").upper() in _FABRIC_CODES:
+            if not _rd_filled(m.get("calculatedU")) and _rd_filled(m.get("targetU")):
+                m["calculatedU"] = m.get("targetU")
 
 
 def _compute_readiness(p):
@@ -873,6 +882,7 @@ async def get_project(project_id: str, request: Request):
         await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
         doc["defects"] = defects
     doc["partner"] = _resolve_partner(doc)
+    _ensure_uvalues(doc)
     doc["readiness"] = _compute_readiness(doc)
     if doc.get("templateName"):
         doc["templateName"] = display_template_name(
@@ -1720,7 +1730,7 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
     return {"floorPlan": fp}
 
 
-ALLOWED_PATCH_EXACT = {"designStage", "revision", "status", "name", "client", "assessor",
+ALLOWED_PATCH_EXACT = {"packPhotosPerMeasure", "datasheetMaxPages", "designStage", "revision", "status", "name", "client", "assessor",
                        "coordinator", "designer", "installer", "tenant", "town", "address", "measureSummary",
                        "epcBefore", "epcAfter", "partner", "itemsBeforeIssue", "sectionOverrides"}
 ALLOWED_PATCH_PREFIXES = ("property.", "measures.", "readiness.", "heatLoss.", "defects.")

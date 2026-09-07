@@ -63,6 +63,26 @@ export default function DesignWorkspace() {
     finally { setDsBusy(false); }
   };
 
+  const uploadSupporting = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length) return;
+    const typeFor = (n) => {
+      const s = (n || "").toLowerCase();
+      if (s.includes("adf1") || s.includes("table d1") || s.includes("ventilation checklist")) return "ADF1";
+      if (s.includes("air tight") || s.includes("airtight")) return "Air Tightness";
+      if (s.includes("ashp") || s.includes("heat pump")) return "ASHP Survey";
+      if (s.includes("solar") || s.includes(" pv")) return "Solar";
+      return "Technical Survey";
+    };
+    setDsBusy(true);
+    try {
+      await addDocuments(id, files, files.map((f) => typeFor(f.name)));
+      await load();
+      toast.success(`Added ${files.length} document(s) — bound into the design appendix in full`);
+    } catch (e) { toast.error("Could not add documents", { description: e?.response?.data?.detail }); }
+    finally { setDsBusy(false); }
+  };
+
   const setSection = (s) => navigate(`/project/${id}/design/${s}`);
 
   const activeMeasure = useMemo(() => {
@@ -421,7 +441,7 @@ export default function DesignWorkspace() {
                   Surveys &amp; evidence for this job. <span className="text-foreground font-medium">Drag &amp; drop product datasheets (PDF) here</span> — or click “Add datasheets”. They’re stored on this design and parsed into the spec. Use “Apply client library” to pull the client’s saved products.
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <input id="ds-upload" type="file" multiple accept=".pdf" className="hidden" data-testid="datasheet-upload-input" onChange={(e) => { uploadDs(e.target.files); e.target.value = ""; }} />
+                  <input id="ds-upload" type="file" multiple accept=".pdf,.xlsx,.xls,.docx,.doc" className="hidden" data-testid="datasheet-upload-input" onChange={(e) => { uploadDs(e.target.files); e.target.value = ""; }} />
                   <label htmlFor="ds-upload" data-testid="datasheet-upload-btn"
                     className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer bg-background">
                     {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />} Add datasheets
@@ -430,6 +450,20 @@ export default function DesignWorkspace() {
                     className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary disabled:opacity-50 shrink-0 bg-background">
                     {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" strokeWidth={1.75} />} Apply client library
                   </button>
+                </div>
+              </div>
+            </div>
+            <div className="border border-dashed border-border rounded-sm bg-card p-4" data-testid="supporting-docs-zone">
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="text-[12px] text-muted-foreground max-w-xl">
+                  Completed <span className="text-foreground font-medium">ADF1 checklist, Air Tightness Strategy</span> and the <span className="text-foreground font-medium">ASHP / Solar tech surveys</span>. Upload the .xlsx or PDF here — they’re converted and bound into the design appendix <span className="text-foreground font-medium">in full</span>, and your ADF1 replaces the auto-generated version.
+                </div>
+                <div className="shrink-0">
+                  <input id="sup-upload" type="file" multiple accept=".xlsx,.xls,.docx,.doc,.pdf" className="hidden" data-testid="supporting-upload-input" onChange={(e) => { uploadSupporting(e.target.files); e.target.value = ""; }} />
+                  <label htmlFor="sup-upload" data-testid="supporting-upload-btn"
+                    className="flex items-center gap-1.5 h-8 px-3 border border-border rounded-sm text-[12.5px] font-medium hover:bg-secondary transition-colors cursor-pointer bg-background">
+                    {dsBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" strokeWidth={1.75} />} Add surveys &amp; forms
+                  </label>
                 </div>
               </div>
             </div>

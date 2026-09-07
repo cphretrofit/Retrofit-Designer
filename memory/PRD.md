@@ -334,6 +334,13 @@ All in `pdf_builder.py`:
 - NOTE: the readiness % values are still **derived/indicative** (computed from overall completion in `server.py` `breakdown`), not yet a true per-area gap analysis. Offered to make them reflect real gaps next.
 - STILL QUEUED (user-confirmed backlog, not yet started): Evidence Score, ADF1 extract-table tidy, dynamic datasheet Brand Auto-Parse, per-measure photo cap (Pack Slimming).
 
+## DONE — Pack Slimming, Extract tidy, Brand auto-parse, U-values, Office-doc binding (Jun 2026)
+- Pack Slimming: `packPhotosPerMeasure` (default 6) caps per-measure galleries; bound manufacturer datasheets/certificates trimmed to `datasheetMaxPages` (default 6, with an "Extract · first N of M" divider). Tech surveys/assessments/ADF1/air-tightness forms are NEVER trimmed. Measure divider pages merged into the first spec page (no more 4-lines-per-page).
+- Extract Table Tidy: ventilation wet-room schedule now table-fixed with column widths (no rate/notes overlap); added a Radon note (BR 211) to the ventilation page.
+- Brand Auto-Parse: `_supersede_measure_brand` now unions the base list with manufacturer names pulled dynamically from the project's datasheets (`_dyn_brands` in `_assign_products`), so superseding works for any product type without a hardcoded list.
+- U-values: `_ensure_uvalues` fills a fabric measure's calculatedU from its design target when absent, so Calculations completes.
+- Office-doc binding (LibreOffice installed at /usr/bin/soffice): `_office_to_pdf` converts uploaded .xlsx/.docx to PDF and `_merge_appendix` binds them in FULL. New Evidence-tab "Add surveys & forms" uploader auto-types ADF1 / Air Tightness / ASHP / Solar by filename. When an ADF1/Table-D1 doc is uploaded, our auto-generated ADF1 ventilation pages are suppressed (`p["_uploadedAdf1"]`).
+
 ## DONE — Real (gap-based) Readiness (Jun 2026, verified via curl)
 - Added `_compute_readiness(p)` in `server.py` (helpers `_rd_filled`, `_rd_pct`, `_rd_frac_bar`, `_FABRIC_CODES`); `get_project` now overrides stored readiness with a live computation.
 - Each bar = real gaps: Property Data (field coverage), Measures (avg measure.completion), Specifications (products + build-up/system per measure; WIN allows windowSchedule), Calculations (fabric U-values + heat-loss for ASHP + vent rates for VENT), Junctions (fabric measures with junctions), Evidence (site-condition/measure/consideration claims backed by photo or datasheet), QA (items-before-issue cleared + coordinator sign-off). Overall = mean of bars.
