@@ -1281,6 +1281,38 @@ def _is_generic_system(s):
     return (not s) or any(g in s for g in _GENERIC_SYSTEMS)
 
 
+_INS_BRANDS = ["Knauf", "Earthwool", "Rockwool", "Superglass", "Actis", "Celotex", "Kingspan",
+               "Isover", "Ecotherm", "Recticel", "Xtratherm", "Mannok", "Ecose"]
+
+
+def _supersede_measure_brand(m, label, assigned_manufacturer):
+    """Swap any competitor brand named in the measure's free-text fields (spec, scope of works,
+    thermal detail, notes) for the ACTUALLY specified datasheet product, so every section matches."""
+    if not label:
+        return
+    amn = (assigned_manufacturer or "").lower()
+    brands = [b for b in _INS_BRANDS if not (b.lower() in amn or (amn and amn in b.lower()))]
+    if not brands:
+        return
+    # brand (case-insensitive) + up to 3 following model tokens (Capitalised/numeric, case-sensitive)
+    pats = [re.compile(r'(?i:' + re.escape(b) + r')(?:\s+[A-Z0-9][\w/.\-]*){0,3}') for b in brands]
+
+    def _swap(s):
+        if not isinstance(s, str) or not s:
+            return s
+        for p in pats:
+            s = p.sub(label, s)
+        return s
+
+    for k, v in list(m.items()):
+        if k in ("code", "name", "products", "pas"):
+            continue
+        if isinstance(v, str):
+            m[k] = _swap(v)
+        elif isinstance(v, list) and v and all(isinstance(x, str) for x in v):
+            m[k] = [_swap(x) for x in v]
+
+
 def _assign_products(project: dict, products: list, source: str = "datasheet"):
     # Drop previously auto-assigned rows of this source so re-applying is idempotent; keep manual rows.
     for m in project.get("measures") or []:
@@ -1329,6 +1361,8 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
                     elif _man and _man.lower() not in sys.lower():
                         # narrative names a different brand — replace the leading product clause, keep the detail
                         m["system"] = (_label + " \u2014 " + sys.split(" \u2014 ", 1)[1]) if " \u2014 " in sys else (_label + ". " + sys)
+                    # Sweep the remaining spec / scope-of-works / thermal-detail text for competitor brands
+                    _supersede_measure_brand(m, _label, _man)
             matched.add(c)
     leftover = []
     for code, recs in by_code.items():
@@ -1997,6 +2031,20 @@ async def run_import_job(job_id: str):
             await _attach_sitenote_condition_photos(project["id"], project, doc_sources=_snsrc)
         except Exception as e:
             logger.warning("site-condition evidence photos failed: %s", e)
+
+        # Auto-parse attached datasheets so their products flow into the spec at import
+        # (no manual "Apply client library" click needed) and supersede the default brands.
+        try:
+            if datasheet_texts:
+                _prods = await parse_datasheet_products(datasheet_texts)
+                if _prods:
+                    _assign_products(project, _prods, source="datasheet")
+        except Exception as e:
+            logger.warning("import datasheet auto-parse failed: %s", e)
+        try:
+            _auto_actions_from_conditions(project)
+        except Exception as e:
+            logger.warning("auto-actions failed: %s", e)
 
         doc = dict(project)
         doc["_id"] = project["id"]

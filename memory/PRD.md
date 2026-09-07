@@ -220,6 +220,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Vent-first Scope table**: the "Scope of the Design" table numbered measures in list order (VENT was Step 4). Now sorted VENTILATION-FIRST (VENT→WALL→WIN→LOFT→FLOOR→ASHP→SOLAR) to match the install sequence. Verified: Step 1 = dMEV + Trickle Vents.
 - Re-extract verification and PDF rebuild remain user-run steps.
 
+## DONE — Auto-parse import, brand-swap all measure text, vent-first scope (Jun 2026)
+- **Auto-parse on import**: attached datasheets are now parsed and assigned automatically at the end of import (`process_import_job`) — no manual "Apply client library" click. Also runs `_auto_actions_from_conditions`.
+- **Brand supersede across ALL measure text**: `_supersede_measure_brand` sweeps every free-text field of a measure (spec, scope-of-works, thermal detail, notes) and swaps a competitor brand (Knauf/Earthwool/Rockwool/etc.) for the actually-specified datasheet product, for ANY measure (not just loft). Verified: loft Technical Spec / Scope / Thermal Detail now read ISOVER Spacesaver.
+- **Vent-first Scope table**: verified in a rebuilt 580-page pack — Step 1 = dMEV + Trickle Vents → Windows → Loft → ASHP. Solar shows constrained figures; Isover in the loft spec. (Knauf remains only in the bound Scope-of-Works source doc + the pre-issue discrepancy note — correct.)
+
 ## Note — Client datasheet upload already exists
 Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.
 

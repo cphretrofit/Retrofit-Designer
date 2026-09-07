@@ -3082,9 +3082,7 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         p["heritage"] = h0
         _s = _byk.get("solar")
         if need_solar and _s and _s.get("aerialImage"):
-            _pv = _pv_from_solar(_s)
-            if _pv:
-                _s["recommendedPv"] = _pv
+            _constrain_solar_to_dwelling(_s, p)
             p["solar"] = _s
             try:
                 await db.projects.update_one({"id": project_id}, {"$set": {"solar": _s}})
