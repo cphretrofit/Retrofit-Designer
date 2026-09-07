@@ -2023,7 +2023,7 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
 
 
 
-TEXT_LIMIT = {"ASHP Survey": 20000, "Datasheet": 3000}
+TEXT_LIMIT = {"Assessment": 18000, "Technical Survey": 16000, "ASHP Survey": 16000, "Scope of Works": 12000, "Job Card": 8000, "Datasheet": 3000}
 PHOTO_DOC_TYPES = ("Assessment", "ASHP Survey", "Job Card", "Survey", "Technical Survey")
 
 
@@ -2046,26 +2046,36 @@ async def run_import_job(job_id: str):
         vision_photos = []
         datasheet_texts = []
         page_images_b64 = []
-        for item in inputs:
-            did = item["doc_id"]
-            doc_ids.append(did)
-            dtype = item["doc_type"]
-            fn = item.get("filename") or "file"
-            ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+        # Fetch + text-extract every document CONCURRENTLY (was sequential, the main import bottleneck).
+        async def _fetch_doc(item):
             data = b""
             if item.get("storage_path"):
                 try:
                     data, _ = await asyncio.to_thread(get_object, item["storage_path"])
                 except Exception as e:
                     logger.warning("import input fetch failed: %s", e)
-
+            fn = item.get("filename") or "file"
+            ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
             text = (await asyncio.to_thread(extract_text_any, data, ext)) if data else ""
-            limit = TEXT_LIMIT.get(dtype, 24000)
-            if text.strip():
-                content_chars += len(text.strip())
-                parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:limit]}")
-            else:
-                parts.append(f"=== DOCUMENT: {dtype} ({fn}) === [no extractable text — image-only PDF]")
+            return data, text
+        _fetched = await asyncio.gather(*[_fetch_doc(it) for it in inputs])
+        # Uploaded forms / other client docs are bound into the pack verbatim — don't feed them
+        # into the draft prompt (saves tokens and avoids confusing the extractor).
+        SKIP_SOURCE = {"ADF1", "Air Tightness", "Supporting Document", "Other", "Ventilation Strategy", "Survey Photo", "Floor Plan"}
+        for idx, item in enumerate(inputs):
+            did = item["doc_id"]
+            doc_ids.append(did)
+            dtype = item["doc_type"]
+            fn = item.get("filename") or "file"
+            ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else "bin"
+            data, text = _fetched[idx]
+            limit = TEXT_LIMIT.get(dtype, 14000)
+            if dtype not in SKIP_SOURCE and dtype != "Datasheet":
+                if text.strip():
+                    content_chars += len(text.strip())
+                    parts.append(f"=== DOCUMENT: {dtype} ({fn}) ===\n{text[:limit]}")
+                else:
+                    parts.append(f"=== DOCUMENT: {dtype} ({fn}) === [no extractable text — image-only PDF]")
             if dtype == "Datasheet" and text.strip():
                 datasheet_texts.append(f"=== {fn} ===\n{text[:6000]}")
             if dtype in ("Assessment", "Technical Survey") and ext == "pdf" and data and not page_images_b64:
@@ -2154,8 +2164,14 @@ async def run_import_job(job_id: str):
             _photos = (project.get("designPack") or {}).get("photos") or []
             await _vision_tag_photos(project["id"], _photos)
 
+        async def _t_datasheets():
+            if datasheet_texts:
+                _prods = await parse_datasheet_products(datasheet_texts)
+                if _prods:
+                    _assign_products(project, _prods, source="datasheet")
+
         _results = await asyncio.gather(
-            _t_template(), _t_site_and_considerations(), _t_floorplan(), _t_vision_tags(),
+            _t_template(), _t_site_and_considerations(), _t_floorplan(), _t_vision_tags(), _t_datasheets(),
             return_exceptions=True)
         for _r in _results:
             if isinstance(_r, Exception):
@@ -2183,13 +2199,7 @@ async def run_import_job(job_id: str):
 
         # Auto-parse attached datasheets so their products flow into the spec at import
         # (no manual "Apply client library" click needed) and supersede the default brands.
-        try:
-            if datasheet_texts:
-                _prods = await parse_datasheet_products(datasheet_texts)
-                if _prods:
-                    _assign_products(project, _prods, source="datasheet")
-        except Exception as e:
-            logger.warning("import datasheet auto-parse failed: %s", e)
+        # (Now runs inside the parallel enrichment gather above as _t_datasheets.)
         try:
             _auto_actions_from_conditions(project)
         except Exception as e:
