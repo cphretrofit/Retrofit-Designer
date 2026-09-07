@@ -228,6 +228,17 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 ## Note — Client datasheet upload already exists
 Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.
 
+## DONE — ADF1 Ventilation Strategy Sheet (P0, Jun 2026)
+- New dedicated 3-page **ADF1 Ventilation Strategy Sheet** in the pack (`_adf1_ventilation_pages` in pdf_builder.py), modelled on the ecmk/CoreLogic ADF1 Table D1 + Ventilation Assessment workbooks. Inserted right after the existing "Ventilation Requirements & Strategy" page (`ventilation_page, *_adf1_ventilation_pages(p, measures), ...`). Only binds when VENT is in scope or a wet-room schedule exists.
+  - **Page 1 – Ventilation Strategy Sheet**: dwelling data block (address, type, storeys, bedrooms, wet rooms, selected system, extract product, air-permeability), Wet-Room Extract Schedule (proposed system + proposed rate vs ADF1 minimum per room), and ADF1 minimum extract rates (Table 1.1 intermittent / 1.2 continuous).
+  - **Page 2 – Whole-Dwelling Requirement & Provisions**: Table 1.3 whole-dwelling rate by bedrooms with THIS dwelling's row highlighted + computed minimum (1→19,2→25,3→31,4→37,5→43 l/s, +7 per extra bed), background ventilator (Table 1.7 8,000/4,000 mm²), purge (Table 1.4 1/20), door undercut (para 1.25 10/20 mm), strategy statement + strategy notes.
+  - **Page 3 – ADF1 Table D1 Compliance Checklist**: system-type-aware checklist (IEV / MEV-dMEV / MVHR auto-detected from the strategy text) with per-item design provision + COMPLIANT/CONFIRM chips and an overall compliance verdict.
+  - Helpers: `_vent_system_type`, `_count_bedrooms` (from floor-plan room names, else property), `_whole_dwelling_rate` (Table 1.3), `_adf1_room_required`. All values derived live from `p.ventilation` + measures + floor plan.
+- Verified via WeasyPrint render on 15 Greenways (3-bed, MEV/dMEV, 2 wet rooms → 31 l/s): 3 logical pages = 3 physical pages (no overflow/blank pages), COMPLIANT verdict, and full-pack render includes the sheet.
+
+## NOTE — Datasheet brand reading (job-to-job, no list needed)
+- Confirmed: the brand/product is read straight from each uploaded datasheet via `parse_datasheet_products` (Claude reads the manufacturer + product from the sheet, incl. the header/top) and `_assign_products` swaps the generic/default system for that actual product — so no maintained competitor brand list is required. `_INS_BRANDS` + `_supersede_measure_brand` remain only as an extra sweep for known brand names in secondary narrative fields.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
 
