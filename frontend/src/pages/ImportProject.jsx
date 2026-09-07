@@ -16,6 +16,9 @@ const SLOTS = [
   { type: "Scope of Works", label: "Scope of Works", hint: "Proposed measures, target U-values, strategy" },
   { type: "Job Card", label: "Job Card", hint: "Measures, SAP, per-room ventilation" },
   { type: "Datasheet", label: "Product Datasheets", hint: "Manufacturer datasheets / BBA certs for this job (PDF) — stored on the design and parsed into the spec" },
+  { type: "ADF1", label: "ADF1 Ventilation Checklist", hint: "Completed ADF1 Table D1 checklist (.xlsx or PDF) — bound in full; replaces the auto-generated version" },
+  { type: "Air Tightness", label: "Air Tightness Strategy", hint: "Completed Air Tightness Strategy (.xlsx or PDF) — bound in full into the design appendix" },
+  { type: "Supporting Document", label: "Other Documents", hint: "Asbestos reports, warranties, consents, correspondence and any other client / scheme documents — bound in full" },
 ];
 
 const STAGES = [
