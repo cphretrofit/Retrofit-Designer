@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { detectSiteConditions, saveSiteConditions, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Save, Maximize2 } from "lucide-react";
+import { Sparkles, Loader2, Save, Maximize2, ImagePlus, X } from "lucide-react";
 
 const VERDICT = [
   { v: "true", l: "Present / Yes" },
@@ -22,6 +22,8 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
   const [busy, setBusy] = useState(false);
   const [saving, setSaving] = useState(false);
   const [zoom, setZoom] = useState(null);
+  const [pick, setPick] = useState(null);
+  const photos = (project.designPack && project.designPack.photos) || [];
   const evidence = sc.evidence || [];
   useEffect(() => { setSc((project.property && project.property.siteConditions) || {}); }, [project.property?.siteConditions]);
 
@@ -137,13 +139,20 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
                       <span className="absolute bottom-1 right-1 bg-background/80 rounded-sm p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="h-3 w-3" strokeWidth={2} /></span>
                     </button>
                   ) : (
-                    <div className="w-32 h-24 border border-dashed border-border rounded-sm flex items-center justify-center text-[10px] text-muted-foreground text-center px-2">No evidence photo</div>
+                    <button onClick={() => setPick(i)} data-testid={`site-evidence-pick-${e.key}`}
+                      className="w-32 h-24 border border-dashed border-border rounded-sm flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors px-2">
+                      <ImagePlus className="h-4 w-4" strokeWidth={1.5} /> Choose photo
+                    </button>
                   )}
                   {e.fig ? (
                     <div className="font-mono text-[10px] text-muted-foreground mt-1">FIG {e.fig}{e.confidence ? ` · ${e.confidence}` : ""}</div>
                   ) : e.source ? (
                     <div className="text-[10px] text-muted-foreground mt-1">{e.source}{e.confidence ? ` · ${e.confidence}` : ""}</div>
                   ) : null}
+                  {e.url && (
+                    <button onClick={() => setPick(i)} data-testid={`site-evidence-change-${e.key}`}
+                      className="text-[10px] text-muted-foreground hover:text-foreground mt-1 underline underline-offset-2">Change photo</button>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
@@ -169,6 +178,30 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {pick !== null && (
+        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-photo-picker" onClick={() => setPick(null)}>
+          <div className="max-w-4xl w-full mx-auto flex items-center justify-between mb-4" onClick={(ev) => ev.stopPropagation()}>
+            <div>
+              <div className="text-[14px] font-medium">Attach an evidence photo</div>
+              <div className="text-[11.5px] text-muted-foreground mt-0.5">Pick the survey photo that best evidences this condition. Remember to Save after attaching.</div>
+            </div>
+            <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0"><X className="h-4 w-4" /> Close</button>
+          </div>
+          <div className="max-w-4xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-3 sm:grid-cols-4 gap-3 content-start" onClick={(ev) => ev.stopPropagation()}>
+            {photos.length === 0 ? (
+              <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
+            ) : photos.map((ph, pi) => (
+              <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
+                onClick={() => { updateEv(pick, { url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" }); setPick(null); toast.success("Photo attached — click Save to persist"); }}
+                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left">
+                <div className="aspect-[4/3] overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" /></div>
+                <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

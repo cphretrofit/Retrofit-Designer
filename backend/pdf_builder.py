@@ -171,7 +171,7 @@ def _photos_for_measure(code, photos, used):
         if any(k in text for k in kws):
             out.append(ph)
             used.add(fig)
-            if len(out) >= 8:
+            if len(out) >= 12:
                 break
     return out
 
@@ -866,9 +866,22 @@ def _para(t):
 
 
 def _foreword_html(p):
-    inner = (_para("This Retrofit Design has been prepared under PAS 2035:2023 to define the energy efficiency measures (EEMs) proposed for this dwelling and the standards, sequencing and interactions that govern their installation. It is to be read alongside the Retrofit Assessment and the whole-dwelling improvement plan.")
-             + _para("The design follows a whole-house, fabric-first approach. Measures are considered together rather than in isolation, so that improvements to airtightness, insulation, heating and ventilation work as a system. Moisture risk is managed throughout in accordance with BS 5250, with a ventilation strategy provided to maintain healthy indoor air quality as the fabric is tightened.")
-             + _para("The Retrofit Coordinator is responsible for co-ordinating the project through to completion, resolving the items in the Pre-Issue Register and ensuring all installers work to the specifications set out in this document and the manufacturers' instructions."))
+    prop = p.get("property") or {}
+    ec = prop.get("existingConstruction") or {}
+    ptype = str(prop.get("type") or "dwelling").lower()
+    age = prop.get("age") or "not stated"
+    wall = str(ec.get("Wall Construction") or "as recorded in the assessment").lower()
+    inner = (
+        _para("This Retrofit Design has been prepared under PAS 2035:2023 to define the Energy Efficiency Measures (EEMs) proposed for this dwelling, together with the standards, sequencing and measure interactions that govern their installation. It forms part of the retrofit project documentation and is to be read alongside the Retrofit Assessment, the Medium-Term Improvement Plan and the manufacturers' installation instructions, which take precedence for product-specific requirements.")
+        + _para("The design follows a whole-house, fabric-first approach. Measures are considered together as a single system rather than in isolation, so that improvements to airtightness, insulation, heating and ventilation are balanced against one another. A <strong>ventilation-first</strong> strategy underpins the design: purpose-provided ventilation is specified and installed ahead of fabric tightening so that indoor air quality and moisture risk are controlled at every stage. Moisture is managed throughout in accordance with BS 5250, and interstitial and surface condensation risks are assessed wherever the thermal envelope or its air-tightness is altered.")
+        + _para("Each measure has been specified to meet or better the relevant Building Regulations (Approved Documents L, F, O, B and C), the applicable British Standards and MCS requirements, using products carrying valid BBA / third-party certification where available. Thermal bridging is mitigated with property-specific junction details, and any bespoke detail is calculated to BRE IP1/06 with a temperature factor fRsi &gt; 0.75.")
+        + _sub("Retrofit Designer &amp; Scope")
+        + _para("The Retrofit Designer holds the relevant PAS 2035 competency and declares no conflict of interest in the specification of products or systems. The design has been reviewed against the assessment information for completeness and buildability. This design covers the measures set out in the Measures Schedule together with their interactions, ventilation, thermal bridging, fire safety and moisture management; it does not replace the manufacturers' installation instructions.")
+        + _sub("Construction &amp; Traditional Building Considerations")
+        + _para(f"The property is a {ptype} (age band {_esc(str(age))}) of {wall} construction. Where traditional (pre-1919) or non-standard construction is present, measures are specified with reference to BS 7913 and appropriate vapour-open, moisture-safe build-ups. Site access, working constraints and the local exposure zone have been considered in specifying systems and detailing; any access constraint identified on site must be agreed with the Retrofit Coordinator before works commence.")
+        + _sub("Responsibilities")
+        + _para("The Retrofit Coordinator is responsible for co-ordinating the project through to completion, resolving the items in the Pre-Issue Register, arranging the required consents and ensuring all installers work to the specifications set out in this document. Installers hold the relevant PAS 2030:2023 / MCS scope and are responsible for installing strictly in accordance with this design and the manufacturers' instructions, and for providing commissioning and handover evidence at completion.")
+    )
     return _np("Design Statement &middot; Foreword", "Foreword", inner)
 
 
@@ -972,6 +985,36 @@ def _commissioning_html(p, measures):
              "Independent Retrofit Design and pre-installation inspection sign-off (PAS 2030 Annex B9) completed and validated by the Retrofit Coordinator."]
     return _np("Handover &middot; Commissioning", "Commissioning &amp; Handover", _spec_list(items, False),
                "Requirements to be satisfied at completion to close out the retrofit in line with PAS 2035:2023 and TrustMark.")
+
+
+def _compliance_handover_html(p, measures):
+    stds = ["PAS 2035:2023", "PAS 2030:2023", "TrustMark", "Building Regs Part L", "Part F (Ventilation)",
+            "Part O (Overheating)", "Part B (Fire)", "Part C (Moisture)", "BS 7671 (Electrical)",
+            "BS 5250 (Moisture)", "BS 7913 (Traditional)", "MCS (ASHP & PV)"]
+    chips = "".join(f'<span class="chip">{_esc(s)}</span>' for s in stds)
+    ex = ["Structural alterations beyond those required to install the specified measures.",
+          "Removal of or licensed works to asbestos-containing materials (to be surveyed and managed separately).",
+          "Reinstatement of decorative finishes beyond making good directly disturbed by the works.",
+          "Rectification of pre-existing defects not identified in the Retrofit Assessment (to be instructed as a variation).",
+          "Works to services or appliances not forming part of the specified measures.",
+          "Provision of scaffolding or access beyond that allowed for in the installer's quotation."]
+    items = ["Commission each system to the relevant standard (e.g. BS EN 12599 ventilation; BS 7593 / MCS heat pump; DNO/MCS solar PV).",
+             "Complete and retain commissioning certificates and test results.",
+             "Register product warranties and provide manufacturer documentation.",
+             "Provide Building Regulations compliance certificates (Part L/F/P as applicable).",
+             "Compile a handover pack: as-installed specifications, certificates, warranties and O&M / maintenance guidance.",
+             "Provide the tenant/occupier with clear guidance on the safe, efficient use of the installed measures.",
+             "Independent Retrofit Design and pre-installation inspection sign-off (PAS 2030 Annex B9) completed and validated by the Retrofit Coordinator."]
+    inner = (_sub("Standards &amp; Regulations") + f'<div>{chips}</div>'
+             + _sub("Compliance Notes")
+             + _para("All works will be carried out in accordance with the above standards, the manufacturers' instructions and the certified system requirements. Products are specified with valid BBA / third-party certification where applicable, and installers hold the relevant PAS 2030:2023 / MCS scope.")
+             + _sub("Exclusions")
+             + '<div class="muted" style="font-size:10.5px; margin:-2px 0 6px;">The following are excluded from the scope of this design unless expressly stated within a measure specification.</div>'
+             + _spec_list(ex, False)
+             + _sub("Commissioning &amp; Handover")
+             + '<div class="muted" style="font-size:10.5px; margin:-2px 0 6px;">Requirements to be satisfied at completion to close out the retrofit in line with PAS 2035:2023 and TrustMark.</div>'
+             + _spec_list(items, False))
+    return _np("Compliance &middot; Standards, Exclusions &amp; Handover", "Standards, Exclusions &amp; Handover", inner)
 
 
 # PAS 2035:2023 Annex D (Figure D.1) — pairwise measure-interaction assessment.
@@ -2382,6 +2425,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     ref = _esc(p.get("ref") or "")
     rev = _esc(p.get("revision") or "P01")
     measures = p.get("measures") or []
+    # Ventilation-first strategy — order measures with ventilation first throughout the whole pack
+    # (Measures Schedule, per-measure specifications, TOC and interaction matrix).
+    measures = sorted(measures, key=lambda _m: 0 if _mfam(_m.get("code"), _m.get("name")) == "VENT" else 1)
     els = (p.get("property") or {}).get("elements") or []
     dp = p.get("designPack") or {}
     drawings = dp.get("drawings") or []
@@ -2626,14 +2672,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     sec01.append(("01.5", "Ventilation Requirements &amp; Strategy", "sub"))
     if (p.get("floorPlan") or {}).get("imageUrl"):
         sec01.append(("01.6", "Floor Plan &amp; Measure Placements", "sub"))
-    sec01.append(("01.7", "Preliminaries", "sub"))
     sec01.append(("01.8", "PAS 2035 Design &amp; Compliance", "sub"))
     sec01.append(("01.9", "Overheating Statement (Part O)", "sub"))
     for s in (p.get("customSections") or []):
         sec01.append(("+", (s.get("title") or "Section")[:44], "sub"))
     _ins_after("01", sec01)
     _ins_after("02", [("02.1", "Sequence of Work", "sub"), ("02.2", "Measures Interaction Matrix", "sub")])
-    _ins_after("04", [("04.1", "Standards &amp; Compliance", "sub"), ("04.2", "Exclusions", "sub"), ("04.3", "Commissioning &amp; Handover", "sub")])
+    _ins_after("04", [("04.1", "Standards, Exclusions &amp; Handover", "sub")])
     if p.get("_datasheetDocs") or p.get("datasheetProducts"):
         toc.append(("A", "Appendix &mdash; Supporting Documents &amp; Datasheets", ""))
     sec_rows = ""
@@ -2711,11 +2756,11 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     ec = prop.get("existingConstruction") or {}
 
     def _cell(k, v, w="32%"):
-        return (f'<div style="display:inline-block; width:{w}; vertical-align:top; margin-bottom:16px;">'
-                f'<div class="faint upper" style="font-size:8.5px;">{_esc(k)}</div>'
-                f'<div style="font-size:12.5px; margin-top:4px; color:#262626;">{_esc(v if v not in (None, "") else "—")}</div></div>')
+        return (f'<div style="display:inline-block; width:{w}; vertical-align:top; box-sizing:border-box; padding:9px 12px; border:1px solid #ececec; border-radius:4px; margin:0 0.6% 8px 0;">'
+                f'<div class="faint upper" style="font-size:8px; letter-spacing:0.12em;">{_esc(k)}</div>'
+                f'<div style="font-size:12.5px; margin-top:4px; color:#171717;">{_esc(v if v not in (None, "") else "—")}</div></div>')
 
-    people_html = "".join(_cell(k, v, "25%") for k, v in
+    people_html = "".join(_cell(k, v, "24%") for k, v in
                           [("Client", p.get("client")), ("Retrofit Assessor", p.get("assessor")),
                            ("Retrofit Coordinator", p.get("coordinator")), ("Retrofit Designer", p.get("designer")),
                            ("Installer", p.get("installer")), ("Tenant", p.get("tenant")),
@@ -2735,12 +2780,15 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     _dir1 = (
         '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 · Project Information</div>'
         '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Project Directory &amp; Dwelling</div>'
-        f'<div style="margin-top:18px;">{people_html}</div>'
-        '<div class="hr" style="padding-top:14px;"></div>'
-        '<table style="margin-top:4px;"><tr>'
-        f'<td style="border:0; padding:0; width:62%; vertical-align:top;">{dwell_html}</td>'
-        f'<td style="border:0; padding:0 0 0 18px; width:38%; vertical-align:top;">{epc_html}</td></tr></table>'
-        '<div class="faint upper" style="font-size:10px; margin-top:8px; margin-bottom:6px;">Existing Construction</div>'
+        '<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:8px;">Project Directory</div>'
+        f'<div>{people_html}</div>'
+        '<table style="margin-top:12px; width:100%;"><tr>'
+        '<td style="border:0; padding:0; width:60%; vertical-align:top;">'
+        '<div class="faint upper" style="font-size:9.5px; margin-bottom:8px;">Dwelling</div>'
+        f'<div>{dwell_html}</div></td>'
+        '<td style="border:0; padding:0 0 0 16px; width:40%; vertical-align:top;">'
+        f'{epc_html}</td></tr></table>'
+        '<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:6px;">Existing Construction</div>'
         f'<table>{ec_rows}</table>')
     directory_pages = [_dir1]
 
@@ -2857,13 +2905,27 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
         system_html = f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else ""
         _mp = _photos_for_measure(m.get("code"), photo_uris or [], used_figs)
-        if _mp:
+        # Captions are unreliable, so also pull the vision-curated survey imagery that the
+        # site-conditions classifier filed under this measure (esp. loft photos).
+        _EVKEYS = {"LOFT": ("loft_storage", "loft_crossflow", "downlights", "loft_tank", "esh_cable_over_insulation", "loft_insulation"),
+                   "RIR": ("loft_crossflow", "loft_storage", "loft_insulation")}
+        _seen = {ph.get("data") for ph in (_mp or []) if ph.get("data")}
+        _gallery = list(_mp or [])
+        for _e in (_sc_evidence or []):
+            if _e.get("key") in _EVKEYS.get(fam, ()):
+                for _d in ((_e.get("_photos_data") or []) or ([_e.get("_data")] if _e.get("_data") else [])):
+                    if _d and _d not in _seen:
+                        _seen.add(_d)
+                        _gallery.append({"data": _d, "fig": "", "caption": _e.get("label") or "Survey photograph"})
+        _gallery = _gallery[:12]
+        if _gallery:
             _cells = "".join(
-                f'<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 0 0;">'
+                '<div style="display:inline-block; width:48%; vertical-align:top; margin:0 1% 14px 0;">'
                 f'<div style="height:150px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
-                f'<div style="margin-top:5px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span>'
-                f'<span style="font-size:10px; color:#262626;">{_esc(ph.get("caption"))}</span></div></div>'
-                for ph in _mp)
+                + (f'<div style="margin-top:5px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span><span style="font-size:10px; color:#262626;">{_esc(ph.get("caption"))}</span></div>'
+                   if ph.get("fig") else f'<div style="margin-top:5px;"><span style="font-size:10px; color:#262626;">{_esc(ph.get("caption"))}</span></div>')
+                + '</div>'
+                for ph in _gallery)
             system_html += f'<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:8px;">Existing Condition &middot; Survey</div><div>{_cells}</div>'
 
         spec_chunks = _chunk(specifications, CHUNK_SPEC) or [[]]
@@ -3175,19 +3237,27 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
          "If present, insulate the tank sides and top (never underneath) and lag all loft pipework against freezing (BS 6700 / good practice) — see detail LD."),
     ]
     if any(_sc.get(_k) is not None for _k, _, _ in _lc_defs):
+        _ev_photo = {}
+        for _e in (_sc_evidence or []):
+            if _e.get("_data") and _e.get("key"):
+                _ev_photo.setdefault(_e.get("key"), _e["_data"])
         _lc_rows = ""
         for _k, _label, _note in _lc_defs:
             _v = _sc.get(_k)
             _ans = "Yes" if _v is True else ("No" if _v is False else "Confirm on site")
             _bad = (_v is True and _k in ("loft_storage", "esh_cable_over_insulation", "downlights")) or (_v is False and _k == "loft_crossflow")
             _acol = "#DC2626" if _bad else ("#16A34A" if _v is not None else "#666")
-            _lc_rows += (f'<tr><td style="color:#262626; width:40%;">{_esc(_label)}</td>'
-                         f'<td class="mono" style="width:16%; color:{_acol};">{_ans}</td>'
-                         f'<td class="muted" style="font-size:10px;">{_esc(_note)}</td></tr>')
+            _img = _ev_photo.get(_k)
+            _imgcell = (f'<div style="width:104px; height:74px; border:1px solid #e5e5e5; overflow:hidden;"><img src="{_img}" style="width:100%; height:100%; object-fit:cover;"></div>'
+                        if _img else '<div style="width:104px; height:74px; border:1px dashed #e5e5e5; display:flex; align-items:center; justify-content:center;"><span class="faint" style="font-size:8px;">No photo</span></div>')
+            _lc_rows += (f'<tr><td style="width:104px; vertical-align:top; padding-top:8px;">{_imgcell}</td>'
+                         f'<td style="color:#262626; width:28%; vertical-align:top; padding-top:8px;">{_esc(_label)}</td>'
+                         f'<td class="mono" style="width:14%; color:{_acol}; vertical-align:top; padding-top:8px;">{_ans}</td>'
+                         f'<td class="muted" style="font-size:10px; vertical-align:top; padding-top:8px;">{_esc(_note)}</td></tr>')
         site_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Site Conditions</div>'
-                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Loft &amp; Fabric Checklist</div>'
-                          '<div class="muted" style="font-size:11px; margin-top:8px;">Manually verified loft and fabric conditions. These answers are the source of truth for this design and drive the compliance notes and construction details.</div>'
-                          f'<table style="margin-top:14px;"><thead><tr><th>Item</th><th>Answer</th><th>Action / standard</th></tr></thead><tbody>{_lc_rows}</tbody></table>')
+                          '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Loft &amp; Fabric Checklist &mdash; Evidenced</div>'
+                          '<div class="muted" style="font-size:11px; margin-top:8px;">Manually verified loft and fabric conditions, each shown with its supporting survey photograph so the design is backed by evidence. These answers are the source of truth for this design and drive the compliance notes and construction details.</div>'
+                          f'<table style="margin-top:14px;"><thead><tr><th style="width:104px;">Evidence</th><th>Item</th><th>Answer</th><th>Action / standard</th></tr></thead><tbody>{_lc_rows}</tbody></table>')
 
     # Design considerations (site-specific narrative) — each linked to its evidence photo
     _ev_imgs = []
@@ -3249,6 +3319,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     v_notes = vent.get("notes") or []
     if v_notes:
         v_extra += '<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Strategy Notes</div>' + _spec_list(v_notes, False)
+    v_extra += ('<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Internal Door Undercuts (ADF1 para 1.25)</div>'
+                '<div style="font-size:11.5px; line-height:1.55; color:#333;">All internal doors to habitable rooms are to have a clear air-transfer gap beneath the door leaf &mdash; a minimum <strong>10&nbsp;mm above the finished floor</strong> (or 20&nbsp;mm above an unfinished floor), equivalent to a 7,600&nbsp;mm&sup2; free area &mdash; so that air can move between rooms and support the whole-dwelling ventilation strategy. Undercuts are to be checked and adjusted after any new floor finishes (e.g. carpet, LVT) are laid.</div>')
     v_strategy = (f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(vent.get("strategy"))}</div>' if vent.get("strategy")
                   else '<div class="muted" style="font-size:11px; margin-top:8px;">Ventilation strategy to Approved Document F / ADF1 Annex C. Complete the per-room extract schedule prior to issue.</div>')
     ventilation_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Ventilation</div>'
@@ -3348,13 +3420,13 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                           f'{cov_html}{files_html}{prod_html}')
 
     foreword_page = _ov_page(p, "foreword") or _foreword_html(p)
-    preliminaries_page = _ov_page(p, "preliminaries") or _preliminaries_html(p)
     overheating_page = _ov_page(p, "overheating") or _overheating_html(p, measures)
     scope_pages = ([_ov_page(p, "scope")] if _ov_page(p, "scope") else _scope_html(p, measures))
     matrix_page = _ov_page(p, "matrix") or _interaction_matrix_html(measures)
-    standards_page = _ov_page(p, "standards") or _standards_html(p, measures)
-    exclusions_page = _ov_page(p, "exclusions") or _exclusions_html(p, measures)
-    commissioning_page = _ov_page(p, "commissioning") or _commissioning_html(p, measures)
+    standards_page = _ov_page(p, "standards")
+    exclusions_page = _ov_page(p, "exclusions")
+    commissioning_page = _ov_page(p, "commissioning")
+    compliance_handover_page = _compliance_handover_html(p, measures)
     summary_page = _design_summary_html(p, measures)
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
@@ -3363,12 +3435,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
              ventilation_page, *_adf1_ventilation_pages(p, measures), *([floorplan_page] if floorplan_page else []),
-             *([_massing_3d_page(p)] if _massing_3d_page(p) else []),
-             preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
+             *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
              measures_schedule_page, performance,
-             standards_page, exclusions_page, commissioning_page,
+             *([standards_page] if standards_page else []), *([exclusions_page] if exclusions_page else []), *([commissioning_page] if commissioning_page else []),
+             compliance_handover_page,
              *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
@@ -3397,7 +3469,7 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         if not u:
             return None
         return (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
-    _sel = photos[:24]
+    _sel = photos[:48]
     _datas = await asyncio.gather(*[_uri(ph.get("url") or "") for ph in _sel])
     photo_uris = [{**ph, "data": d} for ph, d in zip(_sel, _datas)]
     def _is_doc_img(ph):

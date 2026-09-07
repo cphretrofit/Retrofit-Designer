@@ -308,3 +308,22 @@ User decided the walkthrough needs too much polish for now, so it was pulled fro
 - PDF: `_walkthrough_pages` insertion and the `_walkData` async conversion removed from `pdf_builder.py` (so saved walkthrough views no longer appear in the pack).
 - Left inert (not user-facing, safe to leave): backend endpoints `room-photos`, `classify-photos`, `walkthrough/share`, `walkthrough-snapshot`, `public/walkthrough/*` and helpers; unused `api.js` exports. `pin-specs` is KEPT (still used by the 3D view pin tooltips).
 - Retained & still working: 3D floor plan (openings/stairs, pin tooltips, roof colour + gable ridge) and the Dashboard Auto-Confirm Sweep.
+
+## DONE — Workspace UI fixes (Jun 2026, testing_agent PASS iteration_20)
+- Site Conditions: manual "Choose photo" / "Change photo" picker for evidence rows (`SiteConditionsPanel.jsx`) so users attach a survey photo when the AI found none.
+- Specifications: header no longer overlaps the long system text; thickness "mm" only appended to bare numbers (fixes "125 mm mm"). (`DesignWorkspace.jsx`)
+- Outstanding/Action items: items with a Status or "Actioned by" now show a neutral blue clock/"Assigned" state instead of a red ⚠ (design is issued before works). (`DesignWorkspace.jsx`, `ActionItems.jsx`)
+- Measures nav badge = outstanding-item count, now with a hover tooltip. PasHub reference added to Project Details tab (still on Survey tab too).
+
+## DONE — PDF pack overhaul (Jun 2026, verified via document-verification render on RTF-2026-0160)
+All in `pdf_builder.py`:
+- **Foreword** expanded into a full retrofit design statement (fabric-first + ventilation-first, BS 5250 moisture, Designer/Scope, Construction & traditional-building, Responsibilities). Standalone **Preliminaries** page folded into it and removed.
+- **Project Directory & Dwelling** rebuilt as a clean bordered card grid (people / dwelling / energy rating / existing construction).
+- **Loft & Fabric Checklist** merged with site-conditions evidence — now an "Evidenced" table with a supporting-photo column per row.
+- **Ventilation Requirements & Strategy** now includes an **Internal Door Undercuts (ADF1 para 1.25)** provision.
+- **Ventilation-first everywhere**: `measures` sorted VENT-first at the top of `build_pack_html`, so the Measures Schedule, per-measure spec pages, dividers and TOC all lead with ventilation.
+- **Standards + Exclusions + Commissioning** merged into a single "Standards, Exclusions & Handover" page (`_compliance_handover_html`).
+- **3D Massing page removed** from the pack (2D location/measure plan retained).
+- **Measure photo galleries** now pull vision-curated site-conditions imagery (loft photos filed under `loft_storage`/`loft_crossflow`/`downlights`/etc.) in addition to caption matches, capped at 12/measure; total loaded photos raised 24→48. Loft section now shows all available loft photos.
+- Dead code left inert (harmless): `_massing_3d_page`, `_preliminaries_html`, `_standards_html`, `_exclusions_html`, `_commissioning_html`, `_walkthrough_pages`.
+- KNOWN MINOR (pre-existing, not touched): the ADF1 wet-room extract schedule table can crowd the Extract-rate/Notes columns when the rate string is long.

@@ -1,0 +1,32 @@
+{
+  "summary": "Verified all 5 Design Workspace UI fixes on live app using project 15 Greenways (id 5e275c28-c74a-4ed4-8f3b-b2853575349e, ref RTF-2026-0160). NOTE: project IDs listed in the review request credentials (e7e48949-..., a559329c-..., RTF-2026-0140) do NOT exist on this environment — only one project is currently seeded — but that project luckily contains all the required scenarios (photos, evidence with missing images, buildup with descriptive thickness, itemsBeforeIssue with in-progress + warning + resolved states). Every acceptance criterion from the request passed.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "verifications": {
+    "site_conditions_manual_photo_pick": "PASS — 2 evidence rows without photos ('downlights', 'loft_crossflow') render a 'Choose photo' button (site-evidence-pick-<key>). Clicking opens the site-photo-picker modal listing all 40 survey photos as site-photo-option-<n>. Selecting one attaches the URL, closes the modal, shows toast 'Photo attached — click Save to persist', and replaces the placeholder with the image plus a 'Change photo' link (site-evidence-change-<key>). Existing AI-detected rows also expose the Change photo link (5 present).",
+    "specifications_layout_and_thickness_unit": "PASS — No 'mm mm' anywhere on the page. Measure header shows the measure name on its own line (font-display) with the long system description wrapping below in a mono muted line (no overlap). Buildup thickness rendering: pre-formatted string '125 mm' stays '125 mm' (no extra ' mm' appended); descriptive '175 mm top-up (to achieve 300 mm total)' is left untouched. Bare-number guard regex correctly distinguishes numeric vs. descriptive strings.",
+    "outstanding_items_neutral_state": "PASS — Items with status='In progress' (indices 0, 6, 11) render the neutral blue Clock icon (svg style color: var(--c-info)) and an 'IN PROGRESS' neutral chip — NOT AlertTriangle. Resolved items render green CheckCircle2 + 'RESOLVED' chip. Items without status/actionedBy and not resolved still render AlertTriangle colored by severity (warning=amber for items 7,10; info=blue triangle for items 8,9).",
+    "measure_nav_badge_tooltip": "PASS — Left-nav Measures group shows numeric badges. 3 measures (WIN, ASHP, VENT) each show badge '1' with title='1 outstanding item' (correct singular form). Nav.jsx correctly passes badgeTitle to the badge span title attribute.",
+    "project_details_reference_input": "PASS — reference-input-details is present at the top of the Details tab, pre-filled with 'RTF-2026-0160'. Editing + blur triggers save; toast 'Reference updated / PasHub reference saved.' shown. Survey tab's reference-input (data-testid='reference-input') is still present.",
+    "intelligence_action_panel_header": "PASS — Right panel actions-required-toggle shows '3 actions required' (3 truly open, unassigned, unresolved items). Assigned/in-progress items are excluded from openCount and would flip the header to 'N in progress' with a blue Clock when they are the only remaining items."
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Consider seeding demo/test projects e7e48949-743a-4ae8-af67-07ce16ea0a91 (8 photos), RTF-2026-0140 (40 photos), and a559329c-7ee0-4d55-9d04-7a3aa8a7fecc (12 Marsh End) referenced in /app/memory/test_credentials.md — they currently 404 in this environment, only 5e275c28-c74a-4ed4-8f3b-b2853575349e (15 Greenways) exists."
+  ],
+  "critical_code_review_comments": [
+    "DesignWorkspace.jsx is 525 lines — approaching the 700-line soft limit; per-case renderers (specifications, outstanding, details) could be extracted for readability.",
+    "In DesignWorkspace outstanding case, when severity='info_required' and unassigned, AlertTriangle is still used (just tinted blue). Consistent with prior behaviour but visually the same shape as a warning; product may want a distinct Info icon for info-severity unassigned items to reinforce the new neutral vs. warning language."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "n/a", "frontend": "100%" },
+  "test_credentials": "it@cphretrofit.co.uk / ;hyaB1cZdA1RZk%6 — works.",
+  "seed_data_creation": "None. Used the sole existing project 5e275c28-c74a-4ed4-8f3b-b2853575349e.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Only one project seeded currently (id 5e275c28-c74a-4ed4-8f3b-b2853575349e ref RTF-2026-0160 '15 Greenways'). It has 40 photos, siteConditions with 2 evidence rows lacking url (downlights, loft_crossflow), a LOFT measure with descriptive-thickness buildup rows, and 12 itemsBeforeIssue mixing In-progress / resolved / open severities — sufficient for the 5-fix regression."
+}

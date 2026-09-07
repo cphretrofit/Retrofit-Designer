@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { TONE } from "@/components/StatusChip";
 
-export function NavItem({ icon: Icon, label, section, active, onClick, badge, tone }) {
+export function NavItem({ icon: Icon, label, section, active, onClick, badge, tone, badgeTitle }) {
   const isActive = active === section;
   return (
     <button
@@ -16,7 +16,7 @@ export function NavItem({ icon: Icon, label, section, active, onClick, badge, to
       <Icon className="h-4 w-4 shrink-0" strokeWidth={1.5} />
       <span className="truncate" title={label}>{label}</span>
       {badge != null && (
-        <span className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm" style={{ background: TONE[tone || "warning"].bg, color: TONE[tone || "warning"].fg }}>{badge}</span>
+        <span className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-sm" title={badgeTitle} style={{ background: TONE[tone || "warning"].bg, color: TONE[tone || "warning"].fg }}>{badge}</span>
       )}
     </button>
   );

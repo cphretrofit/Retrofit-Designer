@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map, Satellite, FileEdit, Landmark,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map, Satellite, FileEdit, Landmark, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
@@ -241,11 +241,14 @@ export default function DesignWorkspace() {
           <div className="anim-in space-y-4">
             {p.measures.filter((m) => m.buildup?.length).map((m) => (
               <div key={m.code} className="border border-border rounded-sm bg-card">
-                <div className="px-4 h-10 flex items-center justify-between border-b border-border"><span className="font-display text-sm">{m.name}</span><span className="font-mono text-[11px] text-muted-foreground">{m.system}</span></div>
+                <div className="px-4 py-3 border-b border-border">
+                  <div className="font-display text-sm">{m.name}</div>
+                  {m.system && <div className="font-mono text-[11px] text-muted-foreground mt-1 leading-snug">{m.system}</div>}
+                </div>
                 <table className="w-full text-[12.5px]"><tbody className="font-mono-tech">
-                  {m.buildup.map((l) => (
-                    <tr key={l.no} className="border-b border-border/60 last:border-0"><td className="px-4 py-2 text-muted-foreground w-8">{l.no}</td><td className="py-2 font-sans">{l.material}</td><td className="text-right py-2">{l.thickness} mm</td><td className="text-right px-4 py-2 text-muted-foreground">{l.lambda}</td></tr>
-                  ))}
+                  {m.buildup.map((l) => { const th = l.thickness == null ? "" : String(l.thickness); const bareNum = /^\s*[\d.]+\s*$/.test(th); return (
+                    <tr key={l.no} className="border-b border-border/60 last:border-0"><td className="px-4 py-2 align-top text-muted-foreground w-8">{l.no}</td><td className="py-2 pr-3 font-sans align-top">{l.material}</td><td className="text-right py-2 align-top">{th}{bareNum ? " mm" : ""}</td><td className="text-right px-4 py-2 align-top text-muted-foreground">{l.lambda}</td></tr>
+                  ); })}
                 </tbody></table>
               </div>
             ))}
@@ -315,6 +318,10 @@ export default function DesignWorkspace() {
       case "details":
         return (
           <SimpleSection title="Project Details">
+            <div className="flex items-center gap-3 py-2 border-b border-border/60">
+              <span className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground w-40 shrink-0">Reference (PasHub)</span>
+              <input key={p.ref} defaultValue={p.ref} onBlur={(e) => saveRef(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }} placeholder="Paste PasHub reference…" data-testid="reference-input-details" className="flex-1 bg-background border rounded-sm px-2 py-1 text-[13px] font-mono-tech outline-none focus:border-[var(--c-action)]" />
+            </div>
             <Field label="Client" value={p.client} mono={false} path="client" onSave={saveField} />
             <Field label="Retrofit Assessor" value={p.assessor} mono={false} path="assessor" onSave={saveField} />
             <Field label="Retrofit Coordinator" value={p.coordinator} mono={false} path="coordinator" onSave={saveField} />
@@ -355,24 +362,31 @@ export default function DesignWorkspace() {
             <div className="border border-border rounded-sm bg-card p-5">
               <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-3">{p.itemsBeforeIssue.length} Items Before Issue</div>
               <ol className="space-y-3">
-                {p.itemsBeforeIssue.map((it, i) => (
+                {p.itemsBeforeIssue.map((it, i) => {
+                  const assigned = !it.resolved && (it.actionedBy || it.status);
+                  return (
                   <li key={i} className="flex items-start gap-3 pb-3 border-b border-border/60 last:border-0">
                     <span className="font-mono text-[11px] text-muted-foreground mt-0.5">{String(i + 1).padStart(2, "0")}</span>
                     {it.resolved
                       ? <CheckCircle2 className="h-4 w-4 mt-0.5 shrink-0" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} />
-                      : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" style={{ color: it.severity === "critical" ? "var(--c-critical)" : it.severity === "warning" ? "var(--c-warning)" : "var(--c-info)" }} strokeWidth={1.75} />}
+                      : assigned
+                        ? <Clock className="h-4 w-4 mt-0.5 shrink-0" style={{ color: "var(--c-info)" }} strokeWidth={1.75} />
+                        : <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" style={{ color: it.severity === "critical" ? "var(--c-critical)" : it.severity === "warning" ? "var(--c-warning)" : "var(--c-info)" }} strokeWidth={1.75} />}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={cn("text-[13px]", it.resolved && "line-through text-muted-foreground")}>{it.text}</span>
                         {it.resolved
                           ? <StatusChip tone="pass">RESOLVED</StatusChip>
-                          : it.status ? <span className="text-[10px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-muted-foreground">{it.status}</span> : null}
+                          : assigned
+                            ? <span className="text-[10px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm bg-secondary border border-border" style={{ color: "var(--c-info)" }}>{it.status || "Assigned"}</span>
+                            : it.status ? <span className="text-[10px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm bg-secondary border border-border text-muted-foreground">{it.status}</span> : null}
                       </div>
                       <div className="font-mono text-[10px] text-muted-foreground mt-0.5">{it.measure}{it.actionedBy ? ` · ${it.actionedBy}` : ""}</div>
                       {it.note && <div className="text-[12px] text-muted-foreground mt-1 leading-snug">{it.note}</div>}
                     </div>
                   </li>
-                ))}
+                  );
+                })}
               </ol>
             </div>
             <div className="border border-border rounded-sm bg-card p-5">
@@ -467,7 +481,7 @@ export default function DesignWorkspace() {
             </NavGroup>
             <NavGroup title="Measures">
               {p.measures.map((m) => (
-                <NavItem key={m.code} icon={m.code === "VENT" ? Wind : Layers} label={m.name} section={`measure-${m.code}`} active={section} onClick={() => setSection(`measure-${m.code}`)} badge={m.outstanding.length || null} />
+                <NavItem key={m.code} icon={m.code === "VENT" ? Wind : Layers} label={m.name} section={`measure-${m.code}`} active={section} onClick={() => setSection(`measure-${m.code}`)} badge={m.outstanding.length || null} badgeTitle={`${m.outstanding.length} outstanding item${m.outstanding.length === 1 ? "" : "s"}`} />
               ))}
             </NavGroup>
             <NavGroup title="Design">

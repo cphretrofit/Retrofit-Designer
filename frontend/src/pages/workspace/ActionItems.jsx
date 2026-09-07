@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AlertTriangle, Info, ChevronDown, ChevronRight, CheckCircle2, Circle, ArrowUpRight, Trash2, Plus, Loader2, X } from "lucide-react";
+import { AlertTriangle, Info, ChevronDown, ChevronRight, CheckCircle2, Circle, ArrowUpRight, Trash2, Plus, Loader2, X, Clock } from "lucide-react";
 import { updateActionItem, addActionItem, deleteActionItem } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -36,6 +36,7 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
   const [saving, setSaving] = useState(false);
   const sev = SEV[a.severity] || SEV.info_required;
   const resolved = !!a.resolved;
+  const assigned = !resolved && (a.actionedBy || a.status);
 
   const persist = async (patch) => {
     setSaving(true);
@@ -64,7 +65,9 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
       >
         {resolved
           ? <CheckCircle2 className="h-3.5 w-3.5 mt-[1px] shrink-0" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} />
-          : <sev.Icon className="h-3.5 w-3.5 mt-[1px] shrink-0" style={{ color: sev.color }} strokeWidth={1.75} />}
+          : assigned
+            ? <Clock className="h-3.5 w-3.5 mt-[1px] shrink-0" style={{ color: "var(--c-info)" }} strokeWidth={1.75} />
+            : <sev.Icon className="h-3.5 w-3.5 mt-[1px] shrink-0" style={{ color: sev.color }} strokeWidth={1.75} />}
         <span className={`flex-1 ${resolved ? "line-through text-muted-foreground" : "text-foreground"}`}>{a.text}</span>
         {a.status && !resolved && (
           <span className="shrink-0 text-[9.5px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm bg-surface-2 border border-border/60 text-muted-foreground max-w-[90px] truncate" title={a.status}>{a.status}</span>
@@ -154,7 +157,8 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
     return { ...o, _i: idx };
   });
   const acts = measure ? all.filter((a) => a.measure === measure.code) : all;
-  const openCount = acts.filter((a) => !a.resolved).length;
+  const openCount = acts.filter((a) => !a.resolved && !(a.actionedBy || a.status)).length;
+  const inProgressCount = acts.filter((a) => !a.resolved && (a.actionedBy || a.status)).length;
 
   const addAction = async () => {
     const text = newText.trim();
@@ -178,12 +182,13 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
         disabled={acts.length === 0}
         data-testid="actions-required-toggle"
         className="w-full flex items-center gap-2 text-[12px] rounded-sm px-1.5 py-1 -mx-1.5 hover:bg-surface-1 transition-colors disabled:cursor-default"
-        style={{ color: openCount ? "var(--c-warning)" : "var(--c-pass)" }}
+        style={{ color: openCount ? "var(--c-warning)" : inProgressCount ? "var(--c-info)" : "var(--c-pass)" }}
       >
         {openCount ? <AlertTriangle className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
+                   : inProgressCount ? <Clock className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
                    : <CheckCircle2 className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />}
         <span className="flex-1 text-left">
-          {openCount === 0 ? (acts.length ? "All actions resolved" : "No actions") : `${openCount} action${openCount === 1 ? "" : "s"} required`}
+          {openCount === 0 ? (inProgressCount ? `${inProgressCount} in progress` : (acts.length ? "All actions resolved" : "No actions")) : `${openCount} action${openCount === 1 ? "" : "s"} required`}
         </span>
         {acts.length > 0 && (showList ? <ChevronDown className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />)}
       </button>
