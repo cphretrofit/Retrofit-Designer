@@ -259,6 +259,13 @@ Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`
 - **Roof massing**: pitched hip roof over the top storey in BOTH the three.js view (ConeGeometry 4-seg scaled to footprint) and the PDF isometric (`cad_iso.py` — 3 terracotta triangles to a central apex, bounds extended). Verified via PDF render + workspace screenshot.
 - **Vent dashboard filter**: new "Ventilation to confirm" toggle on the Dashboard (`vf` state) filtering rows to `ventSummary.status === "confirm"`; included in Clear.
 
+## DONE — vision roof, pin sync, colour legend, confirm nudge (Jun 2026)
+- **Roof detail from photos**: `ai_extractor.detect_roof(p)` uses Claude vision on the property/elevation photos to derive roof `{type: hipped|gabled|flat|mixed, covering, pitch}`, stored on `floorPlan.roof`. Auto-detected lazily during pack render (`_render_pack_html`) if missing, and via `POST /api/projects/{id}/floorplan/detect-roof` (called by the workspace when the 3D view opens). Both the interactive three.js view and the PDF isometric (`cad_iso.build_isometric_svg(cad, roof)`) now render the real roof form — pitched with a ridge line + eaves overhang; gabled shows a gable end, hipped a pyramid. Verified on 15 Greenways (detected **gabled, concrete tiles** → ridge in both 3D + PDF).
+- **Pin sync**: in `FloorPlan3D`, ASHP pins auto-place just outside the footprint at ground level and LOFT pins auto-place in the roof apex; other pins map from the 2D marker %.
+- **Colour legend**: key beside the 3D view (dMEV cyan · Loft amber · Trickle green · ASHP blue) plus a "Roof: {type} · {covering}" caption. Verified via screenshot.
+- **Confirm nudge**: `VentilationPanel` auto-focuses + scrolls to the Bedrooms field when the whole-dwelling rate is still unset (i.e. a "ventilation to confirm" job), so the user lands straight on the field to complete.
+- New: `saveFloorplan3DSnapshot` + `POST /api/projects/{id}/floorplan/threeD-snapshot` (client captures the orbit view → stored `floorPlan.threeDUrl`; PDF prefers it over the auto isometric).
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
 

@@ -1,5 +1,5 @@
-import { useRef, useState } from "react";
-import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot } from "@/lib/api";
+import { useRef, useState, useEffect } from "react";
+import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof } from "@/lib/api";
 import { FloorPlan3D } from "@/components/FloorPlan3D";
 import { toast } from "sonner";
 import { Upload, Save, Loader2, X, Sparkles } from "lucide-react";
@@ -50,6 +50,12 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
     try { const r = await saveFloorplan3DSnapshot(projectId, url); setFp((s) => ({ ...s, threeDUrl: r.threeDUrl })); onChange?.({ ...fp, threeDUrl: r.threeDUrl }); toast.success("3D view saved to the design pack"); }
     catch { toast.error("Could not save the 3D snapshot"); } finally { setSnapping(false); }
   };
+  useEffect(() => {
+    if (view3d && has3d && !fp.roof) {
+      detectRoof(projectId).then((r) => { if (r?.roof) { setFp((s) => ({ ...s, roof: r.roof })); onChange?.({ ...fp, roof: r.roof }); } }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view3d, has3d]);
   const addr = project?.address || project?.town || project?.name || "";
   const ref_ = project?.ref || "";
   const rev = project?.revision || "P01";
@@ -162,9 +168,15 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
           )}
           {view3d && has3d ? (
             <div className="border-[1.5px] border-foreground bg-white p-2" data-testid="floorplan-3d-sheet">
-              <FloorPlan3D ref={threeDRef} cadData={fp.cadData} markers={markers} className="rounded-sm overflow-hidden border border-neutral-300" />
-              <div className="flex items-center justify-between gap-3 mt-2 px-1">
-                <div className="text-[11px] text-muted-foreground">Drag to orbit &middot; scroll to zoom. Measure pins &amp; room labels are generated from the surveyed geometry — the same data as the 2D plan.</div>
+              <FloorPlan3D ref={threeDRef} cadData={fp.cadData} markers={markers} roof={fp.roof} className="rounded-sm overflow-hidden border border-neutral-300" />
+              <div className="flex items-center gap-3 mt-2 px-1 flex-wrap text-[10.5px] text-muted-foreground" data-testid="floorplan-3d-legend">
+                {[["dMEV", "#0891b2"], ["Loft", "#b45309"], ["Trickle", "#16a34a"], ["ASHP", "#0055ff"]].map(([l, c]) => (
+                  <span key={l} className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: c }} />{l}</span>
+                ))}
+                {fp.roof?.type && <span className="ml-auto capitalize">Roof: {fp.roof.type}{fp.roof.covering ? ` · ${fp.roof.covering}` : ""}</span>}
+              </div>
+              <div className="flex items-center justify-between gap-3 mt-1.5 px-1">
+                <div className="text-[11px] text-muted-foreground">Drag to orbit &middot; scroll to zoom. Measure pins &amp; the roof are derived from your survey — the same data as the 2D plan.</div>
                 <button onClick={saveSnap} disabled={snapping} data-testid="floorplan-3d-snapshot"
                   className="flex items-center gap-1.5 h-8 px-3 shrink-0 border border-border rounded-sm text-[12px] font-medium hover:bg-secondary disabled:opacity-50">
                   {snapping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" strokeWidth={1.75} />} Save this view to pack

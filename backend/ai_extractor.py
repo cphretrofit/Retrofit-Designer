@@ -1104,6 +1104,42 @@ def _extract_json(text):
         return json.loads(re.sub(r",(\s*[}\]])", r"\1", frag))
 
 
+async def detect_roof(p):
+    """Vision-derive the dwelling's roof form (hipped/gabled/flat/mixed), covering and pitch
+    from the property photographs so the 3D massing reflects the real roof."""
+    photos = ((p.get("designPack") or {}).get("photos") or [])
+    HINT = ("elevation", "external", "dpc", "front", "rear", "roof", "gable", "eaves", "ridge", "dwelling")
+    pool = [ph for ph in photos if any(h in (ph.get("caption") or "").lower() for h in HINT)][:8] or photos[:6]
+    b64 = []
+    for ph in pool:
+        b = await _fetch_doc_bytes(ph.get("url") or "")
+        if b:
+            im = _img_b64(b, max_px=820, quality=68)
+            if im:
+                b64.append(im)
+    if not b64:
+        return None
+    prompt = ("These are photographs of ONE UK dwelling. Identify the MAIN ROOF over the dwelling.\n"
+              'Return ONLY JSON: {"type":"hipped|gabled|flat|mixed","covering":"concrete tiles|clay tiles|slate|metal|felt|unknown","pitch":"shallow|medium|steep"}.\n'
+              "hipped = all sides slope down to the eaves with no vertical triangular gable wall. "
+              "gabled = a triangular gable wall at one or both ends with a straight ridge. "
+              "flat = little or no visible pitch. mixed = a combination. "
+              "Judge the covering and pitch only from what is visible; use unknown if unsure.")
+    try:
+        res = await call_claude_vision_json(
+            "You are a chartered surveyor identifying a dwelling's roof form from photographs.", prompt, b64)
+    except Exception as e:
+        logger.warning("roof detect failed: %s", e)
+        return None
+    t = str((res or {}).get("type") or "").lower().strip()
+    if t not in ("hipped", "gabled", "flat", "mixed"):
+        t = "hipped"
+    return {"type": t,
+            "covering": (str((res or {}).get("covering") or "").strip() or "tiles"),
+            "pitch": (str((res or {}).get("pitch") or "medium").strip())}
+
+
+
 async def call_claude_vision_json(system_message: str, prompt: str, images: list) -> dict:
     from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
     contents = [ImageContent(image_base64=b) for b in (images or []) if b]

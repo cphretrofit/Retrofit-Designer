@@ -43,7 +43,7 @@ def _room_box(rx, ry, rw, rh, s, z0, z1, roof=False):
     return "".join(parts), (cx, cy)
 
 
-def build_isometric_svg(cad: dict) -> str:
+def build_isometric_svg(cad: dict, roof=None) -> str:
     cad = cad or {}
     floors = cad.get("floors")
     if not (isinstance(floors, list) and floors):
@@ -88,23 +88,38 @@ def build_isometric_svg(cad: dict) -> str:
                 minsx, maxsx = min(minsx, px), max(maxsx, px)
                 minsy, maxsy = min(minsy, py), max(maxsy, py)
         pending.append("".join(gp))
-    # pitched hip roof over the top storey — reads as a real house rather than flat boxes
+    # pitched roof over the top storey (form taken from the property photos where available)
     top = floors[-1].get("rooms") or []
     if top:
-        rminx = min(_num(r.get("x")) for r in top)
-        rminy = min(_num(r.get("y")) for r in top)
-        rmaxx = max(_num(r.get("x")) + _num(r.get("w")) for r in top)
-        rmaxy = max(_num(r.get("y")) + _num(r.get("h")) for r in top)
+        OV = 0.3
+        rminx = min(_num(r.get("x")) for r in top) - OV
+        rminy = min(_num(r.get("y")) for r in top) - OV
+        rmaxx = max(_num(r.get("x")) + _num(r.get("w")) for r in top) + OV
+        rmaxy = max(_num(r.get("y")) + _num(r.get("h")) for r in top) + OV
+        rtype = str((roof or {}).get("type") or "hipped").lower()
         zt = (n - 1) * floor_span + WALL_H
-        za = zt + min((rmaxx - rminx), (rmaxy - rminy)) * 0.5
+        za = zt + min((rmaxx - rminx), (rmaxy - rminy)) * (0.14 if rtype == "flat" else 0.5)
         c1 = _iso(rminx, rminy, zt, s); c2 = _iso(rmaxx, rminy, zt, s)
         c3 = _iso(rmaxx, rmaxy, zt, s); c4 = _iso(rminx, rmaxy, zt, s)
-        apex = _iso((rminx + rmaxx) / 2, (rminy + rmaxy) / 2, za, s)
-        roof = (_poly([c2, c3, apex], "#C06B4E", "#7A4130", 0.8)
-                + _poly([c3, c4, apex], "#A85B41", "#7A4130", 0.8)
-                + _poly([c1, c2, apex], "#CE7458", "#7A4130", 0.8))
-        pending.append(f'<g>{roof}</g>')
-        for (px, py) in (c1, c2, c3, c4, apex):
+        edge = "#7A4130"
+        if rtype == "gabled":
+            if (rmaxx - rminx) >= (rmaxy - rminy):
+                ym = (rminy + rmaxy) / 2
+                r1 = _iso(rminx, ym, za, s); r2 = _iso(rmaxx, ym, za, s)
+                roofsvg = (_poly([c4, c3, r2, r1], "#C06B4E", edge, 0.8) + _poly([c2, c3, r2], "#A85B41", edge, 0.8))
+            else:
+                xm = (rminx + rmaxx) / 2
+                r1 = _iso(xm, rminy, za, s); r2 = _iso(xm, rmaxy, za, s)
+                roofsvg = (_poly([c2, c3, r2, r1], "#C06B4E", edge, 0.8) + _poly([c3, c4, r2], "#A85B41", edge, 0.8))
+            rpts = (c1, c2, c3, c4, r1, r2)
+        else:
+            apex = _iso((rminx + rmaxx) / 2, (rminy + rmaxy) / 2, za, s)
+            roofsvg = (_poly([c2, c3, apex], "#C06B4E", edge, 0.8)
+                       + _poly([c3, c4, apex], "#A85B41", edge, 0.8)
+                       + _poly([c1, c2, apex], "#CE7458", edge, 0.8))
+            rpts = (c1, c2, c3, c4, apex)
+        pending.append(f'<g>{roofsvg}</g>')
+        for (px, py) in rpts:
             minsx, maxsx = min(minsx, px), max(maxsx, px)
             minsy, maxsy = min(minsy, py), max(maxsy, py)
     # lower floor first (rendered first = behind); we appended ground first which is correct base — but higher floors sit above

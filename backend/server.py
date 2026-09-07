@@ -1003,6 +1003,21 @@ async def save_3d_snapshot(project_id: str, payload: ThreeDSnapshotIn):
     return {"threeDUrl": stored}
 
 
+@api_router.post("/projects/{project_id}/floorplan/detect-roof")
+async def detect_roof_endpoint(project_id: str):
+    from ai_extractor import detect_roof as _dr
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    roof = await _dr(p)
+    if not roof:
+        raise HTTPException(status_code=422, detail="No suitable photos to detect the roof from")
+    fp = p.get("floorPlan") or {}
+    fp["roof"] = roof
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan.roof": roof, "packHash": ""}})
+    return {"roof": roof}
+
+
 @api_router.post("/projects/{project_id}/floorplan")
 async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
     p = await db.projects.find_one({"id": project_id})

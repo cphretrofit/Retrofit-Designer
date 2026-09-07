@@ -27,6 +27,13 @@ export function VentilationPanel({ projectId, initial, onChange }) {
     getAdf1Checklist(projectId).then(setAdf1).catch(() => {});
   }, [projectId]);
   useEffect(() => { loadAdf1(); }, [loadAdf1]);
+  const bedRef = useRef(null);
+  useEffect(() => {
+    if (adf1 && !adf1.wholeDwellingRate && bedRef.current) {
+      bedRef.current.focus();
+      bedRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [adf1]);
 
   const editItem = (key, patch) => {
     setAdf1((s) => {
@@ -97,7 +104,7 @@ export function VentilationPanel({ projectId, initial, onChange }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Bedrooms (whole-dwelling rate)</label>
-            <input type="number" min={1} value={v.bedrooms ?? ""} onChange={(e) => set("bedrooms", e.target.value)} data-testid="ventilation-bedrooms"
+            <input type="number" min={1} value={v.bedrooms ?? ""} ref={bedRef} onChange={(e) => set("bedrooms", e.target.value)} data-testid="ventilation-bedrooms"
               className={inputCls + " mt-1"} placeholder={adf1?.bedrooms ? `${adf1.bedrooms} (from floor plan)` : "e.g. 3"} />
           </div>
           <div>

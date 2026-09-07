@@ -1936,7 +1936,7 @@ def _massing_3d_page(p, issued_date=""):
     else:
         try:
             from cad_iso import build_isometric_svg
-            svg = build_isometric_svg(cad)
+            svg = build_isometric_svg(cad, fp.get("roof"))
         except Exception as e:
             logger.warning("iso massing render failed: %s", e)
             return None
@@ -3477,6 +3477,16 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             fp["_threeDData"] = await _uri(fp["threeDUrl"])
         except Exception:
             fp["_threeDData"] = None
+        p["floorPlan"] = fp
+    if fp.get("cadData") and not fp.get("roof"):
+        try:
+            from ai_extractor import detect_roof as _dr
+            _roof = await _dr(p)
+            if _roof:
+                fp["roof"] = _roof
+                await db.projects.update_one({"id": p.get("id")}, {"$set": {"floorPlan.roof": _roof}})
+        except Exception:
+            pass
         p["floorPlan"] = fp
     for d in (p.get("defects") or []):
         if not d.get("photo"):
