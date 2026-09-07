@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl } from "@/lib/api";
+import { FloorPlan3D } from "@/components/FloorPlan3D";
 import { toast } from "sonner";
 import { Upload, Save, Loader2, X, Sparkles } from "lucide-react";
 
@@ -35,9 +36,11 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [drag, setDrag] = useState(null);
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
+  const [view3d, setView3d] = useState(false);
   const ref = useRef(null);
   const fileRef = useRef(null);
   const markers = fp.markers || [];
+  const has3d = !!(fp.cadData && (((fp.cadData.floors || []).some((f) => (f?.rooms || []).length)) || (fp.cadData.rooms || []).length));
   const addr = project?.address || project?.town || project?.name || "";
   const ref_ = project?.ref || "";
   const rev = project?.revision || "P01";
@@ -142,6 +145,19 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
         </div>
       ) : (
         <>
+          {has3d && (
+            <div className="inline-flex rounded-sm border border-border overflow-hidden" data-testid="floorplan-view-toggle">
+              <button onClick={() => setView3d(false)} data-testid="floorplan-view-2d" className={`h-8 px-3 text-[12px] font-medium ${!view3d ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>2D Plan</button>
+              <button onClick={() => setView3d(true)} data-testid="floorplan-view-3d" className={`h-8 px-3 text-[12px] font-medium ${view3d ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`}>3D View</button>
+            </div>
+          )}
+          {view3d && has3d ? (
+            <div className="border-[1.5px] border-foreground bg-white p-2" data-testid="floorplan-3d-sheet">
+              <FloorPlan3D cadData={fp.cadData} className="rounded-sm overflow-hidden border border-neutral-300" />
+              <div className="text-[11px] text-muted-foreground mt-2 px-1">Drag to orbit &middot; scroll to zoom. Generated from the surveyed room geometry &mdash; the same data as the 2D plan &amp; the pack&rsquo;s isometric view.</div>
+            </div>
+          ) : (
+          <>
           <div className="flex items-center gap-2 flex-wrap">
             {TYPES.map((t) => (
               <button key={t.key} onClick={() => setArm(arm === t.key ? null : t.key)} data-testid={`floorplan-tool-${t.key}`}
@@ -219,6 +235,8 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
             )}
           </div>
           <div className="text-[11px] text-muted-foreground">{markers.length} marker(s) placed. Remember to Save. Indicative positions — confirm exact locations on site.</div>
+          </>
+          )}
         </>
       )}
     </div>

@@ -247,6 +247,12 @@ Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`
   - Both gates are TOPIC-based (match the consideration's topic, not passing narrative mentions) so legitimate items like Pipework Lagging are untouched.
 - Pending (user-requested, not started): **3D floor plan** (interactive orbit-able in workspace + PDF snapshot, reusing 2D room/wall data) — larger task needing a 3D library.
 
+## DONE — 3D floor plan, mains-gas field, evidence sweep, vent dashboard chip (Jun 2026)
+- **3D floor plan (interactive + PDF)**: `FloorPlan3D.jsx` (plain three.js + OrbitControls — drei/fiber blocked by Node-20/camera-controls incompat, so plain three@0.160.0) renders an orbit-able "doll-house" from `floorPlan.cadData.floors[].rooms[{name,x,y,w,h}]` (floor slabs, translucent walls, room-name sprites, stacked storeys, lighting). Wired into `FloorPlanPanel` via a 2D/3D toggle. For the PDF, `cad_iso.py::build_isometric_svg` renders a deterministic isometric massing SVG from the SAME room data (no browser needed); added as a "3D Floor Plan — Isometric Massing" page via `_massing_3d_page(p)` right after the 2D location plan. Verified: workspace 3D canvas renders (WebGL), full pack HTML includes the massing page.
+- **Mains-gas field**: SiteConditionsPanel now has an explicit "Mains gas available?" Yes/No/Unknown select stored on `siteConditions.mainsGas`; the PDF gas-evidence gate reads it (No ⇒ never raises gas decommissioning). 
+- **Evidence sweep**: `POST /api/admin/considerations/evidence-sweep` re-applies the gas/tank evidence gate to every project's stored considerations, removes speculative notes, clears packHash. Surfaced as an "Evidence-gate design considerations" card in Maintenance. Gate logic extracted to module-level `_gas_evidence_ok` / `_tank_evidence_ok` / `_consideration_allowed` in pdf_builder.py (shared by render + sweep).
+- **Vent dashboard chip**: `list_projects` now attaches `ventSummary {status, rate}` (via `_adf1_checklist_items`); Dashboard rows show a Wind chip e.g. "31 l/s" (green) or "confirm" (amber). Verified via curl (15 Greenways → {ok, 31}).
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
 

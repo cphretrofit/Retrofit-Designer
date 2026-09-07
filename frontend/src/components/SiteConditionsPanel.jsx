@@ -86,6 +86,19 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
         </div>
       </div>
 
+      <div className="border border-border rounded-sm bg-card p-4" data-testid="services-block">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[13px] font-medium">Mains gas available?</div>
+            <div className="text-[11.5px] text-muted-foreground mt-0.5">Drives whether the pack raises a gas meter / supply decommissioning note. Set explicitly so it is never inferred.</div>
+          </div>
+          <select value={sc.mainsGas ?? ""} onChange={(e) => setFlag("mainsGas", e.target.value)} data-testid="site-mains-gas"
+            className="h-8 px-2 bg-background border border-border rounded-sm text-[12px] shrink-0 outline-none">
+            <option value="">Unknown</option><option value="Yes">Yes</option><option value="No">No</option>
+          </select>
+        </div>
+      </div>
+
       <div className="border border-border rounded-sm bg-card p-4" data-testid="loft-checklist">
         <div className="text-[13px] font-medium">Loft &amp; Fabric Checklist</div>
         <div className="text-[11.5px] text-muted-foreground mt-0.5 mb-2">Manual answers override photo detection and drive the compliance notes &amp; F-Cap construction detail.</div>

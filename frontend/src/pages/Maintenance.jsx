@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { TopBar } from "@/components/Shell";
 import { AdminTabs } from "@/components/AdminTabs";
-import { loftPhotosRebatch, loftPhotosRebatchStatus } from "@/lib/api";
+import { loftPhotosRebatch, loftPhotosRebatchStatus, evidenceSweep } from "@/lib/api";
 import { toast } from "sonner";
-import { Images, Loader2, Play, CheckCircle2 } from "lucide-react";
+import { Images, Loader2, Play, CheckCircle2, ShieldCheck } from "lucide-react";
 
 function fmtWhen(iso) {
   if (!iso) return null;
@@ -97,6 +97,51 @@ function LoftPhotoBatchCard() {
   );
 }
 
+function EvidenceSweepCard() {
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState(null);
+  const run = async () => {
+    setBusy(true);
+    try {
+      const r = await evidenceSweep();
+      setRes(r);
+      toast.success(`Swept ${r.scanned} project(s)`, { description: `${r.considerationsRemoved} speculative note(s) removed from ${r.projectsUpdated} project(s)` });
+    } catch (e) {
+      toast.error("Sweep failed", { description: e?.response?.data?.detail });
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="border border-border rounded-md bg-card p-6" data-testid="evidence-sweep-card">
+      <div className="flex items-start gap-4">
+        <div className="h-10 w-10 rounded-sm bg-secondary flex items-center justify-center shrink-0">
+          <ShieldCheck className="h-5 w-5 text-foreground" strokeWidth={1.75} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-medium">Evidence-gate design considerations</div>
+          <p className="text-[13px] text-muted-foreground mt-1 leading-snug max-w-xl">
+            Scans every project and removes speculative notes that contradict the assessment — a
+            gas meter / supply decommissioning note where there is no mains gas, or a cold-water
+            tank that was never evidenced. Affected packs are queued to rebuild.
+          </p>
+          <button onClick={run} disabled={busy} data-testid="evidence-sweep-start"
+            className="mt-4 flex items-center gap-2 h-9 px-4 bg-primary text-primary-foreground rounded-sm text-[13px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60">
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" strokeWidth={1.75} />}
+            {busy ? "Sweeping…" : "Run evidence sweep"}
+          </button>
+          {res && (
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1 text-[12px]" data-testid="evidence-sweep-summary">
+              <span className="flex items-center gap-1.5 text-[var(--c-pass)]"><CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Done</span>
+              <span className="text-muted-foreground">Scanned <span className="font-mono text-foreground">{res.scanned}</span></span>
+              <span className="text-muted-foreground">Projects updated <span className="font-mono text-foreground">{res.projectsUpdated}</span></span>
+              <span className="text-muted-foreground">Notes removed <span className="font-mono text-foreground">{res.considerationsRemoved}</span></span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Maintenance() {
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -107,6 +152,7 @@ export default function Maintenance() {
         <div className="text-sm text-muted-foreground mt-1.5">One-click batch jobs to bring existing projects up to date.</div>
         <div className="mt-8 space-y-4">
           <LoftPhotoBatchCard />
+          <EvidenceSweepCard />
         </div>
       </main>
     </div>

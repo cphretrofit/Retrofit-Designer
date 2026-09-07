@@ -1886,6 +1886,66 @@ def _adf1_checklist_items(p):
             "bedrooms": beds, "wholeDwellingRate": wdr, "items": items}
 
 
+def _gas_evidence_ok(p):
+    sc0 = ((p.get("property") or {}).get("siteConditions") or {})
+    mg = str(sc0.get("mainsGas") or sc0.get("mains_gas") or "").strip().lower()
+    if mg in ("no", "false", "none", "not available", "na"):
+        return False
+    if mg in ("yes", "true", "available"):
+        return True
+    blob = (json.dumps(p.get("siteConditionsFromDocs") or []) + " "
+            + json.dumps((p.get("property") or {}).get("existingHeating") or "") + " "
+            + json.dumps(p.get("existingHeating") or "")).lower()
+    if "no mains gas" in blob or "mains gas available: no" in blob:
+        return False
+    return any(k in blob for k in ("gas boiler", "gas-fired", "gas fired", "gas combi", "gas hob", "mains gas: yes"))
+
+
+def _tank_evidence_ok(p):
+    sc0 = ((p.get("property") or {}).get("siteConditions") or {})
+    if sc0.get("loft_tank") is True:
+        return True
+    blob = (json.dumps(sc0.get("evidence") or []) + " " + json.dumps(p.get("siteConditionsFromDocs") or [])).lower()
+    return any(k in blob for k in ("cold water tank", "cold-water tank", "water storage tank", "storage tank", "loft tank"))
+
+
+def _consideration_allowed(p, c):
+    """Evidence gate — drop speculative gas/tank considerations that would contradict the assessment."""
+    topic = (c.get("topic") or "").lower()
+    gas_topic = ("gas" in topic and ("meter" in topic or "decommission" in topic or "supply" in topic or "combustion" in topic))
+    tank_topic = "tank" in topic
+    if gas_topic and not _gas_evidence_ok(p):
+        return False
+    if tank_topic and not _tank_evidence_ok(p):
+        return False
+    return True
+
+
+def _massing_3d_page(p, issued_date=""):
+    """Isometric 3D massing view of the dwelling, extruded from the same room data as the 2D plan."""
+    fp = p.get("floorPlan") or {}
+    cad = fp.get("cadData") or {}
+    floors = cad.get("floors") or ([{"rooms": cad.get("rooms")}] if cad.get("rooms") else [])
+    if not any((f or {}).get("rooms") for f in floors):
+        return None
+    try:
+        from cad_iso import build_isometric_svg
+        svg = build_isometric_svg(cad)
+    except Exception as e:
+        logger.warning("iso massing render failed: %s", e)
+        return None
+    if not svg:
+        return None
+    _addr = _esc(p.get("address") or (p.get("property") or {}).get("address") or "")
+    return ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'
+            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">3D Floor Plan &mdash; Isometric Massing</div>'
+            '<div class="muted" style="font-size:11px; margin-top:8px;">A three-dimensional view of the dwelling generated directly from the surveyed floor-plan geometry, '
+            'with each storey stacked and every room labelled. Indicative massing to aid orientation &mdash; not to scale.</div>'
+            '<div style="margin-top:12px; border:1.5px solid #171717; padding:14px; background:#fff; text-align:center;">'
+            f'{svg}</div>'
+            f'<div class="muted" style="font-size:10px; margin-top:6px;">{_addr}</div>')
+
+
 def _adf1_ventilation_pages(p, measures):
     """Dedicated ADF1 Ventilation Strategy Sheet: dwelling data, ADF1 minimum-rate reference
     tables, the wet-room extract schedule (required vs proposed) and the ADF1 Table D1
@@ -2466,38 +2526,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     _sc_evidence = [e for e in (_sc.get("evidence") or []) if _sc_keep(e)]
     _dc = p.get("designConsiderations") or []
     # Evidence gate — never let speculative considerations contradict the assessment data.
-    # A "Gas Meter / Supply Decommissioning" note requires positive gas evidence (no mains gas
-    # ⇒ nothing to decommission); a "Cold Water Tank" note requires the tank to be evidenced.
-    def _cons_has_gas():
-        sc0 = ((p.get("property") or {}).get("siteConditions") or {})
-        mg = str(sc0.get("mainsGas") or sc0.get("mains_gas") or "").strip().lower()
-        if mg in ("no", "false", "none", "not available", "na"):
-            return False
-        if mg in ("yes", "true", "available"):
-            return True
-        blob = (json.dumps(p.get("siteConditionsFromDocs") or []) + " "
-                + json.dumps((p.get("property") or {}).get("existingHeating") or "") + " "
-                + json.dumps(p.get("existingHeating") or "")).lower()
-        if "no mains gas" in blob or "mains gas available: no" in blob:
-            return False
-        return any(k in blob for k in ("gas boiler", "gas-fired", "gas fired", "gas combi", "gas hob", "mains gas: yes"))
-    def _cons_has_tank():
-        sc0 = ((p.get("property") or {}).get("siteConditions") or {})
-        if sc0.get("loft_tank") is True:
-            return True
-        blob = (json.dumps(sc0.get("evidence") or []) + " " + json.dumps(p.get("siteConditionsFromDocs") or [])).lower()
-        return any(k in blob for k in ("cold water tank", "cold-water tank", "water storage tank", "storage tank", "loft tank"))
-    _gas_ok, _tank_ok = _cons_has_gas(), _cons_has_tank()
-    def _keep_cons(c):
-        topic = (c.get("topic") or "").lower()
-        gas_topic = ("gas" in topic and ("meter" in topic or "decommission" in topic or "supply" in topic or "combustion" in topic))
-        tank_topic = "tank" in topic
-        if gas_topic and not _gas_ok:
-            return False
-        if tank_topic and not _tank_ok:
-            return False
-        return True
-    _dc = [c for c in _dc if _keep_cons(c)]
+    _dc = [c for c in _dc if _consideration_allowed(p, c)]
     # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
     toc = [
@@ -3272,6 +3301,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
              ventilation_page, *_adf1_ventilation_pages(p, measures), *([floorplan_page] if floorplan_page else []),
+             *([_massing_3d_page(p, issued_date)] if _massing_3d_page(p, issued_date) else []),
              preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getDashboard, getProjects, getClients } from "@/lib/api";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip } from "@/components/StatusChip";
-import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList, Upload } from "lucide-react";
+import { ArrowRight, AlertTriangle, Clock, ShieldCheck, Layers, Plus, FileStack, Search, Building2, ClipboardList, Upload, Wind } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const KPI = ({ label, value, unit, tone, icon: Icon, sub, testid }) => (
@@ -188,6 +188,14 @@ export default function Dashboard() {
                     <span data-testid={`loft-gap-${p.id}`} title="Loft & fabric checklist has unanswered (Unknown) items — resolve before issuing the pack"
                       className="flex items-center gap-1 text-[10.5px] font-mono" style={{ color: "var(--c-info)" }}>
                       <ClipboardList className="h-3 w-3" strokeWidth={1.5} />Loft
+                    </span>
+                  )}
+                  {p.ventSummary && (
+                    <span data-testid={`vent-chip-${p.id}`}
+                      title={p.ventSummary.status === "confirm" ? "Ventilation figure still needs confirming before issue" : "Ventilation strategy meets ADF1"}
+                      className="flex items-center gap-1 text-[10.5px] font-mono"
+                      style={{ color: p.ventSummary.status === "confirm" ? "var(--c-warning)" : "var(--c-pass)" }}>
+                      <Wind className="h-3 w-3" strokeWidth={1.5} />{p.ventSummary.rate ? `${p.ventSummary.rate} l/s` : (p.ventSummary.status === "confirm" ? "confirm" : "ok")}
                     </span>
                   )}
                 </div>

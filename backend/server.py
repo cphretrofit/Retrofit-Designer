@@ -653,10 +653,37 @@ async def dashboard():
 
 @api_router.get("/projects")
 async def list_projects():
+    from pdf_builder import _adf1_checklist_items
     projects = await db.projects.find({}, {"_id": 0}).to_list(1000)
     for p in projects:
         p["partner"] = _resolve_partner(p)
+        try:
+            fams = {_mfam(m.get("code"), m.get("name")) for m in (p.get("measures") or [])}
+            vent = p.get("ventilation") or {}
+            if "VENT" in fams or vent.get("rooms") or vent.get("strategy"):
+                cl = _adf1_checklist_items(p)
+                warn = any(i.get("status") == "warn" for i in cl.get("items") or [])
+                p["ventSummary"] = {"status": "confirm" if warn else "ok", "rate": cl.get("wholeDwellingRate")}
+        except Exception:
+            pass
     return sorted(projects, key=lambda x: x.get("updatedAt", ""), reverse=True)
+
+
+@api_router.post("/admin/considerations/evidence-sweep")
+async def evidence_sweep():
+    """Re-run the gas/tank evidence gate across every project's stored design considerations,
+    removing any speculative note that contradicts the assessment data. Clears packHash so packs rebuild."""
+    from pdf_builder import _consideration_allowed
+    scanned = updated = removed = 0
+    async for p in db.projects.find({"designConsiderations": {"$exists": True, "$ne": []}}):
+        scanned += 1
+        dc = p.get("designConsiderations") or []
+        kept = [c for c in dc if _consideration_allowed(p, c)]
+        if len(kept) != len(dc):
+            removed += (len(dc) - len(kept))
+            updated += 1
+            await db.projects.update_one({"id": p["id"]}, {"$set": {"designConsiderations": kept, "packHash": ""}})
+    return {"scanned": scanned, "projectsUpdated": updated, "considerationsRemoved": removed}
 
 
 def _public_origin(request):
