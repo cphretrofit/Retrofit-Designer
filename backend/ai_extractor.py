@@ -1262,7 +1262,7 @@ def _auto_actions_from_conditions(project):
 DESIGN_CONSIDERATIONS_SYSTEM = """You are a PAS 2035:2023 Retrofit Designer writing the "Design Considerations" section of a retrofit design for ONE dwelling, in the professional house style of a UK retrofit design pack.
 You are given the property's detected site conditions and the proposed retrofit measures. For EACH relevant consideration decide Present = "Yes" / "No" / "N/A" for THIS property, then write a concise, site-specific professional paragraph (2-4 sentences, third person) referencing the relevant standard where appropriate (BS 5250, BS 7671, Approved Document B, Approved Document F, PAS 2035, BRE BR 262, MCS). Base everything strictly on the evidence given; never invent site details you were not given — where something is unknown, state that it must be confirmed on site.
 
-Cover these topics where relevant to the measures: Crossflow Ventilation (loft), Pipework Lagging, Recessed Spotlights / Downlights, Gas Meter / Supply Decommissioning (only if an ASHP is replacing gas), Overheating (note south-facing glazing where applicable), Fire Safety, Thermal Bridging, Loft Hatch, Cold Water Tank. Only raise Gas Meter / Combustion / flue / combustion-ventilation topics if the documents show a combustion appliance (gas boiler, gas hob, solid-fuel or open-flue appliance) is present or being removed; for an all-electric dwelling omit these topics entirely rather than marking them N/A.
+Cover these topics where relevant to the measures: Crossflow Ventilation (loft), Pipework Lagging, Recessed Spotlights / Downlights, Gas Meter / Supply Decommissioning (only if an ASHP is replacing gas), Overheating (note south-facing glazing where applicable), Fire Safety, Thermal Bridging, Loft Hatch, Cold Water Tank. Only raise Gas Meter / Combustion / flue / combustion-ventilation topics if the documents show a combustion appliance (gas boiler, gas hob, solid-fuel or open-flue appliance) is present or being removed; for an all-electric dwelling, or where the assessment records that mains gas is NOT available, omit these topics entirely (do not infer a gas supply). Only raise Cold Water Tank as Present="Yes" if a cold-water storage tank is actually EVIDENCED for THIS dwelling (a survey photo of the tank, a site-note/assessment entry, or the loft_tank flag). NEVER infer a loft tank from the property type, the presence of an upstairs bathroom, or the dwelling age — if there is no direct evidence, either set Present="No" or omit the topic. Do not state that a tank, gas supply or any component exists unless the given evidence shows it.
 
 Return ONLY JSON:
 {"considerations":[{"topic":"Crossflow Ventilation","present":"No","narrative":"..."}]}"""
@@ -1294,12 +1294,23 @@ async def generate_design_considerations(project: dict, assessment_text: str = "
               (("\n\nAssessment / survey extract:\n" + assessment_text[:4000]) if assessment_text else "") +
               "\n\nWrite the site-specific Design Considerations for this dwelling.")
     data = await call_claude_json(DESIGN_CONSIDERATIONS_SYSTEM, prompt)
+    _txt = (assessment_text or "").lower()
+    _no_gas = ("no mains gas" in _txt or "mains gas available: no" in _txt
+               or "mains gas available?\nno" in _txt or "mains gas: no" in _txt)
+    _has_tank_ev = ("loft_tank" in json.dumps(scflat).lower() and sc.get("loft_tank") is True) \
+        or any(k in _txt for k in ("cold water tank", "cold-water tank", "water storage tank", "storage tank in the loft"))
     out = []
     for c in (data.get("considerations") or []):
         topic = (c.get("topic") or "").strip()
         narr = (c.get("narrative") or "").strip()
-        if "flat roof" in (topic + " " + narr).lower():
+        _tl = topic.lower()
+        if "flat roof" in (_tl + " " + narr.lower()):
             continue  # out of scope — never mention flat roofs in the design
+        # Evidence gate (TOPIC-based so passing mentions in other topics are unaffected).
+        if _no_gas and ("gas" in _tl and ("meter" in _tl or "decommission" in _tl or "supply" in _tl or "combustion" in _tl)):
+            continue
+        if (not _has_tank_ev) and ("tank" in _tl):
+            continue
         if topic and narr:
             out.append({"topic": topic, "present": (c.get("present") or "").strip(), "narrative": narr})
     return out

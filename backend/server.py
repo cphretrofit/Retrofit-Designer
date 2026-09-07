@@ -944,6 +944,15 @@ async def update_ventilation(project_id: str, payload: VentilationIn):
     return {"ventilation": payload.ventilation}
 
 
+@api_router.get("/projects/{project_id}/adf1-checklist")
+async def get_adf1_checklist(project_id: str):
+    from pdf_builder import _adf1_checklist_items
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return _adf1_checklist_items(p)
+
+
 @api_router.post("/projects/{project_id}/floorplan")
 async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
     p = await db.projects.find_one({"id": project_id})

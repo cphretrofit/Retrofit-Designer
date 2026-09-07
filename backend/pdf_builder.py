@@ -1810,9 +1810,80 @@ def _adf1_room_required(room, stype):
 
 
 def _adf1_chip(status):
+    if status == "na":
+        return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#525252; background:#F5F5F5; border:1px solid #D4D4D4; padding:1px 7px; border-radius:10px;">N/A</span>'
     if status == "ok":
         return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#15803D; background:#DCFCE7; border:1px solid #86EFAC; padding:1px 7px; border-radius:10px;">COMPLIANT</span>'
     return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#B45309; background:#FEF3C7; border:1px solid #FCD34D; padding:1px 7px; border-radius:10px;">CONFIRM ON SITE</span>'
+
+
+_ADF1_STYPE_LBL = {"IEV": "Intermittent Extract Ventilation (IEV) with background ventilators",
+                   "MEV": "Continuous Mechanical Extract Ventilation (MEV / dMEV)",
+                   "MVHR": "Mechanical Ventilation with Heat Recovery (MVHR)"}
+
+
+def _adf1_bedrooms(p):
+    """Bedroom count for ADF1 — manual override on ventilation.bedrooms wins, else floor-plan derived."""
+    vent = p.get("ventilation") or {}
+    try:
+        b = int(vent.get("bedrooms"))
+        if b > 0:
+            return b
+    except Exception:
+        pass
+    return _count_bedrooms(p)
+
+
+def _adf1_checklist_items(p):
+    """Single source of truth for the ADF1 Table D1 checklist — used by both the PDF and the
+    workspace editor. Applies any manual overrides stored on ventilation.adf1Overrides
+    (keyed by item key → {status, provision})."""
+    vent = p.get("ventilation") or {}
+    stype = _vent_system_type(vent)
+    beds = _adf1_bedrooms(p)
+    wdr = _whole_dwelling_rate(beds)
+    wd_prov = (f"{wdr} l/s minimum for this {beds}-bedroom dwelling." if wdr
+               else "Confirm against final bedroom count (Table 1.3).")
+    wd_st = "ok" if wdr else "warn"
+    if stype == "IEV":
+        base = [
+            ("extract_intermittent", "Intermittent extract fan to each wet room (Table 1.1)", "Kitchen 30/60 l/s \u00b7 Utility 30 l/s \u00b7 Bathroom 15 l/s \u00b7 WC 6 l/s.", "ok"),
+            ("background_vent", "Background ventilators to every habitable room (Table 1.7)", "Trickle ventilators to each habitable room, minimum 8,000 mm\u00b2 equivalent area (min 4,000 mm\u00b2).", "ok"),
+            ("no_bg_wet", "No background ventilators in wet rooms", "Confirmed \u2014 wet rooms served by extract only.", "ok"),
+            ("purge", "Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
+            ("undercut", "Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface to all internal doors.", "ok"),
+            ("fan_spacing", "Fan / background-ventilator spacing", "Extract fan and background ventilator at least 0.5 m apart.", "ok"),
+        ]
+    elif stype == "MVHR":
+        base = [
+            ("whole_dwelling", "Whole-dwelling supply & extract rate (Table 1.3)", wd_prov, wd_st),
+            ("unit_location", "Unit location & duct insulation (para 1.2)", "MVHR unit sited per manufacturer; supply/extract ducts in cold voids fully insulated to avoid condensation.", "ok"),
+            ("bg_removed", "Background ventilators removed / sealed", "Not required with balanced MVHR \u2014 envelope sealed; make-up air is mechanically supplied.", "ok"),
+            ("purge", "Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
+            ("undercut", "Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface.", "ok"),
+            ("commissioning", "Commissioning & handover", "Commission and balance to BS EN 12599; provide the commissioning certificate to the occupier.", "ok"),
+        ]
+    else:  # MEV / dMEV
+        base = [
+            ("extract_high_rate", "Minimum extract high rate to each wet room (Table 1.2)", "Kitchen 13 l/s \u00b7 Utility 8 l/s \u00b7 Bathroom 8 l/s \u00b7 WC 6 l/s continuous, with boost.", "ok"),
+            ("whole_dwelling", "Total continuous whole-dwelling rate (Table 1.3)", wd_prov, wd_st),
+            ("background_vent", "Background ventilators to habitable rooms (Table 1.7)", "Trickle ventilators retained/provided to habitable rooms for make-up air (min 8,000 mm\u00b2 equivalent area each).", "ok"),
+            ("purge", "Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
+            ("undercut", "Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface to all internal doors.", "ok"),
+            ("fan_location", "Fan location & spacing (para 1.2)", "Extract terminals in wet rooms; fans at least 0.5 m from background ventilators.", "ok"),
+            ("commissioning", "Commissioning & handover", "Commission to BS EN 12599; provide the commissioning sheet to the occupier.", "ok"),
+        ]
+    if vent.get("airtightness"):
+        base.append(("airtightness", "Air-tightness / air-permeability", str(vent.get("airtightness")) + " \u2014 re-assess ventilation adequacy as the fabric is tightened.", "ok"))
+    ov = vent.get("adf1Overrides") or {}
+    items = []
+    for key, req, prov, st in base:
+        o = ov.get(key) or {}
+        items.append({"key": key, "requirement": req,
+                      "provision": (o.get("provision") if o.get("provision") is not None else prov),
+                      "status": (o.get("status") or st)})
+    return {"systemType": stype, "systemLabel": _ADF1_STYPE_LBL.get(stype),
+            "bedrooms": beds, "wholeDwellingRate": wdr, "items": items}
 
 
 def _adf1_ventilation_pages(p, measures):
@@ -1826,10 +1897,8 @@ def _adf1_ventilation_pages(p, measures):
     if "VENT" not in fams and not (vent.get("rooms") or vent.get("strategy")):
         return []
     stype = _vent_system_type(vent)
-    STYPE_LBL = {"IEV": "Intermittent Extract Ventilation (IEV) with background ventilators",
-                 "MEV": "Continuous Mechanical Extract Ventilation (MEV / dMEV)",
-                 "MVHR": "Mechanical Ventilation with Heat Recovery (MVHR)"}
-    beds = _count_bedrooms(p)
+    STYPE_LBL = _ADF1_STYPE_LBL
+    beds = _adf1_bedrooms(p)
     wet = vent.get("rooms") or []
     wdr = _whole_dwelling_rate(beds)
     addr = _esc(p.get("address") or prop.get("address") or "")
@@ -1909,47 +1978,17 @@ def _adf1_ventilation_pages(p, measures):
                + strat + notes_html)
     page1b = _np("Approved Document F &middot; ADF1", "Whole-Dwelling Requirement &amp; Provisions", inner1b)
 
-    # --- Page 2: ADF1 Table D1 compliance checklist for the selected system ---
-    if stype == "IEV":
-        items = [
-            ("Intermittent extract fan to each wet room (Table 1.1)", "Kitchen 30/60 l/s · Utility 30 l/s · Bathroom 15 l/s · WC 6 l/s.", "ok"),
-            ("Background ventilators to every habitable room (Table 1.7)", "Trickle ventilators to each habitable room, minimum 8,000 mm² equivalent area (min 4,000 mm²).", "ok"),
-            ("No background ventilators in wet rooms", "Confirmed — wet rooms served by extract only.", "ok"),
-            ("Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
-            ("Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface to all internal doors.", "ok"),
-            ("Fan / background-ventilator spacing", "Extract fan and background ventilator at least 0.5 m apart.", "ok"),
-        ]
-    elif stype == "MVHR":
-        items = [
-            ("Whole-dwelling supply & extract rate (Table 1.3)", (f"{wdr} l/s minimum for this {beds}-bedroom dwelling." if wdr else "Confirm against final bedroom count (Table 1.3)."), "ok" if wdr else "warn"),
-            ("Unit location & duct insulation (para 1.2)", "MVHR unit sited per manufacturer; supply/extract ducts in cold voids fully insulated to avoid condensation.", "ok"),
-            ("Background ventilators removed / sealed", "Not required with balanced MVHR — envelope sealed; make-up air is mechanically supplied.", "ok"),
-            ("Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
-            ("Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface.", "ok"),
-            ("Commissioning & handover", "Commission and balance to BS EN 12599; provide the commissioning certificate to the occupier.", "ok"),
-        ]
-    else:  # MEV / dMEV
-        items = [
-            ("Minimum extract high rate to each wet room (Table 1.2)", "Kitchen 13 l/s · Utility 8 l/s · Bathroom 8 l/s · WC 6 l/s continuous, with boost.", "ok"),
-            ("Total continuous whole-dwelling rate (Table 1.3)", (f"{wdr} l/s minimum for this {beds}-bedroom dwelling." if wdr else "Confirm against final bedroom count (Table 1.3)."), "ok" if wdr else "warn"),
-            ("Background ventilators to habitable rooms (Table 1.7)", "Trickle ventilators retained/provided to habitable rooms for make-up air (min 8,000 mm² equivalent area each).", "ok"),
-            ("Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
-            ("Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface to all internal doors.", "ok"),
-            ("Fan location & spacing (para 1.2)", "Extract terminals in wet rooms; fans at least 0.5 m from background ventilators.", "ok"),
-            ("Commissioning & handover", "Commission to BS EN 12599; provide the commissioning sheet to the occupier.", "ok"),
-        ]
-    if vent.get("airtightness"):
-        items.append(("Air-tightness / air-permeability", _esc(vent.get("airtightness")) + " — re-assess ventilation adequacy as the fabric is tightened.", "ok"))
-
+    # --- Page 2: ADF1 Table D1 compliance checklist (shared, override-aware source) ---
+    cl = _adf1_checklist_items(p)
     crows = ""
-    for label, prov, st in items:
-        crows += (f'<tr><td style="color:#262626; width:34%;">{label}</td>'
-                  f'<td class="muted" style="width:52%; font-size:10.5px;">{prov}</td>'
-                  f'<td style="width:14%; text-align:center;">{_adf1_chip(st)}</td></tr>')
+    for it in cl["items"]:
+        crows += (f'<tr><td style="color:#262626; width:34%;">{_esc(it["requirement"])}</td>'
+                  f'<td class="muted" style="width:52%; font-size:10.5px;">{_esc(it["provision"])}</td>'
+                  f'<td style="width:14%; text-align:center;">{_adf1_chip(it["status"])}</td></tr>')
     checklist = ('<table><thead><tr><th>ADF1 Table D1 requirement</th><th>Design provision</th>'
                  '<th style="text-align:center;">Status</th></tr></thead>'
                  f'<tbody>{crows}</tbody></table>')
-    n_confirm = sum(1 for _, _, s in items if s != "ok")
+    n_confirm = sum(1 for it in cl["items"] if it["status"] == "warn")
     if n_confirm:
         verdict = (f'<div style="margin-top:14px; padding:10px 12px; background:#FEF3C7; border:1px solid #FCD34D; border-radius:3px; font-size:11px; color:#92400E;">'
                    f'<strong>{n_confirm} item(s) to confirm.</strong> The proposed strategy meets Approved Document F once the outstanding item(s) above are verified on site / at commissioning.</div>')
@@ -2426,6 +2465,39 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     _sc_evidence = [e for e in (_sc.get("evidence") or []) if _sc_keep(e)]
     _dc = p.get("designConsiderations") or []
+    # Evidence gate — never let speculative considerations contradict the assessment data.
+    # A "Gas Meter / Supply Decommissioning" note requires positive gas evidence (no mains gas
+    # ⇒ nothing to decommission); a "Cold Water Tank" note requires the tank to be evidenced.
+    def _cons_has_gas():
+        sc0 = ((p.get("property") or {}).get("siteConditions") or {})
+        mg = str(sc0.get("mainsGas") or sc0.get("mains_gas") or "").strip().lower()
+        if mg in ("no", "false", "none", "not available", "na"):
+            return False
+        if mg in ("yes", "true", "available"):
+            return True
+        blob = (json.dumps(p.get("siteConditionsFromDocs") or []) + " "
+                + json.dumps((p.get("property") or {}).get("existingHeating") or "") + " "
+                + json.dumps(p.get("existingHeating") or "")).lower()
+        if "no mains gas" in blob or "mains gas available: no" in blob:
+            return False
+        return any(k in blob for k in ("gas boiler", "gas-fired", "gas fired", "gas combi", "gas hob", "mains gas: yes"))
+    def _cons_has_tank():
+        sc0 = ((p.get("property") or {}).get("siteConditions") or {})
+        if sc0.get("loft_tank") is True:
+            return True
+        blob = (json.dumps(sc0.get("evidence") or []) + " " + json.dumps(p.get("siteConditionsFromDocs") or [])).lower()
+        return any(k in blob for k in ("cold water tank", "cold-water tank", "water storage tank", "storage tank", "loft tank"))
+    _gas_ok, _tank_ok = _cons_has_gas(), _cons_has_tank()
+    def _keep_cons(c):
+        topic = (c.get("topic") or "").lower()
+        gas_topic = ("gas" in topic and ("meter" in topic or "decommission" in topic or "supply" in topic or "combustion" in topic))
+        tank_topic = "tank" in topic
+        if gas_topic and not _gas_ok:
+            return False
+        if tank_topic and not _tank_ok:
+            return False
+        return True
+    _dc = [c for c in _dc if _keep_cons(c)]
     # Canonical table of contents — true to the sections actually in this pack
     bp = p.get("templateBlueprint") or {}
     toc = [

@@ -239,6 +239,14 @@ Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`
 ## NOTE — Datasheet brand reading (job-to-job, no list needed)
 - Confirmed: the brand/product is read straight from each uploaded datasheet via `parse_datasheet_products` (Claude reads the manufacturer + product from the sheet, incl. the header/top) and `_assign_products` swaps the generic/default system for that actual product — so no maintained competitor brand list is required. `_INS_BRANDS` + `_supersede_measure_brand` remain only as an extra sweep for known brand names in secondary narrative fields.
 
+## DONE — ADF1 editable checklist + bedrooms; data-accuracy gates (Jun 2026)
+- **Editable ADF1 Table D1 checklist**: `_adf1_checklist_items(p)` in pdf_builder.py is now the single source of truth for both the PDF and the workspace. New `GET /api/projects/{id}/adf1-checklist` returns systemType/systemLabel/bedrooms/wholeDwellingRate/items. VentilationPanel gained a **Bedrooms** field (drives Table 1.3 whole-dwelling rate; overrides floor-plan count via `ventilation.bedrooms`) and an **ADF1 Table D1 Checklist** editor (per-item status Compliant/Confirm/N-A + editable provision). Overrides persist to `ventilation.adf1Overrides` (keyed by item key) and are applied in the PDF. Verified via curl (beds 4 → 37 l/s; purge override → warn + custom text) and UI screenshot.
+- **Data-accuracy evidence gates (fixes "makes us look foolish" bugs)**:
+  - **Gas Meter / Supply Decommissioning** no longer appears unless there is POSITIVE gas evidence. Render-time gate `_cons_has_gas(p)` (in build_pack_html) drops the topic when `siteConditions.mainsGas` is No or when no gas boiler/hob/mains-gas signal exists (defaults to drop = accuracy-first). Prompt hardened + generation-time filter added. Fixed 15 Greenways (RdSAP: mains gas = No) — removed the item, set `siteConditions.mainsGas="No"`.
+  - **Cold Water Tank** no longer inferred from property type/upstairs bathroom. Gated on real evidence (`loft_tank` flag, a tank photo, or a site-note/assessment tank entry) via `_cons_has_tank(p)` + prompt + generation filter. Removed the speculative item from 15 Greenways.
+  - Both gates are TOPIC-based (match the consideration's topic, not passing narrative mentions) so legitimate items like Pipework Lagging are untouched.
+- Pending (user-requested, not started): **3D floor plan** (interactive orbit-able in workspace + PDF snapshot, reusing 2D room/wall data) — larger task needing a 3D library.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
 
