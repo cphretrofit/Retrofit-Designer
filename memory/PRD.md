@@ -327,3 +327,9 @@ All in `pdf_builder.py`:
 - **Measure photo galleries** now pull vision-curated site-conditions imagery (loft photos filed under `loft_storage`/`loft_crossflow`/`downlights`/etc.) in addition to caption matches, capped at 12/measure; total loaded photos raised 24→48. Loft section now shows all available loft photos.
 - Dead code left inert (harmless): `_massing_3d_page`, `_preliminaries_html`, `_standards_html`, `_exclusions_html`, `_commissioning_html`, `_walkthrough_pages`.
 - KNOWN MINOR (pre-existing, not touched): the ADF1 wet-room extract schedule table can crowd the Extract-rate/Notes columns when the rate string is long.
+
+## DONE — Readiness made actionable (Jun 2026, ProjectOverview.jsx)
+- The Design Readiness bars are now **clickable rows** that navigate straight to the workspace section that completes each area (`READINESS_NAV` map: Property Data→survey, Measures→overview, Specifications→specifications, Calculations→calculations, Junctions→junctions, Evidence→evidence, QA→outstanding).
+- Added a plain-English helper line ("Tap any row to jump to what needs finishing… get every bar to 100%"), a completion tick per area (green check at 100%, else open circle), a per-area hint of what to do, and a hover → arrow affordance.
+- NOTE: the readiness % values are still **derived/indicative** (computed from overall completion in `server.py` `breakdown`), not yet a true per-area gap analysis. Offered to make them reflect real gaps next.
+- STILL QUEUED (user-confirmed backlog, not yet started): Evidence Score, ADF1 extract-table tidy, dynamic datasheet Brand Auto-Parse, per-measure photo cap (Pack Slimming).

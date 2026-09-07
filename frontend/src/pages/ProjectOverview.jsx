@@ -20,6 +20,17 @@ const MARK = {
 const SEV = { critical: AlertTriangle, warning: AlertTriangle, info_required: Info };
 const SEV_COLOR = { critical: "var(--c-critical)", warning: "var(--c-warning)", info_required: "var(--c-info)" };
 
+// Maps each readiness area to the workspace section that completes it, with a plain-English hint.
+const READINESS_NAV = {
+  "Property Data": { section: "survey", hint: "Confirm dwelling details, age band, floor area and the window schedule" },
+  "Measures": { section: "overview", hint: "Open each measure and complete its design" },
+  "Specifications": { section: "specifications", hint: "Attach a product / datasheet to every measure so the spec is specific" },
+  "Calculations": { section: "calculations", hint: "Enter the U-value and heat-loss calculations" },
+  "Junctions": { section: "junctions", hint: "Draw the thermal-bridge junction details" },
+  "Evidence": { section: "evidence", hint: "Add survey photos and product datasheets to back each claim" },
+  "QA": { section: "outstanding", hint: "Clear the items before issue, then coordinator sign-off" },
+};
+
 const KNOWN_PARTNERS = ["Aran Group", "Sustainable Building Services", "Everwarm", "Westville Insulation", "E.ON Solutions", "Bell Group"];
 
 function PartnerEditor({ value, onSave }) {
@@ -243,16 +254,40 @@ export default function ProjectOverview() {
               <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Design Readiness</span>
             </div>
             <div className="p-5">
-              <div className="space-y-3">
-                {p.readiness.breakdown.map((b) => (
-                  <div key={b.label}>
-                    <div className="flex items-center justify-between text-[12px] mb-1">
-                      <span className="text-muted-foreground">{b.label}</span>
-                      <span className="font-mono tabular-nums">{b.value}%</span>
-                    </div>
-                    <Meter value={b.value} />
-                  </div>
-                ))}
+              <div className="text-[11.5px] text-muted-foreground mb-3 leading-snug" data-testid="readiness-help">
+                Each area feeds the overall score. <span className="text-foreground font-medium">Tap any row</span> to jump to what still needs finishing — get every bar to 100% and clear the items before issue to be ready to issue.
+              </div>
+              <div className="space-y-2">
+                {p.readiness.breakdown.map((b) => {
+                  const nav = READINESS_NAV[b.label] || { section: "overview", hint: "" };
+                  const done = b.value >= 100;
+                  return (
+                    <button
+                      key={b.label}
+                      type="button"
+                      onClick={() => navigate(`/project/${id}/design/${nav.section}`)}
+                      data-testid={`readiness-row-${nav.section}`}
+                      className="w-full text-left group rounded-sm -mx-1.5 px-1.5 py-1.5 hover:bg-secondary/60 transition-colors"
+                    >
+                      <div className="flex items-center justify-between text-[12px] mb-1">
+                        <span className="flex items-center gap-1.5 text-muted-foreground group-hover:text-foreground transition-colors">
+                          {done
+                            ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--c-pass)" }} strokeWidth={2} />
+                            : <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" strokeWidth={2} />}
+                          {b.label}
+                        </span>
+                        <span className="flex items-center gap-1.5">
+                          <span className="font-mono tabular-nums">{b.value}%</span>
+                          <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={1.75} />
+                        </span>
+                      </div>
+                      <Meter value={b.value} />
+                      {!done && nav.hint && (
+                        <div className="text-[10.5px] text-muted-foreground/80 mt-1 leading-snug">{nav.hint}</div>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
               <div className="mt-6 pt-5 border-t border-border">
                 <div className="flex items-center justify-between mb-3">
