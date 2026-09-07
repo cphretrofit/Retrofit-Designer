@@ -253,6 +253,12 @@ Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`
 - **Evidence sweep**: `POST /api/admin/considerations/evidence-sweep` re-applies the gas/tank evidence gate to every project's stored considerations, removes speculative notes, clears packHash. Surfaced as an "Evidence-gate design considerations" card in Maintenance. Gate logic extracted to module-level `_gas_evidence_ok` / `_tank_evidence_ok` / `_consideration_allowed` in pdf_builder.py (shared by render + sweep).
 - **Vent dashboard chip**: `list_projects` now attaches `ventSummary {status, rate}` (via `_adf1_checklist_items`); Dashboard rows show a Wind chip e.g. "31 l/s" (green) or "confirm" (amber). Verified via curl (15 Greenways → {ok, 31}).
 
+## DONE — 3D pins, snapshot-to-pack, roof massing, vent filter (Jun 2026)
+- **Measure pins in 3D**: `FloorPlan3D` now renders colour-coded pins (dMEV/loft/trickle/ASHP) + labels from `floorPlan.markers`, mapping the 2D marker x%/y% to the correct storey + footprint position (floor index = floor(y%·N)). Matches the 2D location plan.
+- **Snapshot to pack**: `FloorPlan3D` exposes `capture()` (WebGL `toDataURL`, `preserveDrawingBuffer:true`); "Save this view to pack" button → `POST /api/projects/{id}/floorplan/threeD-snapshot` stores PNG to object storage as `floorPlan.threeDUrl` (clears packHash). `_render_pack_html` resolves it to `fp._threeDData`; `_massing_3d_page` embeds the saved orbit view when present, else falls back to the deterministic isometric SVG.
+- **Roof massing**: pitched hip roof over the top storey in BOTH the three.js view (ConeGeometry 4-seg scaled to footprint) and the PDF isometric (`cad_iso.py` — 3 terracotta triangles to a central apex, bounds extended). Verified via PDF render + workspace screenshot.
+- **Vent dashboard filter**: new "Ventilation to confirm" toggle on the Dashboard (`vf` state) filtering rows to `ventSummary.status === "confirm"`; included in Clear.
+
 ## Test credentials
 `/app/memory/test_credentials.md`. Admin: it@cphretrofit.co.uk. 10 Emmens project id: `993ad5b3-93a1-4183-9906-4c33252978cf`.
 

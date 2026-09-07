@@ -980,6 +980,29 @@ async def get_adf1_checklist(project_id: str):
     return _adf1_checklist_items(p)
 
 
+class ThreeDSnapshotIn(BaseModel):
+    dataUrl: str
+
+
+@api_router.post("/projects/{project_id}/floorplan/threeD-snapshot")
+async def save_3d_snapshot(project_id: str, payload: ThreeDSnapshotIn):
+    import base64 as _b64
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    du = payload.dataUrl or ""
+    if "," not in du:
+        raise HTTPException(status_code=422, detail="Invalid image data")
+    raw = _b64.b64decode(du.split(",", 1)[1])
+    pid = str(uuid.uuid4())
+    path = f"{APP_NAME}/uploads/{pid}.png"
+    stored = (await asyncio.to_thread(put_object, path, raw, "image/png"))["path"]
+    fp = p.get("floorPlan") or {}
+    fp["threeDUrl"] = stored
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "packHash": ""}})
+    return {"threeDUrl": stored}
+
+
 @api_router.post("/projects/{project_id}/floorplan")
 async def upload_floorplan(project_id: str, file: UploadFile = File(...)):
     p = await db.projects.find_one({"id": project_id})

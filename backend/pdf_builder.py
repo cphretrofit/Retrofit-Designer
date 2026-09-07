@@ -1922,27 +1922,34 @@ def _consideration_allowed(p, c):
 
 
 def _massing_3d_page(p, issued_date=""):
-    """Isometric 3D massing view of the dwelling, extruded from the same room data as the 2D plan."""
+    """3D massing view — a saved orbit snapshot if the user captured one, otherwise a
+    deterministic isometric render extruded from the same room data as the 2D plan."""
     fp = p.get("floorPlan") or {}
     cad = fp.get("cadData") or {}
     floors = cad.get("floors") or ([{"rooms": cad.get("rooms")}] if cad.get("rooms") else [])
     if not any((f or {}).get("rooms") for f in floors):
         return None
-    try:
-        from cad_iso import build_isometric_svg
-        svg = build_isometric_svg(cad)
-    except Exception as e:
-        logger.warning("iso massing render failed: %s", e)
-        return None
-    if not svg:
-        return None
+    snap = fp.get("_threeDData")
+    if snap:
+        body = f'<img src="{snap}" style="display:block; max-width:100%; max-height:640px; margin:0 auto;">'
+        cap = "Saved 3D view of the dwelling, captured from the interactive model."
+    else:
+        try:
+            from cad_iso import build_isometric_svg
+            svg = build_isometric_svg(cad)
+        except Exception as e:
+            logger.warning("iso massing render failed: %s", e)
+            return None
+        if not svg:
+            return None
+        body = svg
+        cap = "A three-dimensional view of the dwelling generated directly from the surveyed floor-plan geometry, with each storey stacked and every room labelled."
     _addr = _esc(p.get("address") or (p.get("property") or {}).get("address") or "")
     return ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'
-            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">3D Floor Plan &mdash; Isometric Massing</div>'
-            '<div class="muted" style="font-size:11px; margin-top:8px;">A three-dimensional view of the dwelling generated directly from the surveyed floor-plan geometry, '
-            'with each storey stacked and every room labelled. Indicative massing to aid orientation &mdash; not to scale.</div>'
+            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">3D Floor Plan &mdash; Massing View</div>'
+            f'<div class="muted" style="font-size:11px; margin-top:8px;">{cap} Indicative massing to aid orientation &mdash; not to scale.</div>'
             '<div style="margin-top:12px; border:1.5px solid #171717; padding:14px; background:#fff; text-align:center;">'
-            f'{svg}</div>'
+            f'{body}</div>'
             f'<div class="muted" style="font-size:10px; margin-top:6px;">{_addr}</div>')
 
 
@@ -3301,7 +3308,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
              ventilation_page, *_adf1_ventilation_pages(p, measures), *([floorplan_page] if floorplan_page else []),
-             *([_massing_3d_page(p, issued_date)] if _massing_3d_page(p, issued_date) else []),
+             *([_massing_3d_page(p)] if _massing_3d_page(p) else []),
              preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
@@ -3464,6 +3471,12 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             fp["_data"] = (await asyncio.to_thread(_remote_data_uri, u)) if u.startswith("http") else (await _doc_data_uri(u))
         except Exception:
             fp["_data"] = None
+        p["floorPlan"] = fp
+    if fp.get("threeDUrl"):
+        try:
+            fp["_threeDData"] = await _uri(fp["threeDUrl"])
+        except Exception:
+            fp["_threeDData"] = None
         p["floorPlan"] = fp
     for d in (p.get("defects") or []):
         if not d.get("photo"):

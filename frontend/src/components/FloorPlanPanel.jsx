@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl } from "@/lib/api";
+import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot } from "@/lib/api";
 import { FloorPlan3D } from "@/components/FloorPlan3D";
 import { toast } from "sonner";
 import { Upload, Save, Loader2, X, Sparkles } from "lucide-react";
@@ -37,10 +37,19 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [busy, setBusy] = useState(false);
   const [detecting, setDetecting] = useState(false);
   const [view3d, setView3d] = useState(false);
+  const [snapping, setSnapping] = useState(false);
+  const threeDRef = useRef(null);
   const ref = useRef(null);
   const fileRef = useRef(null);
   const markers = fp.markers || [];
   const has3d = !!(fp.cadData && (((fp.cadData.floors || []).some((f) => (f?.rooms || []).length)) || (fp.cadData.rooms || []).length));
+  const saveSnap = async () => {
+    const url = threeDRef.current?.capture();
+    if (!url) { toast.error("Could not capture the 3D view — try orbiting once first"); return; }
+    setSnapping(true);
+    try { const r = await saveFloorplan3DSnapshot(projectId, url); setFp((s) => ({ ...s, threeDUrl: r.threeDUrl })); onChange?.({ ...fp, threeDUrl: r.threeDUrl }); toast.success("3D view saved to the design pack"); }
+    catch { toast.error("Could not save the 3D snapshot"); } finally { setSnapping(false); }
+  };
   const addr = project?.address || project?.town || project?.name || "";
   const ref_ = project?.ref || "";
   const rev = project?.revision || "P01";
@@ -153,8 +162,14 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
           )}
           {view3d && has3d ? (
             <div className="border-[1.5px] border-foreground bg-white p-2" data-testid="floorplan-3d-sheet">
-              <FloorPlan3D cadData={fp.cadData} className="rounded-sm overflow-hidden border border-neutral-300" />
-              <div className="text-[11px] text-muted-foreground mt-2 px-1">Drag to orbit &middot; scroll to zoom. Generated from the surveyed room geometry &mdash; the same data as the 2D plan &amp; the pack&rsquo;s isometric view.</div>
+              <FloorPlan3D ref={threeDRef} cadData={fp.cadData} markers={markers} className="rounded-sm overflow-hidden border border-neutral-300" />
+              <div className="flex items-center justify-between gap-3 mt-2 px-1">
+                <div className="text-[11px] text-muted-foreground">Drag to orbit &middot; scroll to zoom. Measure pins &amp; room labels are generated from the surveyed geometry — the same data as the 2D plan.</div>
+                <button onClick={saveSnap} disabled={snapping} data-testid="floorplan-3d-snapshot"
+                  className="flex items-center gap-1.5 h-8 px-3 shrink-0 border border-border rounded-sm text-[12px] font-medium hover:bg-secondary disabled:opacity-50">
+                  {snapping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" strokeWidth={1.75} />} Save this view to pack
+                </button>
+              </div>
             </div>
           ) : (
           <>

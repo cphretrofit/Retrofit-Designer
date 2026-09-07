@@ -88,6 +88,25 @@ def build_isometric_svg(cad: dict) -> str:
                 minsx, maxsx = min(minsx, px), max(maxsx, px)
                 minsy, maxsy = min(minsy, py), max(maxsy, py)
         pending.append("".join(gp))
+    # pitched hip roof over the top storey — reads as a real house rather than flat boxes
+    top = floors[-1].get("rooms") or []
+    if top:
+        rminx = min(_num(r.get("x")) for r in top)
+        rminy = min(_num(r.get("y")) for r in top)
+        rmaxx = max(_num(r.get("x")) + _num(r.get("w")) for r in top)
+        rmaxy = max(_num(r.get("y")) + _num(r.get("h")) for r in top)
+        zt = (n - 1) * floor_span + WALL_H
+        za = zt + min((rmaxx - rminx), (rmaxy - rminy)) * 0.5
+        c1 = _iso(rminx, rminy, zt, s); c2 = _iso(rmaxx, rminy, zt, s)
+        c3 = _iso(rmaxx, rmaxy, zt, s); c4 = _iso(rminx, rmaxy, zt, s)
+        apex = _iso((rminx + rmaxx) / 2, (rminy + rmaxy) / 2, za, s)
+        roof = (_poly([c2, c3, apex], "#C06B4E", "#7A4130", 0.8)
+                + _poly([c3, c4, apex], "#A85B41", "#7A4130", 0.8)
+                + _poly([c1, c2, apex], "#CE7458", "#7A4130", 0.8))
+        pending.append(f'<g>{roof}</g>')
+        for (px, py) in (c1, c2, c3, c4, apex):
+            minsx, maxsx = min(minsx, px), max(maxsx, px)
+            minsy, maxsy = min(minsy, py), max(maxsy, py)
     # lower floor first (rendered first = behind); we appended ground first which is correct base — but higher floors sit above
     body = "".join(pending)
     pad = 40

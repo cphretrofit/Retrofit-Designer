@@ -35,7 +35,7 @@ function labelSprite(text) {
   return sp;
 }
 
-export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, className }, ref) {
+export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, markers, className }, ref) {
   const mountRef = useRef(null);
   const rendererRef = useRef(null);
   const sceneStateRef = useRef(null);
@@ -101,6 +101,35 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, className 
       });
     });
 
+    // pitched hip roof over the top storey
+    const top = (floors[floors.length - 1].rooms || []);
+    if (top.length) {
+      let a = Infinity, b = Infinity, cc = -Infinity, dd = -Infinity;
+      top.forEach((r) => { a = Math.min(a, num(r.x)); b = Math.min(b, num(r.y)); cc = Math.max(cc, num(r.x) + num(r.w)); dd = Math.max(dd, num(r.y) + num(r.h)); });
+      const rw = cc - a, rd = dd - b, zt = (floors.length - 1) * (WALL_H + FLOOR_GAP) + WALL_H, rh = Math.min(rw, rd) * 0.5;
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(Math.SQRT2 / 2, rh, 4), new THREE.MeshStandardMaterial({ color: 0xb4573b, roughness: 0.9, flatShading: true }));
+      roof.scale.set(rw, 1, rd); roof.rotation.y = Math.PI / 4;
+      roof.position.set((a + cc) / 2 - cx, zt + rh / 2, (b + dd) / 2 - cy); roof.castShadow = true; root.add(roof);
+    }
+
+    // measure pins (dMEV / loft / trickle / ASHP) mapped from the 2D location-plan markers
+    const PIN_COL = { DMEV: 0x0891b2, LOFT: 0xb45309, TRICKLE: 0x16a34a, ASHP: 0x0055ff };
+    const N = floors.length;
+    (markers || []).forEach((m) => {
+      const t = (m.type || "").toUpperCase();
+      const col = PIN_COL[t] || 0x525252;
+      const fyv = (num(m.y) / 100) * N;
+      const fi = Math.min(Math.max(Math.floor(fyv), 0), N - 1);
+      const local = fyv - fi;
+      const wx = (num(m.x) / 100) * maxx - cx, wz = local * maxy - cy;
+      const py = fi * (WALL_H + FLOOR_GAP) + WALL_H + 0.55;
+      const pin = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.6, 14), new THREE.MeshStandardMaterial({ color: col }));
+      pin.rotation.x = Math.PI; pin.position.set(wx, py, wz); root.add(pin);
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.85), new THREE.MeshBasicMaterial({ color: col }));
+      stem.position.set(wx, py - 0.5, wz); root.add(stem);
+      const lab = labelSprite(m.label || t); lab.position.set(wx, py + 0.55, wz); lab.scale.set(1.7, 0.42, 1); root.add(lab);
+    });
+
     // ground plane
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(maxx * 3, maxy * 3), new THREE.MeshStandardMaterial({ color: 0xe7ebf0, roughness: 1 }));
     ground.rotation.x = -Math.PI / 2; ground.position.y = -0.02; ground.receiveShadow = true; scene.add(ground);
@@ -143,7 +172,7 @@ export const FloorPlan3D = forwardRef(function FloorPlan3D({ cadData, className 
       if (renderer.domElement.parentNode === mount) mount.removeChild(renderer.domElement);
       sceneStateRef.current = null;
     };
-  }, [cadData]);
+  }, [cadData, markers]);
 
   return <div ref={mountRef} className={className} data-testid="floorplan-3d-canvas" style={{ width: "100%", height: 460, cursor: "grab" }} />;
 });

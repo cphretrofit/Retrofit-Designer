@@ -37,14 +37,16 @@ export default function Dashboard() {
   const projects = data?.projects || [];
   const ql = q.trim().toLowerCase();
   const partners = [...new Set(allProjects.map((p) => p.partner).filter(Boolean))].sort();
-  const filtersOn = ql || sf || pf;
+  const [vf, setVf] = useState(false);
+  const filtersOn = ql || sf || pf || vf;
   const base = filtersOn ? allProjects : projects;
   const list = base.filter((p) => {
     const okQ = !ql || [p.name, p.ref, p.town, p.address, p.measureSummary, p.status]
       .filter(Boolean).some((s) => String(s).toLowerCase().includes(ql));
     const okS = !sf || p.status === sf;
     const okP = !pf || p.partner === pf;
-    return okQ && okS && okP;
+    const okV = !vf || p.ventSummary?.status === "confirm";
+    return okQ && okS && okP && okV;
   });
 
   return (
@@ -154,12 +156,16 @@ export default function Dashboard() {
               <button key={v} onClick={() => setSf(sf === v ? null : v)} data-testid={`filter-status-${v}`}
                 className={cn("text-[11px] px-2.5 h-7 rounded-sm border transition-colors", sf === v ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary")}>{l}</button>
             ))}
+            <button onClick={() => setVf(!vf)} data-testid="filter-vent-confirm"
+              className={cn("flex items-center gap-1 text-[11px] px-2.5 h-7 rounded-sm border transition-colors", vf ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:bg-secondary")}>
+              <Wind className="h-3 w-3" strokeWidth={1.75} />Ventilation to confirm
+            </button>
             <select value={pf || ""} onChange={(e) => setPf(e.target.value || null)} data-testid="filter-partner"
               className="ml-auto h-7 px-2 bg-background border border-border rounded-sm text-[11.5px] text-muted-foreground outline-none">
               <option value="">All partners</option>
               {partners.map((pn) => <option key={pn} value={pn}>{pn}</option>)}
             </select>
-            {(sf || pf) && <button onClick={() => { setSf(null); setPf(null); }} data-testid="filter-clear" className="text-[11px] text-muted-foreground hover:text-foreground">Clear</button>}
+            {(sf || pf || vf) && <button onClick={() => { setSf(null); setPf(null); setVf(false); }} data-testid="filter-clear" className="text-[11px] text-muted-foreground hover:text-foreground">Clear</button>}
           </div>
           <div className="grid grid-cols-[1.6fr_1fr_1.1fr_0.9fr_auto] px-5 h-9 items-center text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground border-b border-border">
             <span>Property</span>

@@ -93,6 +93,7 @@ export const deleteSection = (id, sid) => api.delete(`/projects/${id}/sections/$
 
 export const updateVentilation = (id, ventilation) => api.put(`/projects/${id}/ventilation`, { ventilation }).then((r) => r.data);
 export const getAdf1Checklist = (id) => api.get(`/projects/${id}/adf1-checklist`).then((r) => r.data);
+export const saveFloorplan3DSnapshot = (id, dataUrl) => api.post(`/projects/${id}/floorplan/threeD-snapshot`, { dataUrl }).then((r) => r.data);
 export const uploadVentilationWorkbook = (id, file) => { const fd = new FormData(); fd.append("file", file); return api.post(`/projects/${id}/ventilation/upload`, fd).then((r) => r.data); };
 export const uploadFloorPlan = (id, file) => {
   const fd = new FormData();
