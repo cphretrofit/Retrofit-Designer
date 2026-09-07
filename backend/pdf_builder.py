@@ -3364,7 +3364,6 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *site_pages, *considerations_pages,
              ventilation_page, *_adf1_ventilation_pages(p, measures), *([floorplan_page] if floorplan_page else []),
              *([_massing_3d_page(p)] if _massing_3d_page(p) else []),
-             *_walkthrough_pages(p),
              preliminaries_page, *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
@@ -3533,15 +3532,6 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             fp["_threeDData"] = await _uri(fp["threeDUrl"])
         except Exception:
             fp["_threeDData"] = None
-        p["floorPlan"] = fp
-    if fp.get("walkthroughShots"):
-        wd = []
-        for sh in fp["walkthroughShots"]:
-            try:
-                wd.append({"room": sh.get("room") or "", "uri": await _uri(sh.get("path"))})
-            except Exception:
-                pass
-        fp["_walkData"] = wd
         p["floorPlan"] = fp
     if fp.get("cadData") and not fp.get("roof"):
         try:

@@ -17,7 +17,6 @@ import ClientDetail from "@/pages/ClientDetail";
 import UserManagement from "@/pages/UserManagement";
 import Maintenance from "@/pages/Maintenance";
 import ChangePassword from "@/pages/ChangePassword";
-import PublicWalkthrough from "@/pages/PublicWalkthrough";
 
 function App() {
   return (
@@ -28,7 +27,6 @@ function App() {
           <CommandPalette />
           <Routes>
             <Route path="/login" element={<Login />} />
-            <Route path="/w/:token" element={<PublicWalkthrough />} />
             <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><ImportProject /></ProtectedRoute>} />
             <Route path="/templates" element={<ProtectedRoute><Templates /></ProtectedRoute>} />
