@@ -213,9 +213,12 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **Cover photo**: the "first RdSAP photo" heuristic was grabbing detail close-ups (extractor fan). Rewritten to prefer a full FRONT elevation and to EXCLUDE component close-ups (window/fan/loft/shower/etc.); manual "Set main" remains the override. Needs a pack rebuild to confirm the exact chosen photo.
 
 ## OPEN — needs follow-up (reported to user)
-- **Datasheet parser extracts 0 products**: `POST /datasheets/parse` + `apply-client-library` return count:0 for the Saffron project despite 6 Datasheet docs attached → loft still shows the Scope-of-Works "Knauf Loft Roll 44" instead of the selected ISOVER Spacesaver. The app DOES raise the discrepancy as outstanding item #03, but auto-supersede can't fire without parsed products. Root cause = datasheet PDF parsing not extracting products. NEEDS investigation of the datasheet parser.
-- **Loft full top-floor coverage on plan**: plan uses the prebuilt `cadSvg` (built in ai_extractor ~1809/1824 from cadData whose floors have loftCoverage=None) → only a legend tab, no area fill. Fix = set loftCoverage on the TOP floor at cad build time when a LOFT measure exists, then regenerate the plan (floorplan rebatch). NOT yet implemented.
-- **Crossflow felt image / electric shower / loft-depth**: vision-prompt rules were strengthened earlier but need a re-extract to verify classification on the felt/eaves photos.
+
+## DONE — Datasheet supersede + loft plan coverage (Jun 2026)
+- **Datasheet parser**: confirmed working (text extraction + `parse_datasheet_products` correctly returns ISOVER Spacesaver etc. — earlier count:0 was transient). Improved `_assign_products` supersede: when a measure's narrative names a competitor brand (Scope-of-Works "Knauf Loft Roll 44"), the leading product clause is swapped for the actual datasheet product ("ISOVER Spacesaver") while keeping the depth/vent detail. Verified live: loft system now "Isover Spacesaver — between and over joists to achieve 300 mm total…".
+- **Loft full top-floor coverage**: root cause was cadData top floor `loftCoverage=None` (measures not populated when the plan was first built at import). Regenerating via `/floorplan/auto-detect` now sets it and the SVG renders the full top-floor area fill (verified: `fill-opacity="0.10"` present). Import path already sets it going forward.
+- **Vent-first Scope table**: the "Scope of the Design" table numbered measures in list order (VENT was Step 4). Now sorted VENTILATION-FIRST (VENT→WALL→WIN→LOFT→FLOOR→ASHP→SOLAR) to match the install sequence. Verified: Step 1 = dMEV + Trickle Vents.
+- Re-extract verification and PDF rebuild remain user-run steps.
 
 ## Note — Client datasheet upload already exists
 Reachable via Clients → click a client → "Upload datasheets" (`/clients/:id`, `ClientDetail.jsx`; backend `POST /clients/{id}/datasheets`). Rebuilds the client product catalogue and auto-fills new jobs for that client. The new dashboard client cards also link straight here.

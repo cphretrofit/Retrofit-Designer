@@ -1680,10 +1680,12 @@ def _compliance_html(p, measures):
                 + _kv_table(stage_rows),
                 "The design-stage activities undertaken for this project in accordance with PAS 2035:2023, with the Retrofit Designer's comments against each.")
 
-    # 2. Scope of the design — per measure
+    # 2. Scope of the design — per measure, ordered VENTILATION-FIRST to match the install sequence
+    _SEQ_ORDER = {"VENT": 0, "WALL": 1, "WIN": 2, "LOFT": 3, "FLOOR": 4, "ASHP": 5, "SOLAR": 6}
+    _ordered = sorted(measures, key=lambda m: _SEQ_ORDER.get(_mfam(m.get("code"), m.get("name")), 9))
     seq = 1
     mrows = ""
-    for m in measures:
+    for m in _ordered:
         fam = _mfam(m.get("code"), m.get("name"))
         col = MEASURE_COLORS[fam]
         prod = m.get("system") or m.get("product") or "As specified in the measure schedule"

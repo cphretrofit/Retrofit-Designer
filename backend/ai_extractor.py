@@ -1316,12 +1316,19 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
                     existing.append(rec)
                     man_keys.add(k)
             m["products"] = existing
-            # Supersede a generic default system with the actual specified product name (Saffron etc.)
-            if existing and _is_generic_system(m.get("system")):
+            # Make the spec MATCH the selected datasheet: swap in the actual specified product,
+            # even when the narrative names a competitor brand (e.g. Scope-of-Works "Knauf" -> datasheet "ISOVER").
+            if existing:
                 _f = existing[0]
                 _label = " ".join(x for x in [(_f.get("manufacturer") or "").strip(), (_f.get("product") or "").strip()] if x)
+                _man = (_f.get("manufacturer") or "").strip()
+                sys = m.get("system") or ""
                 if _label:
-                    m["system"] = _label
+                    if _is_generic_system(sys):
+                        m["system"] = _label
+                    elif _man and _man.lower() not in sys.lower():
+                        # narrative names a different brand — replace the leading product clause, keep the detail
+                        m["system"] = (_label + " \u2014 " + sys.split(" \u2014 ", 1)[1]) if " \u2014 " in sys else (_label + ". " + sys)
             matched.add(c)
     leftover = []
     for code, recs in by_code.items():
