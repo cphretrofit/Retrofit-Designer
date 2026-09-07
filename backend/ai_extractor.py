@@ -536,6 +536,64 @@ async def _read_insulation_depth(labels, idxs, limit=4):
     return ""
 
 
+async def _classify_cover_photo(photos, limit=14):
+    """Vision-select the external FRONT ELEVATION of the dwelling for the pack cover.
+    `photos` is a list of dicts each carrying a `data` data-URI. Returns the index into
+    `photos` of the best front-elevation image, or None. Prefers a clear front facade;
+    falls back to any external elevation over an interior/component close-up. Captions are
+    NOT trusted (they are frequently blank or generic) — the choice is made purely on what
+    each image visibly shows."""
+    cand = photos[:limit]
+    imgs, idxmap = [], []
+    for i, ph in enumerate(cand):
+        uri = ph.get("data") or ""
+        if "," not in uri:
+            continue
+        try:
+            raw = base64.b64decode(uri.split(",", 1)[1])
+            b = _img_b64(raw, max_px=820, quality=68)
+            if b:
+                imgs.append(b)
+                idxmap.append(i)
+        except Exception:
+            continue
+    if not imgs:
+        return None
+    prompt = (f"You are shown {len(imgs)} survey photographs (FIG 1..{len(imgs)}) of ONE UK dwelling.\n"
+              "Classify EACH photo by what it MAINLY shows, using EXACTLY one category:\n"
+              "- front_elevation: an EXTERNAL photo taken from OUTSIDE showing the FRONT of the house / bungalow — the main frontage / facade, normally including the front door and/or the principal windows, viewed from the street or front garden. This is the classic 'property photo'.\n"
+              "- other_external: an external photo taken from OUTSIDE but NOT the front (rear elevation, side / gable wall, roof, garden, driveway, outbuilding).\n"
+              "- interior: a photo taken INSIDE the dwelling — any room, hallway, loft, kitchen, bathroom, wallpapered walls, furniture, ceilings.\n"
+              "- component: a close-up of a single item (window, door leaf, extractor fan, meter, boiler, consumer unit, socket, downlight, pipe, air brick, radiator).\n\n"
+              "The cover MUST be the external front of the property. NEVER pick an interior or a component close-up as the front elevation.\n"
+              'Return ONLY JSON: {"figs":{"1":"front_elevation","2":"interior",...},"best_front":<the single FIG number that is the clearest, most complete FRONT elevation of the whole dwelling, or null if none is an external front view>}.')
+    try:
+        res = await call_claude_vision_json(
+            "You are a meticulous PAS 2035:2023 retrofit surveyor selecting the external front-elevation cover photograph of a dwelling.",
+            prompt, imgs)
+    except Exception as e:
+        logger.warning("cover photo vision classification failed: %s", e)
+        return None
+    figs = (res or {}).get("figs") or {}
+    bf = (res or {}).get("best_front")
+    try:
+        n = int(bf)
+        if 1 <= n <= len(idxmap) and str(figs.get(str(n), "front_elevation")).strip().lower() != "interior":
+            return idxmap[n - 1]
+    except Exception:
+        pass
+    for want in ("front_elevation", "other_external"):
+        for k, v in figs.items():
+            if str(v).strip().lower() == want:
+                try:
+                    n = int(k)
+                    if 1 <= n <= len(idxmap):
+                        return idxmap[n - 1]
+                except Exception:
+                    continue
+    return None
+
+
 async def _attach_sitenote_condition_photos(project_id, proj, doc_sources=None):
     """Give each DETECTED site condition an evidence photo pulled from the surveyor's
     site notes (e.g. 'Photo of shower:' -> electric shower) when the vision sweep found none."""

@@ -53,6 +53,7 @@ from ai_extractor import (
     _needs_vision,
     _vision_tag_photos,
     _reextract_project_photos,
+    _classify_cover_photo,
     _ocr_pdf,
     extract_xlsx_text,
     extract_text_any,
@@ -3035,6 +3036,46 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     _main = next((ph for ph in photo_uris if (ph.get("isMain") or ph.get("main")) and ph.get("data")), None)
     if _main:
         hero_uri = _main["data"]
+    # 1b) cached vision pick — reuse the previously chosen front-elevation (no repeat vision call)
+    if not hero_uri:
+        _cov = p.get("coverPhotoUrl")
+        if _cov:
+            _c = next((ph for ph in _real if ph.get("url") == _cov and ph.get("data")), None)
+            if _c:
+                hero_uri = _c["data"]
+    # 1c) VISION — positively identify the external front elevation. The front elevation is
+    #      frequently NOT in the first pages (site notes order wet-room/vent/interior shots
+    #      first and the external elevations last), so build candidates from the FULL photo set,
+    #      leading with externally-captioned shots, and resolve their data URIs on demand.
+    if not hero_uri:
+        _EXT_HINT = ("elevation", "external", "dpc", "front", "rear", "facade", "frontage",
+                     "gable", "exterior", "dwelling", "street", "outside")
+        _all_real = [ph for ph in photos if not _is_doc_img(ph)]
+        _pool = [ph for ph in _all_real if any(h in (ph.get("caption") or "").lower() for h in _EXT_HINT)]
+        for ph in _all_real[:6]:
+            if ph not in _pool:
+                _pool.append(ph)
+        _pool = _pool[:14]
+        _resolved = {s.get("url"): s.get("data") for s in photo_uris if s.get("data")}
+        _need = [ph for ph in _pool if ph.get("url") and ph.get("url") not in _resolved]
+        if _need:
+            _nd = await asyncio.gather(*[_uri(ph.get("url") or "") for ph in _need], return_exceptions=True)
+            for ph, d in zip(_need, _nd):
+                if d and not isinstance(d, Exception):
+                    _resolved[ph.get("url")] = d
+        _cover_cands = [{"url": ph.get("url"), "caption": ph.get("caption") or "",
+                         "data": _resolved.get(ph.get("url"))} for ph in _pool if _resolved.get(ph.get("url"))]
+        if _cover_cands:
+            try:
+                _idx = await _classify_cover_photo(_cover_cands)
+            except Exception:
+                _idx = None
+            if _idx is not None and 0 <= _idx < len(_cover_cands):
+                hero_uri = _cover_cands[_idx]["data"]
+                try:
+                    await db.projects.update_one({"id": project_id}, {"$set": {"coverPhotoUrl": _cover_cands[_idx].get("url")}})
+                except Exception:
+                    pass
     # 2) a full FRONT elevation of the whole dwelling (never a component close-up)
     if not hero_uri:
         for ph in _real:
