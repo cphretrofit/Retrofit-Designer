@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { solarLookup, applyPvTarget } from "@/lib/api";
+import { solarLookup, applyPvTarget, solarSurveyStatus } from "@/lib/api";
 import { toast } from "sonner";
 import { Loader2, Satellite, Zap, MapPin, AlertTriangle } from "lucide-react";
 
@@ -8,7 +8,12 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState(initial?.targetKwp ?? "");
   const [applying, setApplying] = useState(false);
+  const [surveyMissing, setSurveyMissing] = useState(false);
   const appliedRef = useRef(false);
+
+  useEffect(() => {
+    solarSurveyStatus(projectId).then((r) => setSurveyMissing(!!(r?.hasSolarMeasure && r?.surveyMissing))).catch(() => {});
+  }, [projectId]);
 
   // PV system size stated on the job card — read from the Solar measure NAME only.
   const jobKwp = (() => {
@@ -78,6 +83,15 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Satellite className="h-3.5 w-3.5" strokeWidth={1.75} />} Fetch aerial &amp; solar
         </button>
       </div>
+      {surveyMissing && (
+        <div data-testid="solar-survey-missing" className="flex items-start gap-2 rounded-sm border border-amber-400/60 bg-amber-400/10 px-3 py-2.5 text-[12.5px]">
+          <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" strokeWidth={2} />
+          <div>
+            <div className="font-medium text-amber-700">Solar technical survey not yet received</div>
+            <div className="text-[11.5px] text-muted-foreground mt-0.5">Array size, string design, roof fixings and structural adequacy are indicative until the MCS solar PV / structural survey is uploaded. This notice also appears on the design pack.</div>
+          </div>
+        </div>
+      )}
       {jobKwp != null && (
         <div data-testid="jobcard-pv" className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-sm border px-3 py-2 text-[12.5px] ${pvOver ? "border-amber-400/60 bg-amber-400/10" : "border-primary/30 bg-primary/5"}`}>
           {pvOver ? <AlertTriangle className="h-3.5 w-3.5 text-amber-500" strokeWidth={2} /> : <Zap className="h-3.5 w-3.5 text-primary" strokeWidth={2} />}

@@ -2241,6 +2241,24 @@ class EvidencePhotoUrlIn(BaseModel):
     caption: Optional[str] = None
 
 
+@api_router.get("/projects/{project_id}/solar/survey-status")
+async def solar_survey_status(project_id: str):
+    """Whether a Solar PV measure is in scope and if its technical/MCS survey is still missing."""
+    from pdf_builder import _mfam
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0, "measures": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    has = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in (p.get("measures") or []))
+    if not has:
+        return {"hasSolarMeasure": False, "surveyMissing": False}
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}},
+                                   {"_id": 0, "original_filename": 1, "doc_type": 1}).to_list(300)
+    blob = " ".join(((d.get("original_filename") or "") + " " + (d.get("doc_type") or "")) for d in docs
+                    if (d.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
+    missing = not any(k in blob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design"))
+    return {"hasSolarMeasure": True, "surveyMissing": missing}
+
+
 @api_router.post("/projects/{project_id}/measures/{mi}/evidence-photo-url")
 async def add_measure_evidence_url(project_id: str, mi: int, payload: EvidencePhotoUrlIn):
     """Attach an existing photopack photo (by URL) as evidence for a measure."""

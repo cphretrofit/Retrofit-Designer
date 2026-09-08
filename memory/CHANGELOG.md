@@ -27,6 +27,11 @@
 ### Pack fixes
 - `pdf_builder.py`: `PHOTO_NEG` negative-keyword filter so a loft/insulation photo can no longer be pulled into the Solar PV section (fixes wrong FIG in Solar). Solar-only designs (`fams <= {SOLAR}`) now suppress the "Site Conditions & Photographic Evidence" and "Loft & Fabric Checklist" pages. (Gate implemented; not yet visually verified — no solar-only project in current dataset.)
 
-### Outstanding (not yet built)
-- P1: "Solar tech survey not yet received" notice on the Solar section/pack when that survey is missing.
-- P2: Merge sparse Solar pages onto fewer pages.
+### Solar tech survey notice + tighter Solar pack (2026-09-08)
+- New endpoint `GET /api/projects/{id}/solar/survey-status` → `{hasSolarMeasure, surveyMissing}`. Survey considered missing when a SOLAR measure is in scope but no non-datasheet/photo document mentions solar/pv survey, pv design, mcs, structural/roof survey.
+- `SolarPanel.jsx`: amber "Solar technical survey not yet received" banner shows when surveyMissing.
+- `pdf_builder.py`: `p["_solarSurveyMissing"]` computed in the pack build; the Solar measure's Technical Specification page renders an "Awaiting Solar Technical Survey" notice. Solar Scope of Works + Installation Methodology now merge onto ONE "Scope of Works & Methodology" page when short (was two sparse pages).
+
+### Still outstanding
+- P2: Appendix B contents index page.
+- P1: Live import progress streaming.

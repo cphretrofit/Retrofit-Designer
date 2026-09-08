@@ -112,6 +112,7 @@ export const getFloorplanAutoMarkers = (id) => api.get(`/projects/${id}/floorpla
 export const getAllPhotos = (id) => api.get(`/projects/${id}/photos/all`).then((r) => r.data);
 export const autofillMeasureCompliance = (id, mi, force = false) => api.post(`/projects/${id}/measures/${mi}/autofill-compliance`, null, { params: { force } }).then((r) => r.data);
 export const addMeasureEvidencePhotoUrl = (id, mi, url, caption) => api.post(`/projects/${id}/measures/${mi}/evidence-photo-url`, { url, caption }).then((r) => r.data);
+export const solarSurveyStatus = (id) => api.get(`/projects/${id}/solar/survey-status`).then((r) => r.data);
 
 export const getDrawingRegister = (id) => api.get(`/projects/${id}/drawing-register`).then((r) => r.data);
 export const saveDrawingSignoffs = (id, drawingSignoffs) =>

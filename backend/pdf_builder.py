@@ -2924,6 +2924,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         _chapter = (f'<div class="faint upper" style="font-size:10px; letter-spacing:0.22em;">Measure {idx:02d} &middot; {_esc(("PAS " + m["pas"]) if m.get("pas") else (m.get("code") or "Measure"))}</div>'
                     f'<div class="disp" style="font-size:30px; line-height:1.05; margin-top:2px;">{title}</div>')
         system_html = _chapter + (f'<div style="font-size:12px; margin-top:12px; line-height:1.5; color:#404040;">{_esc(m.get("system"))}</div>' if m.get("system") else "")
+        if fam == "SOLAR" and p.get("_solarSurveyMissing"):
+            system_html += ('<div style="margin-top:14px; border:1px solid #F59E0B; background:#FEF3C7; padding:12px 14px;">'
+                            '<div class="upper" style="font-size:9.5px; letter-spacing:0.14em; color:#B45309; font-weight:600;">Awaiting Solar Technical Survey</div>'
+                            '<div style="font-size:11.5px; color:#7c5e10; margin-top:5px; line-height:1.5;">The MCS solar PV technical / structural survey has not yet been received. Array size, string design, roof fixings and structural adequacy shown here are indicative and will be confirmed on receipt of the solar technical survey.</div></div>')
         _mp = _photos_for_measure(m.get("code"), photo_uris or [], used_figs)
         # Captions are unreliable, so also pull the vision-curated survey imagery that the
         # site-conditions classifier filed under this measure (esp. loft photos).
@@ -2970,16 +2974,25 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         if ev_html:
             spec_pages.append(_head("Evidence & Compliance") + f'<div style="margin-top:14px;">{ev_html}</div>')
 
-        for ci, chunk in enumerate(_chunk(works, CHUNK_WORKS)):
-            sub = "Scope of Works" if ci == 0 else "Scope of Works (cont.)"
-            spec_pages.append(_head(sub) + f'<div style="margin-top:16px;">{_spec_list(chunk, True, ci * CHUNK_WORKS + 1)}</div>')
-
         meth = _measure_methodology(fam)
-        for ci, chunk in enumerate(_chunk(meth, 11)):
-            sub = "Installation Methodology" if ci == 0 else "Installation Methodology (cont.)"
-            spec_pages.append(_head(sub)
-                              + '<div class="muted" style="font-size:11px; margin-top:14px; line-height:1.5;">Indicative installation methodology to PAS 2030:2023 and the manufacturer&rsquo;s instructions. Confirm the final method and sequence on site.</div>'
-                              + f'<div style="margin-top:10px;">{_spec_list(chunk, True, ci * 11 + 1)}</div>')
+        _METH_INTRO = '<div class="muted" style="font-size:11px; margin-top:14px; line-height:1.5;">Indicative installation methodology to PAS 2030:2023 and the manufacturer&rsquo;s instructions. Confirm the final method and sequence on site.</div>'
+        # Tighter Solar pack — the Solar scope + methodology are short, so keep them on one page.
+        if fam == "SOLAR" and len(works) <= 8 and len(meth) <= 10:
+            _combo = ""
+            if works:
+                _combo += ('<div class="faint upper" style="font-size:9.5px; margin-bottom:4px;">Scope of Works</div>'
+                           f'<div>{_spec_list(works, True, 1)}</div>')
+            _combo += ('<div class="faint upper" style="font-size:9.5px; margin-top:18px; margin-bottom:2px;">Installation Methodology</div>'
+                       + _METH_INTRO + f'<div style="margin-top:10px;">{_spec_list(meth, True, 1)}</div>')
+            spec_pages.append(_head("Scope of Works &amp; Methodology") + f'<div style="margin-top:16px;">{_combo}</div>')
+        else:
+            for ci, chunk in enumerate(_chunk(works, CHUNK_WORKS)):
+                sub = "Scope of Works" if ci == 0 else "Scope of Works (cont.)"
+                spec_pages.append(_head(sub) + f'<div style="margin-top:16px;">{_spec_list(chunk, True, ci * CHUNK_WORKS + 1)}</div>')
+            for ci, chunk in enumerate(_chunk(meth, 11)):
+                sub = "Installation Methodology" if ci == 0 else "Installation Methodology (cont.)"
+                spec_pages.append(_head(sub) + _METH_INTRO
+                                  + f'<div style="margin-top:10px;">{_spec_list(chunk, True, ci * 11 + 1)}</div>')
 
         tb = _thermal_bridges(fam)
         if tb:
@@ -3677,8 +3690,16 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         _blob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs).lower()
         p["_uploadedAdf1"] = any(k in _blob for k in ("adf1", "table d1", "ventilation checklist"))
         p["_uploadedAirtight"] = any(k in _blob for k in ("air tight", "airtight", "air-tight"))
+        _has_solar = any(_mfam(mm.get("code"), mm.get("name")) == "SOLAR" for mm in (p.get("measures") or []))
+        if _has_solar:
+            _sblob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs
+                              if (x.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
+            p["_solarSurveyMissing"] = not any(k in _sblob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design"))
+        else:
+            p["_solarSurveyMissing"] = False
     except Exception:
         p["_uploadedAdf1"] = p["_uploadedAirtight"] = False
+        p["_solarSurveyMissing"] = False
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued, hero_is_property)
     return p, html
 
