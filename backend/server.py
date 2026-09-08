@@ -869,6 +869,21 @@ def _public_origin(request):
     return None
 
 
+async def _solar_survey_state(project_id: str, measures):
+    """(has_solar_measure, survey_missing) — survey considered present if any non-datasheet/photo
+    document mentions a solar/PV/MCS/structural survey or PV design."""
+    from pdf_builder import _mfam
+    has = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in (measures or []))
+    if not has:
+        return False, False
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}},
+                                   {"_id": 0, "original_filename": 1, "doc_type": 1}).to_list(300)
+    blob = " ".join(((d.get("original_filename") or "") + " " + (d.get("doc_type") or "")) for d in docs
+                    if (d.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
+    missing = not any(k in blob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design"))
+    return has, missing
+
+
 @api_router.get("/projects/{project_id}")
 async def get_project(project_id: str, request: Request):
     doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
@@ -884,6 +899,27 @@ async def get_project(project_id: str, request: Request):
     doc["partner"] = _resolve_partner(doc)
     _ensure_uvalues(doc)
     doc["readiness"] = _compute_readiness(doc)
+    # Auto-managed outstanding item: flags a missing solar technical survey and clears itself the
+    # moment the survey is uploaded (computed at read time, never persisted).
+    try:
+        _has_solar, _survey_missing = await _solar_survey_state(project_id, doc.get("measures"))
+        if _survey_missing:
+            from pdf_builder import _mfam
+            _txt = "Solar technical survey not yet received"
+            _items = list(doc.get("itemsBeforeIssue") or [])
+            if not any(it.get("id") == "auto-solar-survey" for it in _items):
+                _items.insert(0, {"id": "auto-solar-survey", "text": _txt, "measure": "Solar PV",
+                                  "severity": "warning", "auto": True,
+                                  "note": "Upload the MCS solar PV / structural survey — this item clears automatically once it is received."})
+            doc["itemsBeforeIssue"] = _items
+            for _m in (doc.get("measures") or []):
+                if _mfam(_m.get("code"), _m.get("name")) == "SOLAR":
+                    _outs = list(_m.get("outstanding") or [])
+                    if _txt not in _outs:
+                        _outs.insert(0, _txt)
+                    _m["outstanding"] = _outs
+    except Exception:
+        pass
     if doc.get("templateName"):
         doc["templateName"] = display_template_name(
             doc["templateName"], [m.get("code") for m in (doc.get("measures") or [])])
@@ -2244,19 +2280,11 @@ class EvidencePhotoUrlIn(BaseModel):
 @api_router.get("/projects/{project_id}/solar/survey-status")
 async def solar_survey_status(project_id: str):
     """Whether a Solar PV measure is in scope and if its technical/MCS survey is still missing."""
-    from pdf_builder import _mfam
     p = await db.projects.find_one({"id": project_id}, {"_id": 0, "measures": 1})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    has = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in (p.get("measures") or []))
-    if not has:
-        return {"hasSolarMeasure": False, "surveyMissing": False}
-    docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}},
-                                   {"_id": 0, "original_filename": 1, "doc_type": 1}).to_list(300)
-    blob = " ".join(((d.get("original_filename") or "") + " " + (d.get("doc_type") or "")) for d in docs
-                    if (d.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
-    missing = not any(k in blob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design"))
-    return {"hasSolarMeasure": True, "surveyMissing": missing}
+    has, missing = await _solar_survey_state(project_id, p.get("measures"))
+    return {"hasSolarMeasure": has, "surveyMissing": missing}
 
 
 @api_router.post("/projects/{project_id}/measures/{mi}/evidence-photo-url")

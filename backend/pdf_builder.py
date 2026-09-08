@@ -2976,8 +2976,8 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
         meth = _measure_methodology(fam)
         _METH_INTRO = '<div class="muted" style="font-size:11px; margin-top:14px; line-height:1.5;">Indicative installation methodology to PAS 2030:2023 and the manufacturer&rsquo;s instructions. Confirm the final method and sequence on site.</div>'
-        # Tighter Solar pack — the Solar scope + methodology are short, so keep them on one page.
-        if fam == "SOLAR" and len(works) <= 8 and len(meth) <= 10:
+        # Tighter pack — Scope of Works + Methodology are short for these families, so keep on one page.
+        if fam in ("SOLAR", "LOFT", "ASHP") and len(works) <= 8 and len(meth) <= 10:
             _combo = ""
             if works:
                 _combo += ('<div class="faint upper" style="font-size:9.5px; margin-bottom:4px;">Scope of Works</div>'

@@ -35,3 +35,7 @@
 ### Still outstanding
 - P2: Appendix B contents index page.
 - P1: Live import progress streaming.
+
+### Auto-clear solar notice + tighter fabric pack (2026-09-08)
+- `server.py`: new `_solar_survey_state(project_id, measures)` helper. `GET /projects/{id}` now injects a read-time (non-persisted) Outstanding item **"Solar technical survey not yet received"** (id `auto-solar-survey`) into `itemsBeforeIssue` AND the Solar measure's `outstanding` when the survey is missing — it clears automatically the moment a solar/PV/MCS/structural survey document is uploaded. `solar/survey-status` endpoint refactored onto the shared helper.
+- `pdf_builder.py`: the short Scope-of-Works + Installation-Methodology page-merge now also applies to **LOFT and ASHP** (was SOLAR-only), guarded by length so long lists still paginate. Verified merged page + solar notice present in Scudamore pack HTML; auto item took itemsBeforeIssue 13→14.
