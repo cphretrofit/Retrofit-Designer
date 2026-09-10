@@ -1,5 +1,19 @@
 # Changelog
 
+## 2026-06 — Floor-plan QA/editor + Heritage Street View & expanded text
+
+**Floor-plan accuracy + flag + edit (verified 100% by testing agent, iteration_22):**
+- `cad_floorplan._floorplan_quality(geo)` — geometry sanity checks (dimension chains sum to overall, rooms within bounds & non-overlapping, circulation present, area vs stated m², room count). Returns score + human-readable reasons.
+- Quality computed at auto-detect (`ai_extractor`) → `floorPlan.reviewFlag/reviewReasons/quality`. Endpoints: `GET /floorplan/quality`, `POST /floorplan/mark-reviewed`, and `PUT /floorplan` now accepts `cadData` (rebuilds cadSvg+anchors, recomputes flag).
+- Workspace UI: amber "Floor plan needs review" banner with reasons + "Mark reviewed"; green "checks passed" row otherwise; `FloorPlanGeometryEditor.jsx` with a **Rooms form** (name/x/y/w/h, add/delete, per-floor) and a **Raw JSON** editor, "Save & re-render".
+- Tightened the CAD reconstruction prompt (dimension chains must sum, no overlaps, all rooms, grid-snap, area cross-check).
+- Fixed `MeasureSymbol` placeholder bug: `.replaceAll("C", color)` was clobbering bezier `C` path commands → switched token to `__CLR__`.
+
+**Heritage — Street View + more text (verified in rendered pack):**
+- `pdf_builder._streetview_data_uri(lat,lon)` via Google Street View Static (reuses `GOOGLE_SOLAR_API_KEY`; metadata pre-check; falls back to aerial). Rendered as a "Property Frontage" thumbnail on the Heritage page. Confirmed image present in the live pack.
+- `_heritage_sections` expanded to six sections incl. new **Significance & Setting** and **Legislation & Policy Basis** (Planning (LB&CA) Act 1990, NPPF, GPDO/Article 4, PAS 2035), tailored to designated vs not.
+
+
 ## 2026-06 — Designer feedback fixes (loft draw, ventilation TVR, undercuts, heritage)
 
 - **Loft now draws on the plan (Item 2):** PDF floor-plan regenerates the CAD SVG with loft

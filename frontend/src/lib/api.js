@@ -109,6 +109,9 @@ export const uploadFloorPlan = (id, file) => {
 export const updateFloorPlan = (id, payload) => api.put(`/projects/${id}/floorplan`, payload).then((r) => r.data);
 export const autoDetectFloorPlan = (id) => api.post(`/projects/${id}/floorplan/auto-detect`).then((r) => r.data);
 export const getFloorplanAutoMarkers = (id) => api.get(`/projects/${id}/floorplan/auto-markers`).then((r) => r.data);
+export const floorplanQuality = (id) => api.get(`/projects/${id}/floorplan/quality`).then((r) => r.data);
+export const markFloorplanReviewed = (id) => api.post(`/projects/${id}/floorplan/mark-reviewed`).then((r) => r.data);
+export const saveFloorplanCad = (id, cadData) => api.put(`/projects/${id}/floorplan`, { cadData }).then((r) => r.data);
 export const getAllPhotos = (id) => api.get(`/projects/${id}/photos/all`).then((r) => r.data);
 export const autofillMeasureCompliance = (id, mi, force = false) => api.post(`/projects/${id}/measures/${mi}/autofill-compliance`, null, { params: { force } }).then((r) => r.data);
 export const addMeasureEvidencePhotoUrl = (id, mi, url, caption) => api.post(`/projects/${id}/measures/${mi}/evidence-photo-url`, { url, caption }).then((r) => r.data);

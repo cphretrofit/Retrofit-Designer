@@ -487,6 +487,27 @@ async def _doc_data_uri(url: str):
     return f"data:{ct};base64,{base64.b64encode(data).decode()}"
 
 
+def _streetview_data_uri(lat, lon):
+    """Google Street View Static image of the property frontage (reuses the Google Maps key).
+    Returns None if the key isn't enabled for Street View or no imagery exists at the point."""
+    key = os.environ.get("GOOGLE_SOLAR_API_KEY")
+    if not key:
+        return None
+    try:
+        meta = requests.get("https://maps.googleapis.com/maps/api/streetview/metadata",
+                            params={"location": f"{lat},{lon}", "key": key}, timeout=(3.05, 8))
+        if meta.status_code != 200 or (meta.json() or {}).get("status") != "OK":
+            return None
+        r = requests.get("https://maps.googleapis.com/maps/api/streetview",
+                         params={"size": "600x320", "location": f"{lat},{lon}", "fov": 78,
+                                 "pitch": 6, "source": "outdoor", "key": key}, timeout=(3.05, 12))
+        if r.status_code == 200 and r.content and (r.headers.get("content-type", "").startswith("image")):
+            return f"data:image/jpeg;base64,{base64.b64encode(r.content).decode()}"
+    except Exception as e:
+        logger.warning("street view fetch failed: %s", e)
+    return None
+
+
 def _static_map_data_uri(lat, lon, zoom=16, provider="osm"):
     try:
         import math
@@ -2311,9 +2332,38 @@ def _heritage_sections(h):
                   "detailing agreed with the LPA is to be photographed before, during and after installation and "
                   "retained as evidence. Should previously unidentified historic fabric be exposed during the works, "
                   "work in that area is to pause and the position be reviewed before continuing.")
-    return (_sec("Planning &amp; Permitted-Development Context", planning)
+    if designated:
+        significance = ("The dwelling contributes to a designated heritage or landscape asset, so its external "
+                        "appearance, materials and setting carry heritage significance. This statement considers the "
+                        "building's contribution to the character and appearance of the area, its elevations visible from "
+                        "the public realm, and the effect the proposed energy-efficiency measures would have on that "
+                        "significance. The retrofit is designed to achieve the intended performance outcome while "
+                        "sustaining \u2014 and where possible enhancing \u2014 the heritage value, consistent with the presumption "
+                        "in favour of conserving designated assets.")
+        legislation = ("The design is developed within the framework of the Planning (Listed Buildings and Conservation "
+                       "Areas) Act 1990, the National Planning Policy Framework (NPPF) chapter on conserving and enhancing "
+                       "the historic environment (including the tests of substantial vs less-than-substantial harm and "
+                       "public benefit), the Town and Country Planning (General Permitted Development) Order and any local "
+                       "Article\u00a04 Direction, and Historic England guidance on energy efficiency in historic buildings. "
+                       "PAS\u00a02035:2023 requires the Retrofit Designer and Coordinator to account for heritage / conservation "
+                       "constraints and traditional (moisture-open) construction when specifying measures.")
+    else:
+        significance = ("No designated heritage or landscape asset was returned for this address, so the building is "
+                        "treated as having limited heritage significance. Even so, the setting and street scene are "
+                        "considered: the design keeps external alterations sympathetic to neighbouring properties and the "
+                        "building line so the retrofit does not create an incongruous appearance. This assessment is "
+                        "indicative and to be confirmed against local records before issue.")
+        legislation = ("The design is developed within the framework of the National Planning Policy Framework (NPPF), "
+                       "the Town and Country Planning (General Permitted Development) Order (which sets the limits within "
+                       "which fabric measures, roof-mounted solar and external plant may proceed without a planning "
+                       "application) and, where relevant, any local Article\u00a04 Direction or local listing. PAS\u00a02035:2023 "
+                       "requires heritage / conservation constraints to be checked and recorded as part of the retrofit "
+                       "design, even where no statutory designation applies.")
+    return (_sec("Significance &amp; Setting", significance)
+            + _sec("Planning &amp; Permitted-Development Context", planning)
             + _sec("Retrofit Measures &mdash; Heritage Guidance", guidance)
             + _sec("Required Consents &amp; Approval Process", consents)
+            + _sec("Legislation &amp; Policy Basis", legislation)
             + _sec("Workmanship, Materials &amp; Monitoring", monitoring))
 
 
@@ -3221,12 +3271,18 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             map_img = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Location</div>'
                        f'<table style="width:100%;"><tr>{cells}</tr></table>'
                        f'<div class="mono faint" style="font-size:9px; margin-top:6px;">&#9679; Property location &middot; {_esc(h.get("postcode") or "")}</div>')
+        sv_img = ""
+        if h.get("_streetview_data"):
+            sv_img = ('<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:8px;">Street View &mdash; Property Frontage</div>'
+                      f'<div style="border:1px solid #e5e5e5; overflow:hidden; line-height:0;"><img src="{h["_streetview_data"]}" style="display:block; width:100%;"></div>'
+                      '<div class="mono faint" style="font-size:7.5px; margin-top:4px;">imagery &copy; Google Street View</div>')
         heritage_page = (
             '<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Heritage &amp; Planning Context</div>'
             '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Heritage Impact Statement</div>'
             f'<div class="muted" style="font-size:11px; margin-top:8px;">Source: planning.data.gov.uk &middot; {loc}</div>'
             f'<div style="margin-top:16px;">{chips}</div>'
             f'{data_table}'
+            f'{sv_img}'
             f'{map_img}'
             f'{_heritage_map_svg(h)}'
             '<div class="faint upper" style="font-size:9.5px; margin-top:24px; margin-bottom:6px;">Assessment of Significance</div>'
@@ -4000,11 +4056,14 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         need_osm = not h0.get("_map_data")
         need_aerial = not h0.get("_aerial_data")
         need_solar = not sol.get("aerialImage")
+        need_sv = not h0.get("_streetview_data")
         _tasks, _order = [], []
         if need_osm:
             _tasks.append(asyncio.to_thread(_static_map_data_uri, _la, _lo, 16, "osm")); _order.append("osm")
         if need_aerial:
             _tasks.append(asyncio.to_thread(_static_map_data_uri, _la, _lo, 18, "aerial")); _order.append("aerial")
+        if need_sv:
+            _tasks.append(asyncio.to_thread(_streetview_data_uri, _la, _lo)); _order.append("sv")
         if need_solar:
             _tasks.append(asyncio.to_thread(_solar_lookup_sync, _la, _lo)); _order.append("solar")
         _res = await asyncio.gather(*_tasks, return_exceptions=True) if _tasks else []
@@ -4013,6 +4072,8 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             h0["_map_data"] = _byk["osm"]
         if need_aerial and _byk.get("aerial"):
             h0["_aerial_data"] = _byk["aerial"]
+        if need_sv and _byk.get("sv"):
+            h0["_streetview_data"] = _byk["sv"]
         p["heritage"] = h0
         _s = _byk.get("solar")
         if need_solar and _s and _s.get("aerialImage"):

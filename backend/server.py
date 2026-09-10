@@ -1996,7 +1996,9 @@ async def put_drawing_signoffs(project_id: str, payload: DrawingSignoffsIn, requ
 
 class FloorPlanIn(BaseModel):
     imageUrl: Optional[str] = None
-    markers: list = []
+    markers: Optional[list] = None
+    cadData: Optional[dict] = None
+    reviewed: Optional[bool] = None
 
 
 @api_router.put("/projects/{project_id}/floorplan")
@@ -2007,9 +2009,56 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
     fp = p.get("floorPlan") or {}
     if payload.imageUrl is not None:
         fp["imageUrl"] = payload.imageUrl
-    fp["markers"] = payload.markers
-    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp}})
+    if payload.markers is not None:
+        fp["markers"] = payload.markers
+    if payload.cadData is not None:
+        from cad_floorplan import build_cad_floorplan_svg, _floorplan_quality
+        geo = payload.cadData
+        try:
+            cad_svg, anchors = build_cad_floorplan_svg(geo, with_anchors=True)
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"Could not render that geometry: {e}")
+        fp["cadSvg"], fp["cadData"], fp["anchors"] = cad_svg, geo, anchors
+        q = _floorplan_quality(geo)
+        fp["reviewReasons"] = q.get("reasons", [])
+        fp["quality"] = q.get("score")
+        fp["reviewed"] = False
+        fp["reviewFlag"] = not q.get("ok", True)
+        fp["editedAt"] = datetime.now(timezone.utc).isoformat()
+    if payload.reviewed:
+        fp["reviewed"] = True
+        fp["reviewFlag"] = False
+        fp["reviewedAt"] = datetime.now(timezone.utc).isoformat()
+    await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "packHash": ""}})
     return {"floorPlan": fp}
+
+
+@api_router.get("/projects/{project_id}/floorplan/quality")
+async def floorplan_quality_check(project_id: str):
+    p = await db.projects.find_one({"id": project_id})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    fp = p.get("floorPlan") or {}
+    from cad_floorplan import _floorplan_quality
+    q = (_floorplan_quality(fp.get("cadData")) if fp.get("cadData")
+         else {"ok": False, "score": 0, "reasons": ["No CAD geometry \u2014 auto-detect or upload a floor plan first."]})
+    flag = not q.get("ok", True) and not fp.get("reviewed")
+    await db.projects.update_one({"id": project_id}, {"$set": {
+        "floorPlan.reviewReasons": q.get("reasons", []), "floorPlan.quality": q.get("score"),
+        "floorPlan.reviewFlag": flag}})
+    return {"ok": q.get("ok"), "score": q.get("score"), "reasons": q.get("reasons"),
+            "reviewFlag": flag, "reviewed": bool(fp.get("reviewed"))}
+
+
+@api_router.post("/projects/{project_id}/floorplan/mark-reviewed")
+async def floorplan_mark_reviewed(project_id: str):
+    p = await db.projects.find_one({"id": project_id}, {"_id": 1})
+    if not p:
+        raise HTTPException(status_code=404, detail="Project not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {
+        "floorPlan.reviewed": True, "floorPlan.reviewFlag": False,
+        "floorPlan.reviewedAt": datetime.now(timezone.utc).isoformat()}})
+    return {"reviewed": True, "reviewFlag": False}
 
 
 ALLOWED_PATCH_EXACT = {"packPhotosPerMeasure", "datasheetMaxPages", "designStage", "revision", "status", "name", "client", "assessor",

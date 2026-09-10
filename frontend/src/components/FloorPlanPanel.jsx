@@ -1,8 +1,9 @@
 import { useRef, useState, useEffect } from "react";
-import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof, getPinSpecs, getFloorplanAutoMarkers } from "@/lib/api";
+import { uploadFloorPlan, updateFloorPlan, autoDetectFloorPlan, getProject, mediaUrl, saveFloorplan3DSnapshot, detectRoof, getPinSpecs, getFloorplanAutoMarkers, floorplanQuality, markFloorplanReviewed } from "@/lib/api";
 import { FloorPlan3D } from "@/components/FloorPlan3D";
+import { FloorPlanGeometryEditor } from "@/components/FloorPlanGeometryEditor";
 import { toast } from "sonner";
-import { Upload, Save, Loader2, X, Sparkles, Wand2 } from "lucide-react";
+import { Upload, Save, Loader2, X, Sparkles, Wand2, AlertTriangle, CheckCircle2, PencilRuler } from "lucide-react";
 
 const TYPES = [
   { key: "DMEV", label: "dMEV / extract", color: "#0891B2" },
@@ -21,15 +22,15 @@ const NorthArrow = () => (
 );
 
 const SYM = {
-  DMEV: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="C"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="C" stroke-width="1.3"/>',
-  DMEV_TVR: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="C"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="C" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="C" stroke-width="1.3"/>',
-  TRICKLE: '<rect x="3" y="8.5" width="18" height="7" rx="1" fill="none" stroke="C" stroke-width="1.4"/><path d="M8 8.5v7M12 8.5v7M16 8.5v7" stroke="C" stroke-width="1.2"/>',
-  ASHP: '<rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="none" stroke="C" stroke-width="1.4"/><circle cx="9" cy="12" r="3" fill="none" stroke="C" stroke-width="1.2"/><path d="M14 9.5h4M14 12h4M14 14.5h4" stroke="C" stroke-width="1.1"/>',
-  LOFT: '<path d="M3 15.5 q3 -6 6 0 t6 0 t6 0" fill="none" stroke="C" stroke-width="1.4"/><path d="M3 15.5 h18" stroke="C" stroke-width="1.1"/>',
+  DMEV: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="__CLR__" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="__CLR__"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="__CLR__" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="__CLR__" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="__CLR__" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="__CLR__" stroke-width="1.3"/>',
+  DMEV_TVR: '<circle cx="12" cy="12" r="8.5" fill="none" stroke="__CLR__" stroke-width="1.4"/><circle cx="12" cy="12" r="1.5" fill="__CLR__"/><path d="M12 12 C12 8.2 8.4 8.4 8.8 11.4" fill="none" stroke="__CLR__" stroke-width="1.3"/><path d="M12 12 C15.8 12 15.6 8.4 12.6 8.8" fill="none" stroke="__CLR__" stroke-width="1.3"/><path d="M12 12 C12 15.8 15.6 15.6 15.2 12.6" fill="none" stroke="__CLR__" stroke-width="1.3"/><path d="M12 12 C8.2 12 8.4 15.6 11.4 15.2" fill="none" stroke="__CLR__" stroke-width="1.3"/>',
+  TRICKLE: '<rect x="3" y="8.5" width="18" height="7" rx="1" fill="none" stroke="__CLR__" stroke-width="1.4"/><path d="M8 8.5v7M12 8.5v7M16 8.5v7" stroke="__CLR__" stroke-width="1.2"/>',
+  ASHP: '<rect x="3.5" y="6" width="17" height="12" rx="1.5" fill="none" stroke="__CLR__" stroke-width="1.4"/><circle cx="9" cy="12" r="3" fill="none" stroke="__CLR__" stroke-width="1.2"/><path d="M14 9.5h4M14 12h4M14 14.5h4" stroke="__CLR__" stroke-width="1.1"/>',
+  LOFT: '<path d="M3 15.5 q3 -6 6 0 t6 0 t6 0" fill="none" stroke="__CLR__" stroke-width="1.4"/><path d="M3 15.5 h18" stroke="__CLR__" stroke-width="1.1"/>',
 };
 const MeasureSymbol = ({ type, color, size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" style={{ background: "#fff", border: `1.5px solid ${color}`, borderRadius: 5 }}
-    dangerouslySetInnerHTML={{ __html: (SYM[(type || "").toUpperCase()] || '<circle cx="12" cy="12" r="4" fill="C"/>').replaceAll("C", color) }} />
+    dangerouslySetInnerHTML={{ __html: (SYM[(type || "").toUpperCase()] || '<circle cx="12" cy="12" r="4" fill="__CLR__"/>').replaceAll("__CLR__", color) }} />
 );
 
 const roofHex = (c = "") => {
@@ -51,6 +52,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const [pinSpecs, setPinSpecs] = useState(null);
   const [autoTried, setAutoTried] = useState(false);
   const [placing, setPlacing] = useState(false);
+  const [showEditor, setShowEditor] = useState(false);
   const threeDRef = useRef(null);
   const ref = useRef(null);
   const fileRef = useRef(null);
@@ -97,6 +99,19 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const addr = project?.address || project?.town || project?.name || "";
   const ref_ = project?.ref || "";
   const rev = project?.revision || "P01";
+
+  useEffect(() => {
+    if (fp.cadData && fp.reviewFlag === undefined) {
+      floorplanQuality(projectId).then((q) => setFp((s) => ({ ...s, reviewFlag: q.reviewFlag, reviewReasons: q.reasons, quality: q.score, reviewed: q.reviewed }))).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fp.cadData]);
+
+  const markReviewed = async () => {
+    try { await markFloorplanReviewed(projectId); setFp((s) => ({ ...s, reviewFlag: false, reviewed: true })); onChange?.({ ...fp, reviewFlag: false, reviewed: true }); toast.success("Floor plan marked as reviewed"); }
+    catch { toast.error("Could not update review status"); }
+  };
+  const onGeometrySaved = (newFp) => { setFp((s) => ({ ...s, ...newFp })); onChange?.(newFp); setShowEditor(false); };
 
   const upload = async (file) => {
     if (!file) return;
@@ -190,6 +205,43 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
         <div className="flex items-center gap-1.5 text-[11px] text-[var(--c-action)]" data-testid="floorplan-autodetect-badge">
           <Sparkles className="h-3 w-3" strokeWidth={2} /> {fp.cadSvg ? "Redrawn to CAD from" : "Pulled from"} {fp.source || "the assessment"}
         </div>
+      )}
+
+      {fp.cadData && fp.reviewFlag && (
+        <div className="border border-[#FCD34D] bg-[#FFFBEB] rounded-sm p-3.5" data-testid="floorplan-review-banner">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="h-4 w-4 text-[#B45309] mt-0.5 shrink-0" strokeWidth={2} />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-[#92400E]">Floor plan needs review{typeof fp.quality === "number" ? ` · quality ${fp.quality}/100` : ""}</div>
+              <p className="text-[11.5px] text-[#92400E] mt-0.5">The auto-trace flagged possible issues. Check and correct the geometry before issuing the pack.</p>
+              <ul className="list-disc pl-4 mt-1.5 space-y-0.5 text-[11.5px] text-[#7c2d12]">
+                {(fp.reviewReasons || []).map((r, i) => <li key={i} data-testid={`floorplan-review-reason-${i}`}>{r}</li>)}
+              </ul>
+              <div className="flex items-center gap-2 mt-2.5">
+                <button onClick={() => setShowEditor((v) => !v)} data-testid="floorplan-edit-geometry"
+                  className="flex items-center gap-1.5 h-7 px-3 bg-[#B45309] text-white rounded-sm text-[12px] font-medium hover:opacity-90">
+                  <PencilRuler className="h-3.5 w-3.5" /> {showEditor ? "Close editor" : "Edit geometry"}
+                </button>
+                <button onClick={markReviewed} data-testid="floorplan-mark-reviewed"
+                  className="flex items-center gap-1.5 h-7 px-3 border border-[#B45309] text-[#B45309] rounded-sm text-[12px] font-medium hover:bg-[#B45309]/5">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Looks right — mark reviewed
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {fp.cadData && !fp.reviewFlag && (
+        <div className="flex items-center gap-3 text-[11px]" data-testid="floorplan-review-ok">
+          <span className="flex items-center gap-1.5 text-[var(--c-pass)]"><CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} /> Geometry checks passed{typeof fp.quality === "number" ? ` · ${fp.quality}/100` : ""}{fp.reviewed ? " · reviewed" : ""}</span>
+          <button onClick={() => setShowEditor((v) => !v)} data-testid="floorplan-edit-geometry"
+            className="flex items-center gap-1 text-muted-foreground hover:text-foreground"><PencilRuler className="h-3.5 w-3.5" /> {showEditor ? "Close editor" : "Edit geometry"}</button>
+        </div>
+      )}
+
+      {showEditor && fp.cadData && (
+        <FloorPlanGeometryEditor projectId={projectId} cadData={fp.cadData} onSaved={onGeometrySaved} />
       )}
 
       {!fp.imageUrl ? (

@@ -1,0 +1,28 @@
+{
+  "summary": "Frontend end-to-end test of Feature A (Floor-plan accuracy) on project '15 Greenways'. All required flows worked: PASS banner, editor Rooms + Raw JSON modes, flagging via bad overall width, review banner with specific reasons, 'Mark reviewed' clears banner, and cleanup restored geometry to quality 100/100. No JS errors related to floor-plan flow. One unrelated cosmetic console warning observed globally (see notes).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Global (login + other pages)", "issues": ["Repeated SVG console errors: 'Error: <path> attribute d: Expected path command, \"M12 12 #0891B2...\"'. Some icon/path builder is concatenating a color hex into the SVG path 'd' attribute. Not blocking, but noisy in console. Unrelated to floor-plan feature but worth cleaning up."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "(Optional / non-blocking) Investigate the noisy SVG path console error 'M12 12 #0891B2...' — a color value is being concatenated into a path 'd' attribute somewhere (looks like a custom icon or Recharts pie/donut rendering)."
+  ],
+  "critical_code_review_comments": [
+    "FloorPlanGeometryEditor.jsx exposes both fp-editor-form-mode and fp-editor-json-mode testids — request text mentioned 'fp-editor-rooms-mode' which doesn't exist. Consider aligning naming OR add an alias so tests and docs stay consistent.",
+    "Quality flow works as designed: PUT /api/projects/{id}/floorplan recomputes and returns the reviewFlag+reasons; UI banner + reasons render correctly with data-testids floorplan-review-banner and floorplan-review-reason-{i}.",
+    "'Mark reviewed' clears the flag but the ok row shows '· reviewed' with the (still low) quality score (56/100). This is intentional per spec but reviewers should note the quality number is not recomputed on mark-reviewed — only the flag is cleared."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "it@cphretrofit.co.uk / (provided password) — worked",
+  "seed_data_creation": "None. Test mutated and then restored 15 Greenways floor-plan overall width (7.6 -> 2 -> 7.6). Final state: quality 100/100, no review flag.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The Rooms/Form-mode toggle testid is 'fp-editor-form-mode' (not 'fp-editor-rooms-mode' as some docs say). JSON mode testid is 'fp-editor-json-mode'. Login via https://retrofit-pro-2.preview.emergentagent.com/login; floor plan route is /project/5e275c28-c74a-4ed4-8f3b-b2853575349e/design/floorplan. After 'Save & re-render', wait ~5-6s for backend re-render + quality recompute before asserting banner. Backend endpoints all confirmed working via UI round-trip.",
+  "rca of the issue": "N/A — no bugs found in Floor-plan accuracy feature. Feature A is fully functional end-to-end."
+}

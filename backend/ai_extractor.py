@@ -1873,6 +1873,7 @@ Return ONLY JSON:
 MULTI-FLOOR: if the survey shows more than one storey (e.g. Ground + First), return a top-level "floors" ARRAY with ONE COMPLETE ENTRY PER FLOOR — each with its own "title" ("Ground Floor" / "First Floor"), "overall", "rooms", dimension chains, "windows", "doors", "symbols", "frontDoor" and "dataBox". Each floor occupies the FULL building footprint (do NOT place ground- and first-floor rooms in one shared plan). Put shared fields (address, wallType, date, legend) at the TOP LEVEL, not inside each floor. For a single-storey dwelling, return "rooms" at the top level as shown above (no "floors").
 Rules: read EVERY room name and its window-circle code (e.g. E1..E7) exactly as written; if a circle shows a plain letter with no number keep it as-is. Read all dimension numbers exactly (windows chain 'wall' must be top|bottom|left|right, position in metres along that wall). Keep rectangles consistent so shared walls align (snap coordinates to a sensible grid so topDims sum to overall.w and leftDims sum to overall.h). Do not invent rooms. If a value is unreadable use "".
 CIRCULATION & FRONT DOOR: dwellings almost always have a circulation space (entrance hall / hallway on the ground floor, landing upstairs) linking the front door to the rooms. If the plan shows such a space — even if it is unlabelled or just a gap between rooms — include it as a room named "Hall" (ground floor) or "Landing" (upper floor). A STAIRCASE (drawn as a run of parallel hatched lines / steps, often with an arrow) ALWAYS sits inside circulation space: the space that contains or is immediately adjacent to the ground-floor staircase MUST be output as a room named "Hall", and the space around the upper-floor staircase as "Landing" — never merge the staircase area into an adjoining Lounge, Kitchen, Bedroom or Bathroom. If a ground-floor staircase is visible you MUST return a "Hall" room. Place "frontDoor" on the external wall of the entrance hall / circulation space; the front door must NOT open directly into a bathroom, WC, kitchen or bedroom. If no separate circulation space is drawn, place the front door on the external wall of the main living room.
+ACCURACY (critical — the redrawn plan is checked automatically, so be precise): (1) every dimension chain MUST sum to the overall size — topDims (+topDims2) sum to overall.w and leftDims/rightDims sum to overall.h; (2) rooms MUST tile together WITHOUT overlapping and MUST stay within the overall envelope; (3) include EVERY room shown and always include the hall/landing circulation; (4) snap coordinates to a consistent grid so shared walls align exactly (shared walls between two rooms must use the identical coordinate); (5) if the plan's data box shows a floor area (m²), your rooms' combined area should be within ~10% of it — re-read your dimensions if it is not.
 """
 
 _FP_DOC_ORDER = {"Floor Plan": 0, "Assessment": 1, "Technical Survey": 2, "Survey": 2,
@@ -2019,9 +2020,16 @@ async def detect_and_extract_floorplan(docs: list, project_id: str):
     except Exception as e:
         logger.warning("cad floorplan build failed: %s", e)
 
+    try:
+        from cad_floorplan import _floorplan_quality
+        _q = _floorplan_quality(cad_data) if cad_data else {"ok": False, "score": 0, "reasons": ["No CAD geometry could be reconstructed from the plan image."]}
+    except Exception:
+        _q = {"ok": True, "score": None, "reasons": []}
     return {"imageUrl": f"/api/documents/{pid}/download", "markers": [],
             "autoDetected": True, "source": chosen["label"],
             "cadSvg": cad_svg, "cadData": cad_data, "anchors": cad_anchors,
+            "reviewFlag": (not _q.get("ok", True)), "reviewReasons": _q.get("reasons", []),
+            "quality": _q.get("score"), "reviewed": False,
             "detectedAt": datetime.now(timezone.utc).isoformat()}
 
 

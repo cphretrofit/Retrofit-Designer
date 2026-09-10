@@ -698,3 +698,67 @@ def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
         "windows": [{"wall": a["wall"], "label": a["label"], **_pct(a)} for a in raw["windows"]],
     }
     return svg, anchors
+
+
+def _floorplan_quality(geo):
+    """Geometry sanity check on reconstructed CAD data. Returns
+    {ok, score, reasons:[...]} — reasons are human-readable so a designer can act on them
+    and correct the geometry before the pack is issued."""
+    if not isinstance(geo, dict):
+        return {"ok": False, "score": 0, "reasons": ["No floor-plan geometry was reconstructed."]}
+    floors = geo.get("floors") if (isinstance(geo.get("floors"), list) and geo.get("floors")) else [geo]
+    reasons = []
+    for fi, fl in enumerate(floors):
+        lbl = (fl.get("title") or f"Floor {fi + 1}") if len(floors) > 1 else "Plan"
+        rooms = [r for r in (fl.get("rooms") or []) if isinstance(r, dict)]
+        if len(rooms) < 2:
+            reasons.append(f"{lbl}: only {len(rooms)} room(s) traced \u2014 the plan looks incomplete.")
+            continue
+        ov = fl.get("overall") or {}
+        W, H = _num(ov.get("w")), _num(ov.get("h"))
+        names = [(r.get("name") or "").lower() for r in rooms]
+        if not any(any(w in n for w in ("hall", "landing", "corridor", "lobby", "stair")) for n in names):
+            reasons.append(f"{lbl}: no hall / landing / circulation space \u2014 the front door may open straight into a room.")
+
+        def _chain(key, target, axis):
+            spans = [_num(s.get("span")) for s in (fl.get(key) or []) if _num(s.get("span"))]
+            if spans and target:
+                s = sum(spans)
+                if abs(s - target) > max(0.4, 0.1 * target):
+                    reasons.append(f"{lbl}: {axis} dimensions add up to {s:.2f}\u00a0m but the plan overall is {target:.2f}\u00a0m \u2014 the dimensions look wrong.")
+        _chain("topDims", W, "top-edge")
+        _chain("leftDims", H, "left-edge")
+        if W and H:
+            for r in rooms:
+                rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+                if rx + rw > W * 1.12 + 0.3 or ry + rh > H * 1.12 + 0.3:
+                    reasons.append(f"{lbl}: room '{r.get('name') or '?'}' extends beyond the building outline.")
+                    break
+        over = False
+        for i in range(len(rooms)):
+            for j in range(i + 1, len(rooms)):
+                a, b = rooms[i], rooms[j]
+                ax, ay, aw, ah = _num(a.get("x")), _num(a.get("y")), _num(a.get("w")), _num(a.get("h"))
+                bx, by, bw, bh = _num(b.get("x")), _num(b.get("y")), _num(b.get("w")), _num(b.get("h"))
+                ox = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+                oy = max(0, min(ay + ah, by + bh) - max(ay, by))
+                if aw * ah > 0 and bw * bh > 0 and ox * oy > 0.35 * min(aw * ah, bw * bh):
+                    over = True
+                    break
+            if over:
+                break
+        if over:
+            reasons.append(f"{lbl}: two or more rooms overlap significantly \u2014 the layout may be wrong.")
+        db = fl.get("dataBox") or {}
+        stated = None
+        for row in (db.get("rows") or []):
+            if len(row) >= 2 and "area" in str(row[0]).lower():
+                m = re.search(r"([\d.]+)", str(row[1]))
+                if m:
+                    stated = float(m.group(1))
+        if stated:
+            calc = sum(_num(r.get("w")) * _num(r.get("h")) for r in rooms)
+            if calc and abs(calc - stated) > max(6.0, 0.2 * stated):
+                reasons.append(f"{lbl}: traced area {calc:.1f}\u00a0m\u00b2 differs from the stated {stated:.1f}\u00a0m\u00b2 by more than 20%.")
+    score = max(0, 100 - 22 * len(reasons))
+    return {"ok": len(reasons) == 0, "score": score, "reasons": reasons}
