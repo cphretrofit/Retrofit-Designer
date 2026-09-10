@@ -2035,6 +2035,7 @@ class FloorPlanIn(BaseModel):
     markers: Optional[list] = None
     cadData: Optional[dict] = None
     reviewed: Optional[bool] = None
+    useOriginal: Optional[bool] = None
 
 
 @api_router.put("/projects/{project_id}/floorplan")
@@ -2065,6 +2066,8 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
         fp["reviewed"] = True
         fp["reviewFlag"] = False
         fp["reviewedAt"] = datetime.now(timezone.utc).isoformat()
+    if payload.useOriginal is not None:
+        fp["useOriginal"] = payload.useOriginal
     await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "packHash": ""}})
     return {"floorPlan": fp}
 

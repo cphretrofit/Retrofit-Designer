@@ -3828,18 +3828,24 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     fp = p.get("floorPlan") or {}
     fp_uri = fp.get("_data")
     cad_svg = fp.get("cadSvg")
-    # Ensure loft insulation is drawn on the plan whenever a loft / room-in-roof measure is in
-    # scope (older saved plans were rendered before loftCoverage was populated). It is drawn on
-    # the top floor only.
+    _use_original = bool(fp.get("useOriginal"))
+    # Always redraw the CAD plan from the stored geometry so the loft coverage and the address/
+    # postcode label are correct (older saved SVGs pre-date these). Skipped when the designer has
+    # chosen to use the assessor's original plan instead.
     _loft_m = next((m for m in measures if _mfam(m.get("code"), m.get("name")) in ("LOFT", "RIR")), None)
-    if _loft_m and fp.get("cadData"):
+    if fp.get("cadData") and not _use_original:
         try:
             from cad_floorplan import build_cad_floorplan_svg
             _cd = dict(fp.get("cadData"))
-            _cd["loftCoverage"] = _cd.get("loftCoverage") or _loft_m.get("name") or "Loft insulation"
+            if _loft_m:
+                _cd["loftCoverage"] = _cd.get("loftCoverage") or _loft_m.get("name") or "Loft insulation"
+            _addr = (p.get("property") or {}).get("address") or p.get("address") or ""
+            _lines = [s.strip() for s in str(_addr).split(",") if s.strip()]
+            if _lines:
+                _cd["address"] = _lines
             cad_svg = build_cad_floorplan_svg(_cd)
         except Exception as _e:
-            logger.warning("loft floorplan regen failed: %s", _e)
+            logger.warning("floorplan regen failed: %s", _e)
     floorplan_page = None
     if fp_uri or cad_svg:
         MK = {"DMEV": "#0891B2", "LOFT": "#B45309", "TRICKLE": "#16A34A", "ASHP": "#0055FF"}
@@ -3877,7 +3883,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             f'<td style="border-right:1px solid #d4d4d4; padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">SCALE</span> NTS &nbsp;·&nbsp; <span class="faint" style="font-size:7px;">DATE</span> {_esc(issued_date)}</td>'
             f'<td style="padding:6px 8px;"><span class="faint" style="font-size:7px; letter-spacing:0.1em;">REV</span> <span class="mono">P01</span> &nbsp;·&nbsp; CPH Design</td>'
             '</tr></table>')
-        if cad_svg:
+        if cad_svg and not _use_original:
             floorplan_page = f'<div style="position:relative; width:100%;">{cad_svg}{dots}</div>'
         else:
             floorplan_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 01 &middot; Design Drawing</div>'

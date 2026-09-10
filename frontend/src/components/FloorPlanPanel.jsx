@@ -112,6 +112,13 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
     catch { toast.error("Could not update review status"); }
   };
   const onGeometrySaved = (newFp) => { setFp((s) => ({ ...s, ...newFp })); onChange?.(newFp); setShowEditor(false); };
+  const setUseOriginal = async (val) => {
+    try {
+      const r = await updateFloorPlan(projectId, { useOriginal: val });
+      setFp((s) => ({ ...s, useOriginal: val })); onChange?.(r.floorPlan);
+      toast.success(val ? "Pack will use the assessor's original plan" : "Pack will use the CAD redraw");
+    } catch { toast.error("Could not update plan choice"); }
+  };
 
   const upload = async (file) => {
     if (!file) return;
@@ -242,6 +249,16 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
 
       {showEditor && fp.cadData && (
         <FloorPlanGeometryEditor projectId={projectId} cadData={fp.cadData} onSaved={onGeometrySaved} />
+      )}
+
+      {(fp.cadData || fp.imageUrl) && (
+        <label className="flex items-start gap-2.5 border border-border rounded-sm bg-card p-3 cursor-pointer" data-testid="use-original-plan-toggle">
+          <input type="checkbox" checked={!!fp.useOriginal} onChange={(e) => setUseOriginal(e.target.checked)} data-testid="use-original-plan-checkbox" className="mt-0.5" />
+          <span className="text-[12.5px] leading-snug">
+            <span className="font-medium">Use the assessor's original floor plan in the pack</span>
+            <span className="text-muted-foreground"> — instead of the CAD redraw. Guarantees the plan matches the survey exactly when the auto-trace isn't accurate enough.</span>
+          </span>
+        </label>
       )}
 
       {!fp.imageUrl ? (

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-06 — Floor-plan assurance (assessor-plan fallback) + address fix
+
+- **Assessor-plan fallback**: `floorPlan.useOriginal` toggle (workspace checkbox under the plan) — when on, the pack uses the assessor's original floor-plan image instead of the CAD redraw, guaranteeing it matches the survey. Backend `FloorPlanIn.useOriginal` + pack branch honour it. Verified: pack swaps to the original-image title block and back.
+- **Correct address/postcode on the CAD plan**: the pack now always redraws the CAD plan from stored geometry with the project's real address (and loft coverage), so the drawn label is right (was showing stale/incorrect postcode).
+
+
 ## 2026-06 — Designer round 2 (photopack, measures editor, solar, loft gating, defaults)
 
 - **Full photopack in the picker**: `/api/projects/{id}/photos/all` now enumerates EVERY image embedded in the uploaded PDFs (new `/api/documents/{id}/embedded/{i}` on-demand server) — 482 images vs the old curated ~20. Universal "Add photo" picker verified in Measure Evidence + Site Conditions.
