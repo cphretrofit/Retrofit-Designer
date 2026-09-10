@@ -738,6 +738,92 @@ def _measure_methodology(fam):
     return METHODOLOGY.get(fam, METHODOLOGY["GEN"])
 
 
+# Rich default Design & Specification Requirements per measure family, used when the project has
+# no approved-template blueprint — so every measure's spec page is substantial rather than a stub.
+DEFAULT_SPECS = {
+    "SOLAR": [
+        "Size and locate the array to the shading and orientation assessment; string design and inverter sizing to suit the modules, roof planes and DNO constraints.",
+        "Confirm structural adequacy of the roof (rafter size, spacing and condition) for the additional dead and wind load before fixing; obtain structural sign-off where required.",
+        "Fix roof anchors into rafters (not battens/sarking alone) and flash/seal to maintain weather-tightness; maintain the manufacturer's edge and fire set-backs from the roof perimeter.",
+        "Install DC cabling in fire-safe, mechanically-protected routes with clearly labelled DC isolation, kept clear of escape routes (BS 7671 / IET Code of Practice for Grid-Connected Solar PV).",
+        "Locate the inverter (and battery storage where specified) in a ventilated, accessible position; fit the generation meter and provide AC isolation.",
+        "Complete AC connection with RCD protection, earthing and bonding to BS 7671; notify the DNO under G98 (or apply under G99) as required.",
+        "Install and commission to MCS MIS 3002 / MGD 003; record insulation-resistance, polarity and functional tests with string voltages and initial generation.",
+        "Maintain insulation continuity and seal all roof-space penetrations where fixings or cabling enter the loft; keep equipment accessible and never buried in insulation.",
+        "Register the installation (MCS) and issue the certificate; register manufacturer warranties.",
+        "Provide a handover pack: array layout, string/schematic drawing, commissioning results, isolation procedure, monitoring guidance and maintenance schedule.",
+    ],
+    "LOFT": [
+        "Upgrade insulation to achieve the specified U-value (typically 0.16 W/m²K or better) using mineral wool cross-laid to ~270–300mm total, tight-butted with no gaps.",
+        "Provide or reinstate roof-space ventilation to BS 5250:2021 (continuous 25mm eaves equivalent plus high-level where required) to control condensation risk.",
+        "Fit fire-rated maintenance-free caps over recessed downlighters before insulating; do not cover transformers or luminaires.",
+        "Lift and clip cabling clear of the insulation, or de-rate/re-route to BS 7671 to avoid overheating buried cables.",
+        "Carry insulation over the wall plate at the eaves without blocking ventilation; insulate and draught-strip the loft access hatch.",
+        "Insulate any cold-water tank and pipework in the loft (sides and top, not beneath) to prevent freezing.",
+        "Where storage is retained, provide raised loft boarding on legs so the full insulation depth is maintained beneath.",
+        "Keep insulation clear of flues and chimneys by the required margins; avoid compression at abutments.",
+        "Record depths and photograph the completed installation for the handover pack.",
+    ],
+    "ASHP": [
+        "Size the system to a room-by-room heat-loss calculation (BS EN 12831) at the design external temperature; size emitters to the design flow temperature.",
+        "Target a low design flow temperature (typically ≤ 45–50°C) with weather compensation to maximise seasonal efficiency (SCOP).",
+        "Locate the external unit for free airflow, MCS 020 noise compliance at the nearest assessment position, and frost-safe condensate discharge.",
+        "Size the hot-water cylinder for demand with the specified coil area for heat-pump reheat; insulate secondary pipework.",
+        "Size and insulate primary pipework; install hydraulic components (buffer/volumiser, pump, expansion vessel, filling loop) as designed.",
+        "Provide a dedicated electrical supply, isolation and earthing to BS 7671; confirm consumer-unit capacity and load.",
+        "Flush and clean the system to BS 7593, add inhibitor and confirm water quality.",
+        "Configure controls (weather compensation, zoning, DHW scheduling) and set the heating curve to the design flow temperature.",
+        "Commission to the manufacturer's and MCS requirements; record performance and complete the MCS commissioning checklist.",
+        "Hand over with user instructions, commissioning certificate, warranty registration and a maintenance schedule.",
+    ],
+    "WALL": [
+        "Confirm wall construction, condition and exposure zone; carry out adhesion/pull-off and moisture testing as required before insulating.",
+        "Rectify defects (pointing, render, damp, disrepair) and confirm a sound, dry substrate prior to installation.",
+        "Install the certified (BBA/KIWA) system strictly to the build-up and manufacturer instructions to achieve the specified U-value.",
+        "Provide cavity fire barriers (horizontal at each floor/compartment line and vertically) and fire-stopping around openings; verify combustibility for the building height and boundary (Approved Document B).",
+        "Detail all junctions (jamb, reveal, sill, eaves, verge, plinth) to bespoke details calculated to BRE IP1/06 (fRsi > 0.75) to control thermal bridging and condensation.",
+        "Extend and re-fix external services (meter box, lights, soil/vent pipes, cabling) safely through the added thickness.",
+        "Re-assess background and purge ventilation as the fabric is tightened; add trickle ventilators/extract to Approved Document F where required.",
+        "Maintain a moisture-safe, vapour-appropriate build-up (BS 5250); protect the base with a plinth/render stop above ground level.",
+        "Apply finishes, inspect for continuity, and photograph for the handover pack.",
+    ],
+    "WIN": [
+        "Confirm sizes, opening configurations, glazing specification (U-value/g-value) and any required egress, fire and acoustic performance.",
+        "Provide compliant emergency-egress openings to habitable rooms (including first floor) and FD-rated doors where required (Approved Document B).",
+        "Carefully remove existing frames minimising damage to reveals and finishes; identify and manage any asbestos-containing materials.",
+        "Fit insulated cavity closers and install frames plumb, level and packed to the manufacturer's fixing schedule.",
+        "Provide trickle ventilators to the Approved Document F equivalent areas; confirm background ventilation to each room.",
+        "Seal internally with a continuous airtight seal and externally with a weather-tight, vapour-open seal; insulate reveals to limit thermal bridging.",
+        "Achieve the specified whole-window U-value (typically ≤ 1.4 W/m²K) and make good internal/external finishes.",
+        "Test operation and security; record and photograph for the handover pack.",
+    ],
+    "VENT": [
+        "Confirm the whole-dwelling ventilation strategy to Approved Document F and the ADF1 wet-room extract schedule.",
+        "Install continuous/intermittent extract at source in each wet room (kitchen, bathroom, WC, utility) at the specified rate.",
+        "Provide background ventilation (trickle ventilators / equivalent area) to habitable rooms.",
+        "Route ducting the shortest practical run to outside; insulate ducts in cold zones to prevent condensation and avoid flexible duct where possible.",
+        "Provide adequate transfer/undercut paths between rooms to support the whole-house strategy.",
+        "Electrically connect and control units to BS 7671; label isolation.",
+        "Commission and measure achieved extract rates to BS EN 12599 and adjust to meet the design.",
+        "Provide the commissioning certificate and user guidance to the tenant.",
+    ],
+    "FLOOR": [
+        "Confirm floor construction (suspended timber or solid) and condition; check the sub-floor for damp and ventilation.",
+        "Maintain suspended-floor sub-floor cross-ventilation to Approved Document C; keep airbricks clear and unobstructed.",
+        "Install a vapour-permeable membrane with a ventilated void to prevent timber decay.",
+        "Fit insulation supported tight between joists to the specified depth with no gaps or slumping to achieve the target U-value.",
+        "Insulate to the perimeter with continuity to the wall insulation to limit thermal bridging.",
+        "Reinstate floor finishes; record and photograph for the handover pack.",
+    ],
+    "GEN": [
+        "Confirm the measure specification, substrate condition and any pre-installation defects to be rectified.",
+        "Install strictly to the manufacturer's instructions and the relevant PAS 2030:2023 requirements.",
+        "Manage ventilation, thermal bridging, fire safety and moisture risk in line with the design.",
+        "Commission, test and record the installation; provide certificates and handover documentation.",
+    ],
+}
+
+
 SCOPE_WORKS = {
     "LOFT": ["Top-up / cross-lay loft insulation to the specified depth", "Insulate and draught-proof the loft hatch", "Maintain eaves ventilation and fit fire-rated caps to downlighters"],
     "ASHP": ["Supply and install the air source heat pump and hot-water cylinder", "Install/upgrade emitters, pipework and controls", "Electrical supply, commissioning and handover"],
@@ -2911,6 +2997,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         commissioning = (spec.get("commissioning") or [])[:16]
 
         fam = _mfam(m.get("code"), m.get("name"))
+        if not specifications:
+            specifications = (DEFAULT_SPECS.get(fam) or DEFAULT_SPECS.get("GEN") or [])[:30]
+        if not works:
+            works = SCOPE_WORKS.get(fam, SCOPE_WORKS["GEN"])
         col = MEASURE_COLORS[fam]
         icon = _measure_icon(fam, col)
 
