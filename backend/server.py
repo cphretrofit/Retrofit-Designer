@@ -1480,14 +1480,28 @@ async def project_all_photos(project_id: str):
             seen.add(url)
             out.append({"url": url, "caption": caption or "", "fig": fig or ""})
 
+    def _is_photopack(d):
+        fn = (d.get("original_filename") or "").lower()
+        return ("photopack" in fn or "photo pack" in fn or "par photo" in fn or "photograph" in fn
+                or (d.get("doc_type") or "") in ("Photopack", "Survey Photo"))
+
     docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(500)
+    any_pack = any(_is_photopack(d) and ((d.get("content_type") or "") == "application/pdf"
+                   or (d.get("original_filename") or "").lower().endswith(".pdf")) for d in docs)
     for d in docs:
         ct = (d.get("content_type") or "")
         dt = (d.get("doc_type") or "")
         fn = (d.get("original_filename") or "").lower()
         if ct.startswith("image/") or dt in ("Survey Photo", "Floor Plan", "Defect Photo"):
             _add(f"/api/documents/{d['id']}/download", d.get("original_filename") or "Photo")
-        if (ct == "application/pdf" or fn.endswith(".pdf")) and d.get("storage_path"):
+        is_pdf = (ct == "application/pdf" or fn.endswith(".pdf"))
+        if is_pdf and d.get("storage_path"):
+            # Only mine the photopack for embedded photos (fall back to survey/assessment PDFs
+            # when the job has no dedicated photopack) — never datasheets or letterheads.
+            if any_pack and not _is_photopack(d):
+                continue
+            if not any_pack and dt not in PHOTO_DOC_TYPES:
+                continue
             try:
                 data, _ = await asyncio.to_thread(get_object, d["storage_path"])
                 imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06 — Photo picker: photopack-only + logo filtering
+
+- `/api/projects/{id}/photos/all` now mines only the photopack document(s) (filename/doc_type match), ignoring datasheets/assessment PDFs where logos lived; falls back to survey PDFs only when no photopack exists.
+- `extract_sitenote_photo_labels` drops logos/letterheads (same image xref recurring on ≥3 pages / >40% of pages) and thin banner/rule graphics (aspect >4:1). Applied in the shared extractor so picker indices and the served embedded image stay aligned. Verified: 15 Greenways 482 → 281 real captioned photos.
+
 ## 2026-06 — PAS B-codes in the Measures editor
 
 - Measures editor now speaks PAS 2035 codes (B1–B10, C1/C5, ASHP, SOLAR) alongside the plain name, and shows each measure's PAS code on its row. Backend `set_measures` normalises incoming B-codes to the internal family (B3→WIN, B9→LOFT, etc.). Aligned `PAS_MAP` so Windows = B3 everywhere. Verified: sending {B3,B9,SOLAR} creates Windows+Loft+Solar.

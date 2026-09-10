@@ -425,8 +425,18 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
     except Exception:
         return []
     try:
+        # Logos / letterheads repeat on many pages — count each xref's page span so we can drop them.
+        page_count = doc.page_count
+        xref_pages = {}
+        for pno in range(page_count):
+            for info in doc[pno].get_image_info(xrefs=True):
+                xr = info.get("xref") or 0
+                if xr:
+                    xref_pages.setdefault(xr, set()).add(pno)
+        repeated = {xr for xr, pgs in xref_pages.items()
+                    if len(pgs) >= 3 or (page_count >= 4 and len(pgs) > page_count * 0.4)}
         out, last_label, seen = [], "", set()
-        for pno in range(doc.page_count):
+        for pno in range(page_count):
             pg = doc[pno]
             items = []
             for b in pg.get_text("dict").get("blocks", []):
@@ -448,11 +458,17 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
                     last_label = payload
                 elif payload not in seen:
                     seen.add(payload)
+                    if payload in repeated:  # logo / letterhead that recurs across pages
+                        continue
                     try:
                         ex = doc.extract_image(payload)
                     except Exception:
                         continue
-                    if ex and ex.get("width", 0) >= 150 and ex.get("height", 0) >= 150:
+                    w, h = ex.get("width", 0), ex.get("height", 0)
+                    if w >= 150 and h >= 150:
+                        ar = (w / h) if h else 0
+                        if ar and (ar > 4 or ar < 0.25):  # very wide/thin banner, rule or divider
+                            continue
                         out.append({"label": last_label, "image": (ex["image"], ex.get("ext", "jpg"))})
             if len(out) >= max_imgs:
                 break
