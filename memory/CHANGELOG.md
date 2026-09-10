@@ -34,7 +34,11 @@
 
 ### Still outstanding
 - P2: Appendix B contents index page.
-- P1: Live import progress streaming.
+
+### Live import progress (2026-09-08)
+- `ai_extractor.run_import_job`: writes real `progress`/`stage` to `import_jobs` at each step (6 Reading → 16 Extracting photos → 32 Drafting design → 64 Matching template/products → 72 Building floor plan/site/specs → 92 Attaching evidence → 100 Ready). Import endpoint seeds `progress:2, stage:"Queued"`.
+- `ImportProject.jsx`: replaced the fake 4-second stage timer with the real backend `progress`/`stage` — live % bar + stage label + checklist driven by actual progress.
+- Verified live: a single assessment PDF → progress streamed 32→72→100 → full project generated (4 measures incl. Solar 3.6 kWp parsed from the job-card, readiness 65%) in ~90s. Design generator confirmed live end-to-end.
 
 ### Auto-clear solar notice + tighter fabric pack (2026-09-08)
 - `server.py`: new `_solar_survey_state(project_id, measures)` helper. `GET /projects/{id}` now injects a read-time (non-persisted) Outstanding item **"Solar technical survey not yet received"** (id `auto-solar-survey`) into `itemsBeforeIssue` AND the Solar measure's `outstanding` when the survey is missing — it clears automatically the moment a solar/PV/MCS/structural survey document is uploaded. `solar/survey-status` endpoint refactored onto the shared helper.

@@ -2450,6 +2450,7 @@ async def import_project(files: List[UploadFile] = File(...), types: List[str] =
     job_id = str(uuid.uuid4())
     await db.import_jobs.insert_one({
         "id": job_id, "status": "processing", "project_id": None,
+        "progress": 2, "stage": "Queued",
         "inputs": inputs, "attempts": 0, "client": (client or "").strip() or None,
         "reference": (reference or "").strip() or None,
         "created_at": datetime.now(timezone.utc).isoformat(),

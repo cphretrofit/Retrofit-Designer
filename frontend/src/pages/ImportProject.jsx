@@ -90,6 +90,8 @@ export default function ImportProject() {
   const [files, setFiles] = useState({});
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState(0);
+  const [progress, setProgress] = useState(0);
+  const [stageText, setStageText] = useState("");
   const [clients, setClients] = useState([]);
   const [client, setClient] = useState("");
   const [reference, setReference] = useState("");
@@ -122,12 +124,12 @@ export default function ImportProject() {
   });
   const count = Object.values(files).reduce((s, arr) => s + (arr?.length || 0), 0);
   const selClient = clients.find((c) => c.name === client);
+  const stageIdx = progress >= 100 ? STAGES.length : progress >= 92 ? 5 : progress >= 64 ? 4 : progress >= 32 ? 3 : progress >= 16 ? 2 : progress >= 6 ? 1 : 0;
 
   const generate = async () => {
     if (!client) { toast.error("Choose who this design is for"); return; }
     if (count === 0) { toast.error("Add at least one document"); return; }
-    setBusy(true); setStage(0);
-    timerRef.current = setInterval(() => setStage((s) => Math.min(s + 1, STAGES.length - 1)), 4000);
+    setBusy(true); setStage(0); setProgress(4); setStageText("Uploading documents");
     try {
       const fd = new FormData();
       fd.append("client", client);
@@ -146,8 +148,10 @@ export default function ImportProject() {
         }
         try {
           const { data: job } = await axios.get(`${API}/import-jobs/${jobId}`);
+          if (typeof job.progress === "number") setProgress(job.progress);
+          if (job.stage) setStageText(job.stage);
           if (job.status === "done") {
-            clearInterval(pollRef.current); clearInterval(timerRef.current); setStage(STAGES.length - 1);
+            clearInterval(pollRef.current); clearInterval(timerRef.current); setProgress(100); setStageText("Ready");
             toast.success("Draft design generated");
             navigate(`/project/${job.project_id}`);
           } else if (job.status === "error") {
@@ -247,15 +251,19 @@ export default function ImportProject() {
           <div className="border border-border rounded-sm bg-card p-8 grid-bg">
             <div className="flex items-center gap-3">
               <Loader2 className="h-5 w-5 animate-spin" style={{ color: "var(--c-action)" }} strokeWidth={2} />
-              <span className="font-display text-lg">Drafting your retrofit design…</span>
+              <span className="font-display text-lg" data-testid="import-stage-text">{stageText || "Drafting your retrofit design…"}</span>
+              <span className="ml-auto font-mono text-[13px] text-muted-foreground" data-testid="import-progress-pct">{progress}%</span>
+            </div>
+            <div className="mt-4 h-1.5 w-full max-w-md bg-secondary rounded-full overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-500" data-testid="import-progress-bar" style={{ width: `${progress}%`, background: "var(--c-action)" }} />
             </div>
             <div className="mt-6 space-y-2.5 max-w-md">
               {STAGES.map((s, i) => (
-                <div key={i} className="flex items-center gap-2.5 text-[13px] transition-opacity duration-300" style={{ opacity: i <= stage ? 1 : 0.35 }}>
-                  {i < stage ? <CheckCircle2 className="h-4 w-4" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} />
-                    : i === stage ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" strokeWidth={1.75} />
+                <div key={i} className="flex items-center gap-2.5 text-[13px] transition-opacity duration-300" style={{ opacity: i <= stageIdx ? 1 : 0.35 }}>
+                  {i < stageIdx ? <CheckCircle2 className="h-4 w-4" style={{ color: "var(--c-pass)" }} strokeWidth={1.75} />
+                    : i === stageIdx ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" strokeWidth={1.75} />
                     : <div className="h-4 w-4 rounded-full border border-border" />}
-                  <span className={i <= stage ? "" : "text-muted-foreground"}>{s}</span>
+                  <span className={i <= stageIdx ? "" : "text-muted-foreground"}>{s}</span>
                 </div>
               ))}
             </div>

@@ -2037,6 +2037,12 @@ async def run_import_job(job_id: str):
         return
     await db.import_jobs.update_one({"id": job_id}, {"$set": {"attempts": cur + 1, "status": "processing"}})
     try:
+        async def _prog(pct, stage):
+            try:
+                await db.import_jobs.update_one({"id": job_id}, {"$set": {"progress": int(pct), "stage": stage}})
+            except Exception:
+                pass
+        await _prog(6, "Reading documents")
         inputs = job.get("inputs") or []
         doc_ids = []
         parts = []
@@ -2059,6 +2065,7 @@ async def run_import_job(job_id: str):
             text = (await asyncio.to_thread(extract_text_any, data, ext)) if data else ""
             return data, text
         _fetched = await asyncio.gather(*[_fetch_doc(it) for it in inputs])
+        await _prog(16, "Extracting site photographs")
         # Uploaded forms / other client docs are bound into the pack verbatim — don't feed them
         # into the draft prompt (saves tokens and avoids confusing the extractor).
         SKIP_SOURCE = {"ADF1", "Air Tightness", "Supporting Document", "Other", "Ventilation Strategy", "Survey Photo", "Floor Plan"}
@@ -2115,9 +2122,11 @@ async def run_import_job(job_id: str):
                 "error": "Could not read any text from the uploaded documents. If these are scanned or photographed PDFs, please upload a clearer copy.",
             }})
             return
+        await _prog(32, "Drafting the retrofit design")
         ai = await call_claude(prompt)
         ref = await next_ref()
         project = ai_build_project(ai, ref, photos)
+        await _prog(64, "Matching template & products")
         try:
             _match_defect_photos(project.get("defects") or [], (project.get("designPack") or {}).get("photos") or [])
         except Exception as e:
@@ -2170,6 +2179,7 @@ async def run_import_job(job_id: str):
                 if _prods:
                     _assign_products(project, _prods, source="datasheet")
 
+        await _prog(72, "Building floor plan, site conditions & specs")
         _results = await asyncio.gather(
             _t_template(), _t_site_and_considerations(), _t_floorplan(), _t_vision_tags(), _t_datasheets(),
             return_exceptions=True)
@@ -2205,11 +2215,12 @@ async def run_import_job(job_id: str):
         except Exception as e:
             logger.warning("auto-actions failed: %s", e)
 
+        await _prog(92, "Attaching evidence & finalising")
         doc = dict(project)
         doc["_id"] = project["id"]
         await db.projects.insert_one(doc)
         await db.documents.update_many({"id": {"$in": doc_ids}}, {"$set": {"project_id": project["id"]}})
-        await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "project_id": project["id"]}})
+        await db.import_jobs.update_one({"id": job_id}, {"$set": {"status": "done", "progress": 100, "stage": "Ready", "project_id": project["id"]}})
         try:
             asyncio.create_task(_precache_geo(project["id"]))
         except Exception:
