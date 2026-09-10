@@ -1572,7 +1572,7 @@ async def _apply_client_catalog(project: dict):
 # PAS 2030:2023 Annex B (Building Fabric) codes. Services (ASHP/SOLAR/VENT) are shown by
 # their measure name rather than a fabric annex code, so the badge is never misleading.
 PAS_MAP = {"EWI": "B4", "IWI": "B2", "SWI": "B2", "CWI": "B1", "LOFT": "B9", "RIR": "B10",
-           "UFI": "B6", "WIN": "B5", "DOORS": "B5"}
+           "UFI": "B6", "WIN": "B3", "DOORS": "B5"}
 SERVICE_CODES = {"ASHP", "SOLAR", "VENT"}
 JN_BY_CODE = {
     "EWI": EWI_JN, "IWI": WIN_JN, "SWI": EWI_JN,

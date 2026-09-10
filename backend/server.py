@@ -2094,6 +2094,10 @@ class MeasuresIn(BaseModel):
 
 
 _MEASURE_CODES = {"EWI", "IWI", "SWI", "CWI", "LOFT", "RIR", "UFI", "WIN", "DOORS", "ASHP", "SOLAR", "VENT"}
+# Accept PAS 2035 improvement codes (how designers refer to measures, e.g. "B3, B9, SOLAR")
+# and normalise them to the internal measure family.
+_PAS_TO_FAMILY = {"B1": "CWI", "B2": "IWI", "B3": "WIN", "B4": "EWI", "B5": "WIN", "B6": "UFI",
+                  "B9": "LOFT", "B10": "RIR", "C1": "VENT", "C5": "VENT"}
 
 
 @api_router.put("/projects/{project_id}/measures")
@@ -2107,6 +2111,7 @@ async def set_measures(project_id: str, payload: MeasuresIn):
     out, seen = [], set()
     for spec in (payload.measures or []):
         code = (spec.get("code") or "").upper().strip()
+        code = _PAS_TO_FAMILY.get(code, code)
         name = (spec.get("name") or "").strip()
         if code not in _MEASURE_CODES or code in seen:
             continue

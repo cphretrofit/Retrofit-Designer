@@ -4,10 +4,12 @@ import { toast } from "sonner";
 import { Plus, Trash2, Save, Loader2, Settings2 } from "lucide-react";
 
 const CODES = [
-  ["EWI", "External Wall Insulation"], ["IWI", "Internal Wall Insulation"], ["SWI", "Solid/Cavity Wall Insulation"],
-  ["LOFT", "Loft Insulation"], ["RIR", "Room-in-Roof Insulation"], ["UFI", "Underfloor Insulation"],
-  ["WIN", "Windows"], ["DOORS", "Doors"], ["ASHP", "Air Source Heat Pump"], ["SOLAR", "Solar PV"], ["VENT", "Ventilation"],
+  ["EWI", "B4 — External Wall Insulation"], ["IWI", "B2 — Internal Wall Insulation"], ["SWI", "B2 — Solid Wall Insulation"],
+  ["CWI", "B1 — Cavity Wall Insulation"], ["LOFT", "B9 — Loft Insulation"], ["RIR", "B10 — Room-in-Roof Insulation"],
+  ["UFI", "B6 — Underfloor Insulation"], ["WIN", "B3 — Windows"], ["DOORS", "B5 — Doors"],
+  ["ASHP", "ASHP — Air Source Heat Pump"], ["SOLAR", "SOLAR — Solar PV"], ["VENT", "C5 — Ventilation"],
 ];
+const PAS = { EWI: "B4", IWI: "B2", SWI: "B2", CWI: "B1", LOFT: "B9", RIR: "B10", UFI: "B6", WIN: "B3", DOORS: "B5", ASHP: "ASHP", SOLAR: "SOLAR", VENT: "C5" };
 const LABEL = Object.fromEntries(CODES);
 
 export function MeasuresManager({ projectId, measures, onSaved }) {
@@ -53,7 +55,7 @@ export function MeasuresManager({ projectId, measures, onSaved }) {
           <div className="space-y-2 mt-3">
             {rows.map((r) => (
               <div key={r.code} className="flex items-center gap-2" data-testid={`measure-row-${r.code}`}>
-                <span className="font-mono text-[10px] w-14 shrink-0 text-muted-foreground">{r.code}</span>
+                <span className="font-mono text-[10px] w-14 shrink-0 text-muted-foreground" title={r.code}>{PAS[r.code] || r.code}</span>
                 <input value={r.name} onChange={(e) => rename(r.code, e.target.value)} data-testid={`measure-name-${r.code}`}
                   className="flex-1 h-8 border border-border rounded-sm px-2.5 text-[12.5px] bg-background" />
                 <button onClick={() => remove(r.code)} data-testid={`measure-remove-${r.code}`}

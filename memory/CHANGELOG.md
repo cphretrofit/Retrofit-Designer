@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-06 — PAS B-codes in the Measures editor
+
+- Measures editor now speaks PAS 2035 codes (B1–B10, C1/C5, ASHP, SOLAR) alongside the plain name, and shows each measure's PAS code on its row. Backend `set_measures` normalises incoming B-codes to the internal family (B3→WIN, B9→LOFT, etc.). Aligned `PAS_MAP` so Windows = B3 everywhere. Verified: sending {B3,B9,SOLAR} creates Windows+Loft+Solar.
+- Reminder: a new design is created via Import (Dashboard → New → upload survey/job-card docs); measures can then be added/edited by B-code in the Measures section.
+
 ## 2026-06 — Floor-plan assurance (assessor-plan fallback) + address fix
 
 - **Assessor-plan fallback**: `floorPlan.useOriginal` toggle (workspace checkbox under the plan) — when on, the pack uses the assessor's original floor-plan image instead of the CAD redraw, guaranteeing it matches the survey. Backend `FloorPlanIn.useOriginal` + pack branch honour it. Verified: pack swaps to the original-image title block and back.
