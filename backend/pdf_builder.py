@@ -196,16 +196,26 @@ def _photos_for_measure(code, photos, used):
 
 def _measure_compliance(m, p):
     code = (m.get("code") or "").upper()
-    sc = (p.get("property") or {}).get("siteConditions") or p.get("siteConditions") or {}
-    ptype = (sc.get("property_type") or p.get("propertyType") or (p.get("property") or {}).get("type") or "").lower()
+    prop = p.get("property") or {}
+    ec = prop.get("existingConstruction") or {}
+    sc = prop.get("siteConditions") or p.get("siteConditions") or {}
+    ptype = (sc.get("property_type") or p.get("propertyType") or prop.get("type") or "").lower()
     is_bungalow = "bungalow" in ptype
     e_shower = sc.get("electric_shower")
     bath_up = sc.get("bathroom_upstairs")
     downlights = sc.get("downlights")
     esh_over = sc.get("esh_cable_over_insulation")
+    wall = str(ec.get("Wall Construction") or "").strip()
+    roofc = str(ec.get("Roof Construction") or "").strip()
+    age = str(prop.get("age") or "").strip()
+    wl = wall.lower()
+    traditional = bool(re.search(r"18\d\d|17\d\d|19(0\d|1[0-8])", age)) or "solid" in wl or "stone" in wl
+    wf = wall or "the recorded wall construction"
+    rf = roofc or "the pitched roof structure"
     items = []
     if code in ("LOFT", "RIR"):
         items.append(("Fire Safety", "Recessed downlights present — fit maintenance-free fire-rated loft caps over every fitting before insulating; do not cover transformers/drivers (Approved Document B)." if downlights in (True, None) else "No recessed downlights reported; confirm on site before insulating."))
+        items.append(("Fire Safety", "Keep insulation clear of flues, chimneys and any recessed transformer by the required margins; do not pack insulation against heat-producing fittings (Approved Document J)."))
         if esh_over is True:
             items.append(("Electrical", "Electric-shower cable confirmed running over the top of the loft insulation — survey it, clip it above the insulation or re-route / derate to BS 7671. DO NOT bury it under deep insulation."))
         elif esh_over is False:
@@ -214,37 +224,54 @@ def _measure_compliance(m, p):
             items.append(("Electrical", "Electric shower present with a likely high-current cable routed through the loft (bungalow / first-floor bathroom) — survey the cable, clip it above the insulation or derate/re-route to BS 7671. DO NOT bury it under deep insulation."))
         else:
             items.append(("Electrical", "Survey all loft cabling; any cable covered by insulation must be derated or re-routed per BS 7671. Confirm whether a high-current electric-shower supply runs through the loft."))
-        items.append(("Ventilation", "Maintain roof-space ventilation to BS 5250:2021 Table 5 (e.g. 25mm continuous eaves + 5mm ridge). Fit eaves baffles; do not block cross-ventilation."))
         items.append(("Thermal Bridging", "Insulate and draught-proof the loft hatch; carry insulation over the wall plate at the eaves for continuity; avoid gaps and compression."))
-        items.append(("Moisture", "Vapour-open build-up; manage interstitial condensation (BS 5250)."))
+        items.append(("Thermal Bridging", f"Seal the ceiling-level air barrier at downlights, the loft hatch and service penetrations to control the eaves cold bridge across {rf}."))
+        items.append(("Ventilation", "Maintain roof-space ventilation to BS 5250:2021 Table 5 (e.g. 25mm continuous eaves + 5mm ridge). Fit eaves baffles; do not block cross-ventilation."))
+        items.append(("Moisture", "Provide a continuous ceiling-level air barrier and a vapour-open build-up so warm moist air cannot condense in the cold loft (BS 5250)."))
         if sc.get("loft_crossflow") is False:
             items.append(("Ventilation", "No cross-flow ventilation observed in the loft (see site evidence photos) — install eaves / over-fascia ventilators to BS 5250:2021 before insulating to avoid condensation and mould."))
         if sc.get("loft_storage"):
             items.append(("Thermal Bridging", "Stored items / boarding observed in the loft (see site evidence) — provide raised loft-boarding legs so the full insulation depth is maintained; do not compress insulation under boarding."))
     elif code in ("EWI", "SWI", "IWI"):
         items.append(("Fire Safety", "Provide cavity fire barriers (horizontal at each compartment/floor line and vertically) and fire-stopping around all openings; verify system combustibility for the building height / relevant boundary (Approved Document B)."))
-        items.append(("Thermal Bridging", "Property-specific junction details (jamb, reveal, sill, eaves, verge, plinth). Any bespoke detail calculated to BRE IP1/06 with temperature factor fRsi > 0.75."))
+        items.append(("Thermal Bridging", f"Property-specific junction details (jamb, reveal, sill, eaves, verge, plinth) for {wf}. Any bespoke detail calculated to BRE IP1/06 with temperature factor fRsi > 0.75."))
+        items.append(("Thermal Bridging", "Maintain insulation continuity at the ground-floor plinth, party-wall returns and around service penetrations to avoid repeating cold bridges."))
         items.append(("Ventilation", "Re-assess background and purge ventilation as the fabric is tightened; add trickle ventilators / mechanical extract to Approved Document F where required."))
         items.append(("Electrical", "Extend and re-fix external services (meter box, lights, soil/vent pipes, cables) through the added insulation thickness safely."))
-        items.append(("Moisture", "Breathable, compatible system that avoids trapping moisture (BS 5250)."))
+        if traditional:
+            items.append(("Moisture", f"Traditional / solid-wall construction ({wf}) — specify a vapour-open, moisture-safe system (BS 5250 / BS 7913) that does not trap moisture in the wall."))
+        else:
+            items.append(("Moisture", "Breathable, compatible system that avoids trapping moisture (BS 5250); protect the base above ground with a render stop / plinth."))
     elif code in ("WIN", "DOORS", "WINDOWS"):
-        items.append(("Ventilation", "Provide trickle ventilators to Approved Document F equivalent areas; maintain rapid/purge ventilation to habitable rooms."))
         items.append(("Fire Safety", "Provide compliant emergency egress windows to habitable rooms (including first floor); FD30 fire doors where required (Approved Document B)."))
-        items.append(("Thermal Bridging", "Insulated cavity closers/reveals with a continuous airtight perimeter seal."))
+        items.append(("Thermal Bridging", "Insulated cavity closers / reveals with a continuous airtight perimeter seal; insulate the reveal to limit the frame cold bridge."))
+        items.append(("Ventilation", "Provide trickle ventilators to Approved Document F equivalent areas; maintain rapid/purge ventilation to habitable rooms."))
+        items.append(("Moisture", "Vapour-open external and airtight internal perimeter seal to prevent interstitial condensation at the reveal."))
     elif code in ("ASHP", "HP"):
+        items.append(("Fire Safety", "Route refrigerant / electrical services and site the external unit clear of escape routes and boundary openings; provide isolation and labelling (Approved Document B / BS 7671)."))
         items.append(("Electrical", "Dedicated circuit, isolation and earthing to BS 7671; confirm consumer-unit capacity and load."))
+        items.append(("Thermal Bridging", "Sleeve and seal wall penetrations for pipework/cabling and reinstate insulation continuity to avoid a cold bridge and air leakage at the external unit."))
         items.append(("Ventilation", "Site the external unit for free airflow and MCS 020 noise limits; manage condensate discharge frost-safely."))
-        items.append(("Moisture", "Insulate and support pipework to avoid cold-bridge condensation."))
+        items.append(("Moisture", "Insulate and support pipework to avoid cold-bridge condensation; seal external penetrations weather-tight."))
     elif code in ("SOLAR", "PV"):
-        items.append(("Electrical", "DC isolation, RCD protection and fire-safe cable routing to BS 7671 / IET Code of Practice; label all isolators."))
-        items.append(("Fire Safety", "Maintain roof fire integrity and firefighter access; keep DC cabling away from escape routes."))
+        items.append(("Fire Safety", f"Maintain the fire integrity of {rf} and firefighter roof access; keep DC cabling away from escape routes and provide clearly labelled DC / AC isolation (BS 7671)."))
+        items.append(("Electrical", "DC isolation, RCD protection and fire-safe cable routing to BS 7671 / IET Code of Practice; obtain DNO G98/G99 approval and complete MCS registration."))
+        items.append(("Thermal Bridging", "Seal and flash all roof-anchor and cable penetrations; maintain insulation continuity and the ceiling air barrier where cabling enters the loft — never bury cabling in insulation."))
+        items.append(("Moisture", "Weather-tight, sealed roof penetrations at every fixing to prevent water ingress; protect the vapour-control layer where present."))
     elif code in ("UFI", "SFI"):
+        items.append(("Fire Safety", "Maintain fire separation at the sub-floor; do not obstruct or breach compartment lines with new insulation or membranes (Approved Document B)."))
         items.append(("Ventilation", "Maintain suspended-floor sub-floor cross-ventilation to Approved Document C (2010) §4.14 — keep airbricks clear and unobstructed."))
-        items.append(("Thermal Bridging", "Insulate to the perimeter with continuity to the wall insulation; support insulation tight between joists."))
+        items.append(("Thermal Bridging", "Insulate to the perimeter with continuity to the wall insulation; support insulation tight between joists to avoid gaps and slumping."))
         items.append(("Moisture", "Vapour-permeable membrane with a ventilated void to prevent timber decay."))
     elif code in ("VENT",):
+        items.append(("Fire Safety", "Fire-stop and, where required, fit fire/smoke dampers where ducts cross compartment lines; keep terminals clear of boundary / escape openings (Approved Document B)."))
         items.append(("Ventilation", "Whole-dwelling ventilation strategy to Approved Document F (continuous/intermittent extract at source; PIV excluded from satisfying source extraction)."))
-        items.append(("Moisture", "Address any condensation/mould identified in the retrofit assessment."))
+        items.append(("Thermal Bridging", "Insulate ducts in cold zones and seal the wall/ceiling penetration at each terminal to prevent a cold bridge and condensation."))
+        items.append(("Moisture", "Address any condensation / mould identified in the retrofit assessment; extract at source in every wet room."))
+    else:
+        items.append(("Fire Safety", "Maintain compartmentation, escape routes and fire-stopping to Approved Document B; do not breach compartment lines with new services."))
+        items.append(("Thermal Bridging", "Detail junctions and service penetrations to maintain insulation continuity and control cold bridging (BRE IP1/06)."))
+        items.append(("Moisture", "Manage interstitial and surface condensation risk to BS 5250 with a moisture-safe build-up."))
     items.append(("Compliance", "Complete the Approved Document F ventilation checklist (Appendix D) pre-installation to confirm baseline compliance."))
     return items
 
@@ -3121,7 +3148,15 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                              '<span style="width:8px; height:8px; border-radius:50%; background:' + col + '; margin:5px 12px 0 0; flex-shrink:0;"></span>'
                              '<div style="flex:1; font-size:11.5px; color:#333; line-height:1.5;">' + _esc(t) + '</div></div>')
                 blocks += ('<div style="margin-top:16px;"><div class="faint upper" style="font-size:9.5px; color:' + col + '; margin-bottom:2px;">' + topic + '</div>' + rows + '</div>')
-            spec_pages.append(_head("Design Compliance Checklist") + blocks)
+            _cprop = p.get("property") or {}
+            _cage = str(_cprop.get("age") or "").strip()
+            _cwall = str((_cprop.get("existingConstruction") or {}).get("Wall Construction") or "").strip()
+            _ctx = ", ".join(x for x in [str(_cprop.get("type") or "").strip(), (f"age {_cage}" if _cage else ""), _cwall] if x)
+            _cc_intro = ('<div class="muted" style="font-size:11px; margin-top:10px; line-height:1.5;">'
+                         'Property-specific compliance considerations for this measure'
+                         + ((" &mdash; " + _esc(_ctx)) if _ctx else "")
+                         + '. Each point is a design requirement to satisfy before / at installation; unresolved items carry into the Pre-Issue Register.</div>')
+            spec_pages.append(_head("Design Compliance Checklist") + _cc_intro + blocks)
 
         if sequencing or commissioning:
             body = _head("Sequencing & Commissioning")

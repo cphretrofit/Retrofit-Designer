@@ -35,6 +35,10 @@
 ### Still outstanding
 - P2: Appendix B contents index page.
 
+### Property-specific per-measure compliance (2026-09-08)
+- `pdf_builder._measure_compliance`: substantially expanded so EVERY measure family (LOFT/EWI/WIN/ASHP/SOLAR/UFI/VENT + generic) now emits Fire Safety + Thermal Bridging + Moisture (+ Electrical/Ventilation) considerations — woven with this property's wall construction, roof type and age band (e.g. traditional/solid-wall triggers a vapour-open BS 7913 note). Removes the sparse look vs the legacy design; the "Design Compliance Checklist" page is now full for every measure with almost no manual input.
+- Added a property-specific intro line to each Design Compliance Checklist page (type · age · wall construction).
+
 ### Bulked-out measure spec pages (2026-09-08)
 - `pdf_builder.py`: added `DEFAULT_SPECS` — rich default Design & Specification Requirements per family (SOLAR/LOFT/ASHP/WALL/WIN/VENT/FLOOR, 6–10 clauses each). The per-measure builder now falls back to these (and to `SCOPE_WORKS`) when a project has no template blueprint, so spec pages are full instead of the "Detailed specification…to be developed from the approved template" stub. Verified: placeholder count 0 in the Scudamore pack; Solar page renders the full clause set.
 
