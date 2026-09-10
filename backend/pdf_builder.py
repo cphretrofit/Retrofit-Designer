@@ -207,9 +207,14 @@ def _measure_compliance(m, p):
     esh_over = sc.get("esh_cable_over_insulation")
     wall = str(ec.get("Wall Construction") or "").strip()
     roofc = str(ec.get("Roof Construction") or "").strip()
+    pitch = str(ec.get("Roof Pitch") or "").strip()
+    exposure = str(ec.get("Exposure Zone") or "").strip()
+    storeys = prop.get("storeys")
     age = str(prop.get("age") or "").strip()
     wl = wall.lower()
     traditional = bool(re.search(r"18\d\d|17\d\d|19(0\d|1[0-8])", age)) or "solid" in wl or "stone" in wl
+    high_exposure = any(k in exposure.lower() for k in ("severe", "very severe", "zone 3", "zone 4", "exposed"))
+    multi_storey = isinstance(storeys, (int, float)) and storeys and storeys >= 2
     wf = wall or "the recorded wall construction"
     rf = roofc or "the pitched roof structure"
     items = []
@@ -242,6 +247,10 @@ def _measure_compliance(m, p):
             items.append(("Moisture", f"Traditional / solid-wall construction ({wf}) — specify a vapour-open, moisture-safe system (BS 5250 / BS 7913) that does not trap moisture in the wall."))
         else:
             items.append(("Moisture", "Breathable, compatible system that avoids trapping moisture (BS 5250); protect the base above ground with a render stop / plinth."))
+        if high_exposure:
+            items.append(("Moisture", f"Recorded exposure ({exposure}) is high wind-driven-rain (BS 8104) — specify enhanced weather protection: through-render mesh, drip beads and a robust base-coat/render system rated for this zone."))
+        if multi_storey:
+            items.append(("Fire Safety", f"Building is {int(storeys)} storeys — confirm the render/insulation system's reaction-to-fire class is suitable for the height and any relevant boundary, with fire barriers at each storey (Approved Document B)."))
     elif code in ("WIN", "DOORS", "WINDOWS"):
         items.append(("Fire Safety", "Provide compliant emergency egress windows to habitable rooms (including first floor); FD30 fire doors where required (Approved Document B)."))
         items.append(("Thermal Bridging", "Insulated cavity closers / reveals with a continuous airtight perimeter seal; insulate the reveal to limit the frame cold bridge."))
@@ -258,6 +267,8 @@ def _measure_compliance(m, p):
         items.append(("Electrical", "DC isolation, RCD protection and fire-safe cable routing to BS 7671 / IET Code of Practice; obtain DNO G98/G99 approval and complete MCS registration."))
         items.append(("Thermal Bridging", "Seal and flash all roof-anchor and cable penetrations; maintain insulation continuity and the ceiling air barrier where cabling enters the loft — never bury cabling in insulation."))
         items.append(("Moisture", "Weather-tight, sealed roof penetrations at every fixing to prevent water ingress; protect the vapour-control layer where present."))
+        if pitch:
+            items.append(("Compliance", f"Recorded roof pitch {pitch} — confirm the mounting system and array yield modelling suit this pitch and the roof orientation; verify structural adequacy for the added dead/wind load."))
     elif code in ("UFI", "SFI"):
         items.append(("Fire Safety", "Maintain fire separation at the sub-floor; do not obstruct or breach compartment lines with new insulation or membranes (Approved Document B)."))
         items.append(("Ventilation", "Maintain suspended-floor sub-floor cross-ventilation to Approved Document C (2010) §4.14 — keep airbricks clear and unobstructed."))
@@ -3583,6 +3594,18 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     foreword_page = _ov_page(p, "foreword") or _foreword_html(p)
     overheating_page = _ov_page(p, "overheating") or _overheating_html(p, measures)
+    apx_docs = p.get("_appendixDocs") or []
+    appendix_index_page = None
+    if apx_docs:
+        _apx_rows = "".join(f'<tr><td class="mono faint" style="width:7%;">{i + 1:02d}</td>'
+                            f'<td style="color:#262626;">{_esc(d.get("name"))}</td>'
+                            f'<td class="mono muted" style="width:30%;">{_esc(d.get("type"))}</td></tr>'
+                            for i, d in enumerate(apx_docs))
+        appendix_index_page = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Appendix B &middot; Contents</div>'
+                               '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Bound Supporting Documents</div>'
+                               '<div class="muted" style="font-size:11px; margin-top:8px;">Every source document bound into this pack, in order. The full documents follow this index (retrofit assessment, technical surveys, ventilation / air-tightness strategies, certificates and other supporting evidence).</div>'
+                               f'<table style="margin-top:14px;"><thead><tr><th style="width:7%;">#</th><th>Document</th><th style="width:30%;">Type</th></tr></thead><tbody>{_apx_rows}</tbody></table>'
+                               f'<div class="faint mono" style="font-size:9px; margin-top:12px;">{len(apx_docs)} document(s) bound &middot; Appendix B</div>')
     scope_pages = ([_ov_page(p, "scope")] if _ov_page(p, "scope") else _scope_html(p, measures))
     matrix_page = _ov_page(p, "matrix") or _interaction_matrix_html(measures)
     standards_page = _ov_page(p, "standards")
@@ -3604,6 +3627,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              *([standards_page] if standards_page else []), *([exclusions_page] if exclusions_page else []), *([commissioning_page] if commissioning_page else []),
              compliance_handover_page,
              *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
+             *([appendix_index_page] if appendix_index_page else []),
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
     total = len(pages)
@@ -3815,6 +3839,12 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         _blob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs).lower()
         p["_uploadedAdf1"] = any(k in _blob for k in ("adf1", "table d1", "ventilation checklist"))
         p["_uploadedAirtight"] = any(k in _blob for k in ("air tight", "airtight", "air-tight"))
+        _APX_B = {"Technical Survey", "ASHP Survey", "Solar", "Scope of Works", "Assessment",
+                  "Heat Pump Report", "Report", "Certificate", "Ventilation", "Ventilation Strategy",
+                  "Air Tightness", "ADF1", "Checklist", "Supporting Document", "Other"}
+        p["_appendixDocs"] = [{"name": x.get("original_filename") or "Document",
+                               "type": x.get("doc_type") or "Supporting document"}
+                              for x in _alldocs if (x.get("doc_type") or "") in _APX_B]
         _has_solar = any(_mfam(mm.get("code"), mm.get("name")) == "SOLAR" for mm in (p.get("measures") or []))
         if _has_solar:
             _sblob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs

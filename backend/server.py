@@ -1500,7 +1500,18 @@ async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Qu
     changed = []
     if force or not (m.get("evidenceRequirements") or "").strip():
         items = _measure_compliance(m, proj)
-        m["evidenceRequirements"] = "\n".join(f"- {cat}: {txt}" for cat, txt in items)
+        groups = {}
+        for cat, txt in items:
+            groups.setdefault(cat, []).append(txt)
+        order = ["Fire Safety", "Thermal Bridging", "Ventilation", "Electrical", "Moisture", "Compliance"]
+        lines = []
+        for cat in order + [c for c in groups if c not in order]:
+            if cat not in groups:
+                continue
+            lines.append(cat.upper())
+            lines.extend(f"- {t}" for t in groups[cat])
+            lines.append("")
+        m["evidenceRequirements"] = "\n".join(lines).strip()
         changed.append("evidenceRequirements")
     if force or not (m.get("evidenceActions") or "").strip():
         fam = _mfam(m.get("code"), m.get("name"))

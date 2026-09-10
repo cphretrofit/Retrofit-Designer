@@ -985,7 +985,8 @@ Return this exact JSON shape:
     "occupancy": "", "orientation": "",
     "existingConstruction": {
       "Wall Construction": "", "Existing Thickness": "", "Existing Insulation": "",
-      "Condition": "", "Roof Construction": "", "Floor Construction": "", "Proposed Measure": ""
+      "Condition": "", "Roof Construction": "", "Roof Pitch": "", "Exposure Zone": "",
+      "Floor Construction": "", "Proposed Measure": ""
     }
   },
   "measures": [
@@ -1003,7 +1004,7 @@ Return this exact JSON shape:
   "siteConditionsFromDocs": [{"key":"electric_shower","label":"Electric shower","present":true,"detail":"where/how stated","source":"Job Card"},{"key":"downlights","label":"Recessed spotlights / downlights","present":true,"detail":"","source":""},{"key":"loft_storage","label":"Stored items / boarding in loft","present":true,"detail":"","source":""},{"key":"bathroom_upstairs","label":"Bathroom on upper floor","present":true,"detail":"","source":""},{"key":"floor_type","label":"Ground floor type","value":"solid concrete | suspended timber | unknown","detail":"","source":""}]
 }
 
-Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Limit itemsBeforeIssue to the 12 most important items.
+Be SITE-SPECIFIC: use the actual address, dimensions, window sizes/orientations, room-by-room heat loss (watts), design flow temperature, product names and model numbers found in the documents. Populate windowSchedule and heatLoss from the assessment / ASHP survey when present. Capture property.storeys, property.existingConstruction "Roof Pitch" (degrees, e.g. "30°") and "Exposure Zone" (BS 8104 wind-driven-rain zone / sheltered/moderate/severe/very severe) when the assessment states them, so the design considerations can be tailored. Limit itemsBeforeIssue to the 12 most important items.
 
 JOB CARD PRIORITY: when a Job Card spreadsheet is provided, treat it as the primary source of truth and auto-populate: (1) measures — read every recommended/installed measure (e.g. loft insulation, ASHP, solar PV, windows, ventilation) and map each to its PAS 2030:2023 code (B/C code) and full name; (2) epcBefore / epcAfter and any SAP score stated; (3) property.orientation (front/rear/roof orientation) and floorArea, type, age, storeys, occupancy; (4) ventilation.rooms — build the wet-room extract list (kitchen, bathroom, WC, utility) with system + rate from the Job Card / ADF1 checklist. Never leave these blank if the Job Card states them. IGNORE any free-text "Notes" / "Surveyor's Notes" / "Additional comments" section on the Job Card — do NOT use it as a source for measures, people, EPC bands or site conditions; use only the structured fields and the formal assessment / scope documents.
 """
@@ -1682,6 +1683,8 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
                 "Existing Insulation": ec.get("Existing Insulation") or "—",
                 "Condition": ec.get("Condition") or "—",
                 "Roof Construction": ec.get("Roof Construction") or "—",
+                "Roof Pitch": ec.get("Roof Pitch") or "—",
+                "Exposure Zone": ec.get("Exposure Zone") or "—",
                 "Floor Construction": ec.get("Floor Construction") or "—",
                 "Proposed Measure": ec.get("Proposed Measure") or ai.get("measureSummary") or "—",
             },

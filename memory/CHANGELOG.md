@@ -32,8 +32,10 @@
 - `SolarPanel.jsx`: amber "Solar technical survey not yet received" banner shows when surveyMissing.
 - `pdf_builder.py`: `p["_solarSurveyMissing"]` computed in the pack build; the Solar measure's Technical Specification page renders an "Awaiting Solar Technical Survey" notice. Solar Scope of Works + Installation Methodology now merge onto ONE "Scope of Works & Methodology" page when short (was two sparse pages).
 
-### Still outstanding
-- P2: Appendix B contents index page.
+### Appendix index, fuller auto-fill, property capture (2026-09-08)
+- **Appendix B Contents**: `build_pack_html` now renders a one-page "Appendix B · Contents / Bound Supporting Documents" index (numbered list of every bound source doc + type); `_render_pack_html` populates `p["_appendixDocs"]` from the project documents. Verified present in the Scudamore pack.
+- **Fuller Auto-Fill**: `autofill-compliance` now groups the Design Requirements & Compliance box by topic (FIRE SAFETY / THERMAL BRIDGING / VENTILATION / ELECTRICAL / MOISTURE / COMPLIANCE) so the on-screen workspace mirrors the pack's Design Compliance Checklist.
+- **Property Detail Capture**: extraction schema + `ai_build_project` now capture `Roof Pitch` and `Exposure Zone` (storeys already captured); the prompt asks for them. `_measure_compliance` uses them — Solar cites the recorded roof pitch, EWI adds a high-exposure BS 8104 weather-protection note and a storeys-based fire note.
 
 ### Property-specific per-measure compliance (2026-09-08)
 - `pdf_builder._measure_compliance`: substantially expanded so EVERY measure family (LOFT/EWI/WIN/ASHP/SOLAR/UFI/VENT + generic) now emits Fire Safety + Thermal Bridging + Moisture (+ Electrical/Ventilation) considerations — woven with this property's wall construction, roof type and age band (e.g. traditional/solid-wall triggers a vapour-open BS 7913 note). Removes the sparse look vs the legacy design; the "Design Compliance Checklist" page is now full for every measure with almost no manual input.
