@@ -881,7 +881,7 @@ async def _solar_survey_state(project_id: str, measures):
                                    {"_id": 0, "original_filename": 1, "doc_type": 1}).to_list(300)
     blob = " ".join(((d.get("original_filename") or "") + " " + (d.get("doc_type") or "")) for d in docs
                     if (d.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
-    missing = not any(k in blob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design"))
+    missing = not any(k in blob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design", "easypv", "easy pv", "easy-pv", "pv report", "solar report", "solar design"))
     return has, missing
 
 
@@ -900,6 +900,11 @@ async def get_project(project_id: str, request: Request):
     doc["partner"] = _resolve_partner(doc)
     _ensure_uvalues(doc)
     doc["readiness"] = _compute_readiness(doc)
+    # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
+    # Retrofit Design (never a Concept Design). Applied at read so existing projects update too.
+    doc["designStage"] = "Retrofit Design"
+    doc["designer"] = "Alex Leighton"
+    doc["designerQualification"] = "MCIOB 7009478"
     # Auto-managed outstanding item: flags a missing solar technical survey and clears itself the
     # moment the survey is uploaded (computed at read time, never persisted).
     try:
@@ -1461,29 +1466,60 @@ async def floorplan_auto_markers(project_id: str):
 
 @api_router.get("/projects/{project_id}/photos/all")
 async def project_all_photos(project_id: str):
-    """Every survey photo available on the project (curated pack gallery + all image
-    documents), deduped — used to populate the site-conditions photo picker."""
+    """EVERY photo available to the project — every image embedded in the uploaded PDFs
+    (photopack / site notes), every standalone image document, and the curated pack gallery —
+    deduped. Populates the universal 'Add photo' picker so any image can be placed in any section."""
     p = await db.projects.find_one({"id": project_id})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
+    from ai_extractor import extract_sitenote_photo_labels
     out, seen = [], set()
-    for ph in ((p.get("designPack") or {}).get("photos") or []):
-        u = ph.get("url")
-        if u and u not in seen:
-            seen.add(u)
-            out.append({"url": u, "caption": ph.get("caption") or "", "fig": ph.get("fig") or ""})
+
+    def _add(url, caption="", fig=""):
+        if url and url not in seen:
+            seen.add(url)
+            out.append({"url": url, "caption": caption or "", "fig": fig or ""})
+
     docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(500)
     for d in docs:
-        ct = d.get("content_type") or ""
-        dt = d.get("doc_type") or ""
-        if not (ct.startswith("image/") or dt in ("Survey Photo", "Floor Plan")):
-            continue
-        u = f"/api/documents/{d['id']}/download"
-        if u in seen:
-            continue
-        seen.add(u)
-        out.append({"url": u, "caption": d.get("original_filename") or "Photo", "fig": ""})
+        ct = (d.get("content_type") or "")
+        dt = (d.get("doc_type") or "")
+        fn = (d.get("original_filename") or "").lower()
+        if ct.startswith("image/") or dt in ("Survey Photo", "Floor Plan", "Defect Photo"):
+            _add(f"/api/documents/{d['id']}/download", d.get("original_filename") or "Photo")
+        if (ct == "application/pdf" or fn.endswith(".pdf")) and d.get("storage_path"):
+            try:
+                data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+                imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
+            except Exception as e:
+                logger.warning("embedded photo enumerate failed for %s: %s", d.get("id"), e)
+                imgs = []
+            for i, im in enumerate(imgs):
+                cap = (im.get("label") or "").strip(" :") or f"{d.get('original_filename') or 'Document'} — image {i + 1}"
+                _add(f"/api/documents/{d['id']}/embedded/{i}", cap)
+    for ph in ((p.get("designPack") or {}).get("photos") or []):
+        _add(ph.get("url"), ph.get("caption"), ph.get("fig"))
     return {"photos": out}
+
+
+@api_router.get("/documents/{doc_id}/embedded/{index}")
+async def document_embedded_image(doc_id: str, index: int):
+    """Serve the Nth image embedded inside a PDF document (used by the photo picker to expose
+    every image in the photopack without pre-storing each one)."""
+    d = await db.documents.find_one({"id": doc_id})
+    if not d or not d.get("storage_path"):
+        raise HTTPException(status_code=404, detail="Document not found")
+    from ai_extractor import extract_sitenote_photo_labels
+    try:
+        data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+        imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Could not read document images: {e}")
+    if index < 0 or index >= len(imgs):
+        raise HTTPException(status_code=404, detail="Image index out of range")
+    raw, ext = imgs[index]["image"]
+    mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+    return Response(content=raw, media_type=mime)
 
 
 @api_router.post("/projects/{project_id}/measures/{mi}/autofill-compliance")
@@ -2048,6 +2084,41 @@ async def floorplan_quality_check(project_id: str):
         "floorPlan.reviewFlag": flag}})
     return {"ok": q.get("ok"), "score": q.get("score"), "reasons": q.get("reasons"),
             "reviewFlag": flag, "reviewed": bool(fp.get("reviewed"))}
+
+
+class MeasuresIn(BaseModel):
+    measures: list
+
+
+_MEASURE_CODES = {"EWI", "IWI", "SWI", "CWI", "LOFT", "RIR", "UFI", "WIN", "DOORS", "ASHP", "SOLAR", "VENT"}
+
+
+@api_router.put("/projects/{project_id}/measures")
+async def set_measures(project_id: str, payload: MeasuresIn):
+    """Add / remove / rename / re-code the measures on a project. Existing measures are preserved
+    by code (name can be updated); new codes are scaffolded; codes not in the list are dropped."""
+    proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    existing = {(m.get("code") or "").upper(): m for m in (proj.get("measures") or [])}
+    out, seen = [], set()
+    for spec in (payload.measures or []):
+        code = (spec.get("code") or "").upper().strip()
+        name = (spec.get("name") or "").strip()
+        if code not in _MEASURE_CODES or code in seen:
+            continue
+        seen.add(code)
+        if code in existing:
+            m = existing[code]
+            if name:
+                m["name"] = name
+        else:
+            m = ai_to_measure({"code": code, "name": name or code})
+        out.append(m)
+    if not out:
+        raise HTTPException(status_code=422, detail="At least one valid measure is required")
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": out, "packHash": ""}})
+    return {"measures": out}
 
 
 @api_router.post("/projects/{project_id}/floorplan/mark-reviewed")

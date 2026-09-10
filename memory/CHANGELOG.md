@@ -1,5 +1,22 @@
 # Changelog
 
+## 2026-06 — Designer round 2 (photopack, measures editor, solar, loft gating, defaults)
+
+- **Full photopack in the picker**: `/api/projects/{id}/photos/all` now enumerates EVERY image embedded in the uploaded PDFs (new `/api/documents/{id}/embedded/{i}` on-demand server) — 482 images vs the old curated ~20. Universal "Add photo" picker verified in Measure Evidence + Site Conditions.
+- **Measures editor** (`MeasuresManager.jsx` + `PUT /api/projects/{id}/measures`): add / remove / rename / re-code measures. Removing Loft from a solar-only job re-hides loft/fabric sections. Verified (set SOLAR-only, restored).
+- **Datasheets re-addable**: "Add datasheet" upload+parse button in `DocumentsList` (Documents/Evidence section).
+- **Solar uses the job-card array** (not Google modelled max): pack `_solar_html` + workspace `SolarPanel` headline the design kWp/panels from the Solar measure; modelled max shown as reference only.
+- **Loft-only gating**: the "Loft & Fabric Checklist" and loft-specific site-condition cards only render when a LOFT/RIR measure is in scope.
+- **Auto-generated compliance**: Measure Evidence now pre-generates "Design Requirements & Compliance" + "Site Actions" whenever blank (was gated on having no photos). Backend `_measure_compliance` expanded with a universal compliant-install set (manufacturer instructions/PAS 2030, third-party cert, as-built verification, Building Control notification, commissioning & handover pack, as-built record).
+- **EasyPV recognised**: `_solar_survey_state` now clears "Solar technical survey not yet received" when an EasyPV / PV report / solar design is uploaded.
+- **House defaults**: designer is always Alex Leighton (MCIOB 7009478) and every job is a "Retrofit Design" (never Concept) — applied at read so existing projects update too.
+
+### Still open (tracked for go-live)
+- PDF pack: split Fire Safety / Thermal Bridging into each measure's own section (per-measure text is correct in the UI; pack layout pending).
+- Floor plan: door placement (avoid bathroom↔bedroom), postcode label pulled through wrong. NOTE: the geometry editor ("Edit geometry") already ships in this build — deployed app must be republished for editing to appear.
+- Loft: single-tab handling in the floor-plan panel.
+
+
 ## 2026-06 — Floor-plan QA/editor + Heritage Street View & expanded text
 
 **Floor-plan accuracy + flag + edit (verified 100% by testing agent, iteration_22):**

@@ -284,6 +284,14 @@ def _measure_compliance(m, p):
         items.append(("Thermal Bridging", "Detail junctions and service penetrations to maintain insulation continuity and control cold bridging (BRE IP1/06)."))
         items.append(("Moisture", "Manage interstitial and surface condensation risk to BS 5250 with a moisture-safe build-up."))
     items.append(("Compliance", "Complete the Approved Document F ventilation checklist (Appendix D) pre-installation to confirm baseline compliance."))
+    # Universal compliant-install requirements — apply to every measure so the auto-generated list
+    # is a complete "what's needed for a compliant install" checklist the designer just tops up.
+    items.append(("Compliance", "Install strictly to the manufacturer's published instructions and PAS 2030:2023, by a competent operative holding the relevant certification for this measure."))
+    items.append(("Compliance", "Use only third-party-certified products/systems (BBA / KIWA / ETA as applicable) with matched, approved system components — no mixed or substituted parts."))
+    items.append(("Compliance", "Verify the as-built performance against the design target (U-value / airtightness / flow temperature / array output as relevant) and record the result."))
+    items.append(("Compliance", "Notify Building Control and provide Building Regulations compliance (Part L, and Part F / Part P where applicable); retain the notification/certificate in the handover pack."))
+    items.append(("Compliance", "Commission the measure and hand over the evidence pack: product datasheets, guarantees/warranties, commissioning records and dated before/during/after photographs."))
+    items.append(("Compliance", "Record the measure on the PAS 2035 project as-built and confirm it against the Medium-Term Improvement Plan / intended outcome before sign-off."))
     return items
 
 
@@ -1773,19 +1781,37 @@ def _solar_html(p):
                 f'<div style="margin-top:7px;"><span class="disp" style="font-size:24px;">{val}</span>'
                 f'<span class="mono faint" style="font-size:9.5px; margin-left:5px;">{unit}</span></div></div>')
     watt = s.get("panelCapacityWatts") or 400
-    panels = _realistic_max_panels(s, p.get("property"))
+    modelled_max = _realistic_max_panels(s, p.get("property"))
     gmax = s.get("maxArrayPanelsCount")
-    cap_kwp = panels * watt / 1000.0 if panels else None
+    # Headline the JOB-CARD / applied design array (from the Solar measure), not the modelled roof max.
+    design_kwp = None
+    _sm = next((m for m in (p.get("measures") or []) if (m.get("code") or "").upper() == "SOLAR"), None)
+    if _sm:
+        _mm = re.search(r"([\d.]+)\s*kwp", (_sm.get("name") or ""), re.I)
+        if _mm:
+            design_kwp = float(_mm.group(1))
+    if design_kwp is None and isinstance(s.get("recommendedPv"), dict) and s["recommendedPv"].get("kwp"):
+        design_kwp = float(s["recommendedPv"]["kwp"])
+    if design_kwp:
+        panels = max(1, int(round(design_kwp * 1000.0 / watt)))
+        cap_kwp = design_kwp
+        panels_label = "Design Array (per job card)"
+    else:
+        panels = modelled_max
+        cap_kwp = panels * watt / 1000.0 if panels else None
+        panels_label = "Roof Capacity (est.)"
     cap_str = _num(cap_kwp, 2) if cap_kwp else "\u2014"
     panel_area = panels * 2.0 if panels else None
     annual_full = s.get("maxYearlyEnergyDcKwh")
     annual_est = int(round(annual_full * panels / gmax)) if (annual_full and gmax and panels) else annual_full
+    _modelled_note = (f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Design array taken from the job card ({_num(design_kwp,2)} kWp). Google modelled roof maximum: {_num(modelled_max)} panels / {_num(modelled_max*watt/1000.0,2)} kWp \u2014 shown for reference only.</div>' if design_kwp and modelled_max else "")
     cards = ('<table style="margin-top:20px;"><tr>'
              f'<td style="border:0; padding:0 5px 0 0; width:25%; vertical-align:top;">{_stat("Est. Panel Area", _num(panel_area), "m&sup2;")}</td>'
-             f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Roof Capacity (est.)", _num(panels), "panels")}</td>'
+             f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat(panels_label, _num(panels), "panels")}</td>'
              f'<td style="border:0; padding:0 5px; width:25%; vertical-align:top;">{_stat("Array Capacity", cap_str, "kWp")}</td>'
              f'<td style="border:0; padding:0 0 0 5px; width:25%; vertical-align:top;">{_stat("Est. Annual Yield", _num(annual_est), "kWh")}</td>'
-             '</tr></table>')
+             '</tr></table>'
+             + _modelled_note)
     extra = _para('Figures are a single-dwelling estimate constrained to this property\u2019s own roof. The Google Solar model returns the whole building footprint (which for terraces / semis can include adjoining dwellings), so the installable array for this dwelling is confirmed by the MCS PV design together with the structural and shading survey.'
                   + (f' Maximum modelled sunshine at this roof is <b>{_num(s.get("maxSunshineHoursPerYear"))} hours per year</b>.' if s.get("maxSunshineHoursPerYear") else ""))
     rec = ""

@@ -26,6 +26,9 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
   const [allPhotos, setAllPhotos] = useState(null);
   const photos = allPhotos || (project.designPack && project.designPack.photos) || [];
   const evidence = sc.evidence || [];
+  const hasLoft = (project.measures || []).some((m) => ["LOFT", "RIR"].includes((m.code || "").toUpperCase()) || /loft|roof insul/i.test(m.name || ""));
+  const LOFT_KEYS = new Set(["loft_storage", "loft_crossflow", "loft_insulation", "downlights", "esh_cable_over_insulation", "loft_tank"]);
+  const visibleEvidence = evidence.filter((e) => hasLoft || !LOFT_KEYS.has(e.key));
   useEffect(() => { setSc((project.property && project.property.siteConditions) || {}); }, [project.property?.siteConditions]);
   useEffect(() => {
     getAllPhotos(projectId).then((r) => { if (r?.photos) setAllPhotos(r.photos); }).catch(() => {});
@@ -105,6 +108,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
         </div>
       </div>
 
+      {hasLoft && (
       <div className="border border-border rounded-sm bg-card p-4" data-testid="loft-checklist">
         <div className="text-[13px] font-medium">Loft &amp; Fabric Checklist</div>
         <div className="text-[11.5px] text-muted-foreground mt-0.5 mb-2">Manual answers override photo detection and drive the compliance notes &amp; F-Cap construction detail.</div>
@@ -124,6 +128,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
         <button onClick={save} disabled={saving} data-testid="loft-checklist-save"
           className="mt-3 h-8 px-3 bg-primary text-primary-foreground rounded-sm text-[12px] font-medium disabled:opacity-50">Save checklist</button>
       </div>
+      )}
 
       {evidence.length === 0 ? (
         <div className="border border-dashed border-border rounded-sm p-8 text-center text-[13px] text-muted-foreground" data-testid="site-empty">
@@ -132,6 +137,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
       ) : (
         <div className="space-y-3">
           {evidence.map((e, i) => {
+            if (!hasLoft && LOFT_KEYS.has(e.key)) return null;
             const pv = e.present === true ? "true" : e.present === false ? "false" : "null";
             return (
               <div key={i} className="border border-border rounded-sm bg-card p-4 flex gap-4" data-testid={`site-condition-${e.key}`}>

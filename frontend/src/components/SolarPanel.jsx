@@ -64,6 +64,9 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
 
   const kwp = solar?.maxArrayPanelsCount && solar?.panelCapacityWatts
     ? (solar.maxArrayPanelsCount * solar.panelCapacityWatts / 1000).toFixed(2) : null;
+  const watt = solar?.panelCapacityWatts || 400;
+  const designKwp = jobKwp != null ? jobKwp : null;
+  const designPanels = designKwp != null ? Math.round((designKwp * 1000) / watt) : null;
   const pvOver = jobKwp != null && kwp != null && Number(jobKwp) > Number(kwp);
   const stat = (l, v, u) => (
     <div className="border border-border rounded-sm p-3">
@@ -125,10 +128,15 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
           )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {stat("Usable roof", solar.roofAreaMeters2 ? Math.round(solar.roofAreaMeters2) : null, "m²")}
-            {stat("Max panels", solar.maxArrayPanelsCount, "")}
-            {stat("Array capacity", kwp, "kWp")}
+            {stat(designPanels != null ? "Panels (job card)" : "Max panels", designPanels != null ? designPanels : solar.maxArrayPanelsCount, "")}
+            {stat(designKwp != null ? "Array (job card)" : "Array capacity", designKwp != null ? designKwp : kwp, "kWp")}
             {stat("Annual yield", solar.maxYearlyEnergyDcKwh ? Math.round(solar.maxYearlyEnergyDcKwh).toLocaleString() : null, "kWh")}
           </div>
+          {designKwp != null && solar.maxArrayPanelsCount && (
+            <div className="text-[11px] text-muted-foreground" data-testid="solar-modelled-note">
+              Figures shown are the <span className="text-foreground font-medium">job-card design array</span> ({designKwp} kWp / {designPanels} panels). Google modelled roof maximum is {solar.maxArrayPanelsCount} panels · {kwp} kWp — reference only, confirmed by the MCS PV design.
+            </div>
+          )}
           <div className="border border-border rounded-sm p-3" data-testid="pv-target-row">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1.5"><Zap className="h-3 w-3" strokeWidth={1.75} /> Target array size {jobKwp != null && <span className="text-primary normal-case tracking-normal">· pre-filled from job card</span>}</div>
             <div className="flex items-center gap-2 mt-2">

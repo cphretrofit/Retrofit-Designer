@@ -74,6 +74,7 @@ export const detectSiteConditions = (id) => api.post(`/projects/${id}/site-condi
 export const saveSiteConditions = (id, siteConditions) =>
   api.put(`/projects/${id}/site-conditions`, { siteConditions }).then((r) => r.data);
 export const parseDatasheets = (id) => api.post(`/projects/${id}/datasheets/parse`).then((r) => r.data);
+export const saveMeasures = (id, measures) => api.put(`/projects/${id}/measures`, { measures }).then((r) => r.data);
 
 export const getClients = (includeArchived = false) => api.get(`/clients?include_archived=${includeArchived}`).then((r) => r.data);
 export const createClient = (name) => api.post(`/clients`, { name }).then((r) => r.data);

@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only testing of three designer-feedback flows on project '15 Greenways'. (1) Measures Editor works end-to-end: added SOLAR via dropdown+Add, Save produced 'Measures updated' toast, SOLAR measure card appeared, then removed SOLAR and Saved to restore original (LOFT, WIN, ASHP, VENT verified after reload). (2) 'Add datasheet' button is wired and works, BUT it lives at /design/evidence, not /design/documents (the URL specified in the request does not exist as a route in DesignWorkspace and falls back to the Overview measures view). (3) Universal photo picker renders all 482 photopack thumbnails in both MeasureEvidence and SiteConditions pickers; grids are scrollable (scrollHeight > clientHeight).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Datasheet Add navigation", "issue": "Route /project/{id}/design/documents does NOT exist in DesignWorkspace.jsx switch — falls through to default (Overview/MeasuresManager). The DocumentsList (which hosts add-datasheet-btn) is rendered under section 'evidence' (i.e. /design/evidence). Either add a 'documents' section case or update the review-request URL. The button itself is present, visible, enabled and labelled 'Add datasheet' when navigating to /design/evidence.", "affected_selectors": ["[data-testid=add-datasheet-btn]", "[data-testid=documents-list]"]}
+    ],
+    "design_issues": [
+      {"screen": "MeasuresManager dropdown", "issues": ["React hydration warning: <span> cannot be a child of <option> (caused by visual-edits x-source wrapper). Non-blocking but pollutes console."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Clarify intended URL for the Documents/Datasheet section: either route /design/documents to render DocumentsList (add case in DesignWorkspace switch) or update spec/nav to /design/evidence where the Add datasheet button already renders correctly.",
+    "(Nice-to-have) Suppress the <span>-inside-<option> hydration warning coming from visual-edits wrappers on MeasuresManager options."
+  ],
+  "critical_code_review_comments": [
+    "MeasureEvidence photo picker's fetch of /photos/all is slow (~10-15s for 482 photos). Consider a spinner + progressive rendering. Currently shows 'Loading the photopack…' but if user doesn't wait it looks empty.",
+    "MeasuresManager save flow collapses the manager panel after save — the review test needed to re-expand after saving to remove SOLAR. Consider keeping the manager expanded after save so a user can immediately continue editing."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (not tested)", "frontend": "100% for measures editor + photo picker; add-datasheet-btn works but route mismatch"},
+  "test_credentials": "it@cphretrofit.co.uk (used from review request)",
+  "seed_data_creation": "None. SOLAR was temporarily added to project 15 Greenways then removed — measures restored to LOFT, WIN, ASHP, VENT (verified after reload).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Measures on project 5e275c28... are back to LOFT/WIN/ASHP/VENT. Photo picker testids: [data-testid=evidence-photo-picker] with children [data-testid=evidence-photo-option-{i}] (482 items). SiteConditions picker uses site-photo-picker / site-photo-option-{i}. DocumentsList (add-datasheet-btn) is under /design/evidence, not /design/documents.",
+  "rca of the issue": "Route mismatch: DesignWorkspace.jsx switch(section) has no 'documents' case; DocumentsList is rendered inside the 'evidence' section (line 502). The review-request URL /design/documents therefore falls through to default and shows MeasuresManager instead of the Documents list. Fix: add a case 'documents' returning DocumentsList (and/or a nav item) OR update spec to /design/evidence."
+}

@@ -63,12 +63,13 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
     finally { if (force) setFilling(false); }
   };
 
-  // Reset fields when switching measures, and auto-fill once if this measure is blank.
+  // Reset fields when switching measures, and auto-generate the compliance text whenever it is
+  // blank (regardless of photos) so every measure arrives pre-filled and the user just tops it up.
   useEffect(() => {
     setReq(m.evidenceRequirements || "");
     setAct(m.evidenceActions || "");
-    const empty = !(m.evidenceRequirements || "").trim() && !(m.evidenceActions || "").trim() && (m.evidencePhotos || []).length === 0;
-    if (empty) autofill(false);
+    const textEmpty = !(m.evidenceRequirements || "").trim() && !(m.evidenceActions || "").trim();
+    if (textEmpty) autofill(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mi]);
 

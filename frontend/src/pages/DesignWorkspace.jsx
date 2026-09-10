@@ -21,6 +21,7 @@ import { SolarPanel } from "@/components/SolarPanel";
 import { HeritagePanel } from "@/components/HeritagePanel";
 import { NarrativePanel } from "@/components/NarrativePanel";
 import { MeasureEvidence } from "@/components/MeasureEvidence";
+import { MeasuresManager } from "@/components/MeasuresManager";
 import { DrawingRegisterPanel } from "@/components/DrawingRegisterPanel";
 
 import { MARK_ICON, MARK_COLOR } from "./workspace/constants";
@@ -146,7 +147,12 @@ export default function DesignWorkspace() {
     if (activeMeasure) return <MeasureDetail m={activeMeasure} mi={p.measures.indexOf(activeMeasure)} projectId={id} onJunctionSave={onJunctionSave} onSaveField={saveField} />;
     switch (section) {
       case "overview":
-        return <MeasureCards measures={p.measures} onOpen={setSection} />;
+        return (
+          <div className="space-y-4">
+            <MeasuresManager projectId={id} measures={p.measures} onSaved={(ms) => setP((prev) => ({ ...prev, measures: ms }))} />
+            <MeasureCards measures={p.measures} onOpen={setSection} />
+          </div>
+        );
       case "existing-construction":
         return (
           <SimpleSection title="Existing Construction">
@@ -497,7 +503,12 @@ export default function DesignWorkspace() {
           </div>
         );
       default:
-        return <MeasureCards measures={p.measures} onOpen={setSection} />;
+        return (
+          <div className="space-y-4">
+            <MeasuresManager projectId={id} measures={p.measures} onSaved={(ms) => setP((prev) => ({ ...prev, measures: ms }))} />
+            <MeasureCards measures={p.measures} onOpen={setSection} />
+          </div>
+        );
     }
   };
 
