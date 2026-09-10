@@ -660,10 +660,16 @@ def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
     VB_W = 1040
     floors = d.get("floors")
     if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
-        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "loftCoverage", "measuresKey") if d.get(k)}
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey") if d.get(k)}
+        # Loft insulation covers the ceilings beneath the roof — draw it on the TOP floor only,
+        # from any available signal (top-level loftCoverage or a per-floor value).
+        loft_signal = d.get("loftCoverage") or next((f.get("loftCoverage") for f in floors if f.get("loftCoverage")), None)
         groups, total = [], 0.0
         raw = {"rooms": [], "windows": []}
-        for fl in floors:
+        for i, fl in enumerate(floors):
+            fl = {k: v for k, v in fl.items() if k != "loftCoverage"}
+            if loft_signal and i == len(floors) - 1:
+                fl["loftCoverage"] = loft_signal
             inner, h, anc = _render_single({**shared, **fl})
             groups.append(f'<g transform="translate(0,{total:.0f})">{inner}</g>')
             for a in anc["rooms"]:

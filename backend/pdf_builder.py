@@ -2098,13 +2098,14 @@ def _adf1_checklist_items(p):
     wd_prov = (f"{wdr} l/s minimum for this {beds}-bedroom dwelling." if wdr
                else "Confirm against final bedroom count (Table 1.3).")
     wd_st = "ok" if wdr else "warn"
+    _uc = _undercut_provision(p)
     if stype == "IEV":
         base = [
             ("extract_intermittent", "Intermittent extract fan to each wet room (Table 1.1)", "Kitchen 30/60 l/s \u00b7 Utility 30 l/s \u00b7 Bathroom 15 l/s \u00b7 WC 6 l/s.", "ok"),
             ("background_vent", "Background ventilators to every habitable room (Table 1.7)", "Trickle ventilators to each habitable room, minimum 8,000 mm\u00b2 equivalent area (min 4,000 mm\u00b2).", "ok"),
             ("no_bg_wet", "No background ventilators in wet rooms", "Confirmed \u2014 wet rooms served by extract only.", "ok"),
             ("purge", "Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
-            ("undercut", "Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface to all internal doors.", "ok"),
+            ("undercut", "Internal door undercut (para 1.25)", _uc, "ok"),
             ("fan_spacing", "Fan / background-ventilator spacing", "Extract fan and background ventilator at least 0.5 m apart.", "ok"),
         ]
     elif stype == "MVHR":
@@ -2113,7 +2114,7 @@ def _adf1_checklist_items(p):
             ("unit_location", "Unit location & duct insulation (para 1.2)", "MVHR unit sited per manufacturer; supply/extract ducts in cold voids fully insulated to avoid condensation.", "ok"),
             ("bg_removed", "Background ventilators removed / sealed", "Not required with balanced MVHR \u2014 envelope sealed; make-up air is mechanically supplied.", "ok"),
             ("purge", "Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
-            ("undercut", "Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface.", "ok"),
+            ("undercut", "Internal door undercut (para 1.25)", _uc, "ok"),
             ("commissioning", "Commissioning & handover", "Commission and balance to BS EN 12599; provide the commissioning certificate to the occupier.", "ok"),
         ]
     else:  # MEV / dMEV
@@ -2122,7 +2123,7 @@ def _adf1_checklist_items(p):
             ("whole_dwelling", "Total continuous whole-dwelling rate (Table 1.3)", wd_prov, wd_st),
             ("background_vent", "Background ventilators to habitable rooms (Table 1.7)", "Trickle ventilators retained/provided to habitable rooms for make-up air (min 8,000 mm\u00b2 equivalent area each).", "ok"),
             ("purge", "Purge ventilation to each room (Table 1.4)", "Openable window area at least 1/20 (5%) of the room floor area.", "ok"),
-            ("undercut", "Internal door undercut (para 1.25)", "10 mm above floor finish / 20 mm above floor surface to all internal doors.", "ok"),
+            ("undercut", "Internal door undercut (para 1.25)", _uc, "ok"),
             ("fan_location", "Fan location & spacing (para 1.2)", "Extract terminals in wet rooms; fans at least 0.5 m from background ventilators.", "ok"),
             ("commissioning", "Commissioning & handover", "Commission to BS EN 12599; provide the commissioning sheet to the occupier.", "ok"),
         ]
@@ -2137,6 +2138,183 @@ def _adf1_checklist_items(p):
                       "status": (o.get("status") or st)})
     return {"systemType": stype, "systemLabel": _ADF1_STYPE_LBL.get(stype),
             "bedrooms": beds, "wholeDwellingRate": wdr, "items": items}
+
+
+# ---------------- Room helpers (floor-plan derived) ----------------
+_ROOM_TIDY = {"br1": "Bedroom 1", "br2": "Bedroom 2", "br3": "Bedroom 3", "br4": "Bedroom 4",
+              "bed1": "Bedroom 1", "bed2": "Bedroom 2", "bed3": "Bedroom 3", "bed4": "Bedroom 4",
+              "bth": "Bathroom", "bath": "Bathroom", "lr": "Living Room", "k": "Kitchen",
+              "wc": "WC", "din": "Dining Room", "dining": "Dining Room", "lounge": "Lounge"}
+
+
+def _tidy_room(nm):
+    n = (nm or "").strip()
+    key = n.lower().replace(" ", "")
+    if key in _ROOM_TIDY:
+        return _ROOM_TIDY[key]
+    return (n[:1].upper() + n[1:]) if n else n
+
+
+def _oxford(items):
+    items = [i for i in items if i]
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    return ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def _plan_rooms(p):
+    cad = ((p.get("floorPlan") or {}).get("cadData")) or {}
+    floors = cad.get("floors") or ([{"rooms": cad.get("rooms")}] if cad.get("rooms") else [])
+    out = []
+    for f in floors:
+        for r in (f.get("rooms") or []):
+            nm = r.get("name") or r.get("label") or ""
+            if nm:
+                out.append(nm)
+    return out
+
+
+def _wet_rt(name):
+    n = (name or "").lower()
+    if "kitchen" in n:
+        return "Kitchen"
+    if "utility" in n:
+        return "Utility room"
+    if any(w in n for w in ("bath", "shower", "en-suite", "ensuite", "en suite")):
+        return "Bathroom"
+    if any(w in n for w in ("wc", "toilet", "cloak", "sanitary")):
+        return "WC"
+    return None
+
+
+def _undercut_rooms(p):
+    """Named internal rooms whose doors need an ADF1 para 1.25 undercut (habitable + wet rooms,
+    excluding circulation), derived from the floor plan."""
+    skip = ("hall", "landing", "corridor", "lobby", "stair", "porch", "entrance")
+    tidy, seen = [], set()
+    for nm in _plan_rooms(p):
+        if any(w in nm.lower() for w in skip):
+            continue
+        t = _tidy_room(nm)
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            tidy.append(t)
+    return _oxford(tidy) if tidy else "all habitable rooms and wet rooms"
+
+
+def _undercut_provision(p):
+    return (f"10\u00a0mm undercut above the finished floor (20\u00a0mm above an unfinished floor) to the "
+            f"internal doors serving {_undercut_rooms(p)}, giving a clear air-transfer path to the "
+            f"extract rooms. Re-check and adjust after new floor finishes (carpet / LVT) are laid.")
+
+
+def _normalize_vent(p):
+    """Corrected ventilation dict for rendering (does not mutate stored data):
+    (1) a dMEV/MEV upgrade always lists every wet room (kitchen + bathroom + any WC/utility on the
+        plan), and (2) with continuous extract, trickle (background) ventilators are removed from
+        the served wet rooms and provided only to habitable rooms — never to wet rooms."""
+    vent = dict(p.get("ventilation") or {})
+    rooms = [dict(r) for r in (vent.get("rooms") or [])]
+    stype = _vent_system_type(vent)
+    continuous = stype in ("MEV", "MVHR")
+    has_dmev = continuous or any(k in (r.get("system") or "").lower()
+                                 for r in rooms for k in ("dmev", "mev", "continuous"))
+    present = {_wet_rt(r.get("room")) for r in rooms if _wet_rt(r.get("room"))}
+    plan_wet = {}
+    for nm in _plan_rooms(p):
+        rt = _wet_rt(nm)
+        if rt:
+            plan_wet.setdefault(rt, nm)
+    if has_dmev:
+        tmpl = next((r for r in rooms if any(k in (r.get("system") or "").lower()
+                                             for k in ("dmev", "mev"))), None)
+        tmpl_sys = (tmpl.get("system") if tmpl and tmpl.get("system")
+                    else "dMEV (continuous decentralised mechanical extract)")
+        rate_map = {"Kitchen": "13 l/s continuous high rate (ADF1 Table 1.2)",
+                    "Utility room": "8 l/s continuous (ADF1 Table 1.2)",
+                    "Bathroom": "8 l/s continuous (ADF1 Table 1.2)",
+                    "WC": "6 l/s continuous (ADF1 Table 1.2)"}
+        need = {"Kitchen", "Bathroom"} | set(plan_wet.keys())
+        for rt in ["Kitchen", "Utility room", "Bathroom", "WC"]:
+            if rt in need and rt not in present:
+                rooms.append({"room": plan_wet.get(rt, rt), "system": tmpl_sys,
+                              "rate": rate_map.get(rt, ""),
+                              "note": "Wet room served by dMEV \u2014 upgrade/instal continuous extract; "
+                                      "trickle vent to be removed (TVR). Added to complete the wet-room schedule."})
+                present.add(rt)
+        vent["rooms"] = rooms
+    if continuous:
+        served = _oxford(sorted(present)) or "the kitchen and bathroom"
+        bg = vent.get("background") or ""
+        low = bg.lower()
+        if not ("remov" in low and "trickle" in low):
+            clause = (f"Trickle (background) ventilators are to be removed from {served} where continuous "
+                      f"dMEV extract is installed (TVR). Background ventilators are provided only to habitable "
+                      f"rooms (living, dining and bedrooms) for make-up air \u2014 never to wet rooms.")
+            vent["background"] = (bg + (" " if bg else "") + clause).strip()
+    return vent
+
+
+def _heritage_sections(h):
+    """Fuller multi-section heritage narrative rendered directly on the Heritage Impact Statement
+    page (in addition to the short stored summary/mitigation), tailored to designated vs not."""
+    designated = bool(h.get("designated"))
+
+    def _sec(title, body):
+        return (f'<div class="faint upper" style="font-size:9.5px; margin-top:20px; margin-bottom:6px;">{title}</div>'
+                f'<div style="font-size:11.5px; line-height:1.6; color:#333;">{body}</div>')
+
+    def _blist(items):
+        return ('<ul style="margin:0; padding-left:16px;">'
+                + "".join(f'<li style="margin-bottom:4px;">{x}</li>' for x in items) + '</ul>')
+    if designated:
+        planning = ("Because the dwelling sits within a designated heritage or landscape context, permitted "
+                    "development rights are likely to be restricted or removed. External alterations \u2014 external "
+                    "wall insulation, replacement windows/doors, solar PV and external plant such as an air-source "
+                    "heat pump \u2014 may require express planning permission, and Listed Building Consent where a listed "
+                    "structure is affected. The design keeps the most sensitive elevations unaltered wherever the "
+                    "retrofit outcome can still be achieved.")
+        guidance = _blist([
+            "External wall insulation: favour internal wall insulation (IWI) on principal / street elevations to retain the external appearance; where external insulation is unavoidable, match render and detailing and reinstate reveals, cills and features.",
+            "Windows &amp; doors: retain and repair historic joinery where viable; slim-profile like-for-like units with sympathetic detailing where replacement is agreed with the conservation officer.",
+            "Solar PV: locate arrays on rear / less-visible roof slopes, away from principal elevations and prominent ridge lines; use conservation-grade or in-roof mountings where visible.",
+            "ASHP &amp; external plant: site units away from public views, screen sympathetically and confirm acoustic and visual impact.",
+            "Breathability: use vapour-open, moisture-compatible materials (BS\u00a05250) appropriate to traditional / solid-wall construction to avoid interstitial condensation.",
+        ])
+        consents = ("Confirm the exact designation(s) and their boundaries with the Local Planning Authority (LPA) "
+                    "conservation team before design freeze. Where required, obtain planning permission, Listed "
+                    "Building Consent and/or Conservation Area consent and discharge any pre-commencement conditions "
+                    "before works start. Pre-application advice from the LPA is recommended for external fabric measures.")
+    else:
+        planning = ("No statutory heritage or landscape designation was returned for this location, so standard "
+                    "permitted development rights are expected to apply to most fabric measures. Even so, permitted "
+                    "development is not unconditional \u2014 external wall insulation that materially alters the external "
+                    "appearance, roof-mounted solar on certain elevations, and external plant can still trigger a "
+                    "planning requirement, and a local Article\u00a04 Direction can remove PD rights street by street. "
+                    "The dataset (planning.data.gov.uk) is England-only and can lag local records, so the position is "
+                    "to be confirmed with the LPA before issue.")
+        guidance = _blist([
+            "External wall insulation: confirm the finished external appearance and any impact on shared / terraced boundaries and the building line.",
+            "Windows &amp; doors: standard replacement to the specified performance; retain egress and trickle / background provision to Approved Document\u00a0F.",
+            "Solar PV: check the roof-mounted permitted-development limits (projection, position relative to the roof plane, and elevation fronting a highway) for the chosen elevation.",
+            "ASHP &amp; external plant: confirm the MCS permitted-development siting rules (distance to boundary, single unit, noise) or apply for permission where exceeded.",
+            "Moisture: manage condensation risk with vapour-appropriate build-ups and adequate ventilation (BS\u00a05250) as the fabric is tightened.",
+        ])
+        consents = ("Verify with the Local Planning Authority that no Article\u00a04 Direction, local listing or other "
+                    "constraint applies to this address and confirm the permitted-development position for each external "
+                    "measure. Where any measure exceeds permitted development, submit the relevant application and obtain "
+                    "consent before commencing that measure.")
+    monitoring = ("All works are to be carried out by competent operatives to the manufacturer's specification and "
+                  "PAS\u00a02035/2030, with materials and detailing recorded in the handover pack. Heritage-sensitive "
+                  "detailing agreed with the LPA is to be photographed before, during and after installation and "
+                  "retained as evidence. Should previously unidentified historic fabric be exposed during the works, "
+                  "work in that area is to pause and the position be reviewed before continuing.")
+    return (_sec("Planning &amp; Permitted-Development Context", planning)
+            + _sec("Retrofit Measures &mdash; Heritage Guidance", guidance)
+            + _sec("Required Consents &amp; Approval Process", consents)
+            + _sec("Workmanship, Materials &amp; Monitoring", monitoring))
 
 
 def _pin_specs(p):
@@ -2266,7 +2444,7 @@ def _adf1_ventilation_pages(p, measures):
     tables, the wet-room extract schedule (required vs proposed) and the ADF1 Table D1
     compliance checklist for the selected system type."""
     fams = {_mfam(m.get("code"), m.get("name")) for m in measures}
-    vent = p.get("ventilation") or {}
+    vent = _normalize_vent(p)
     prop = p.get("property") or {}
     # Only include this sheet when ventilation is in scope OR a wet-room schedule exists.
     if "VENT" not in fams and not (vent.get("rooms") or vent.get("strategy")):
@@ -3055,6 +3233,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("summary"))}</div>'
             '<div class="faint upper" style="font-size:9.5px; margin-top:22px; margin-bottom:6px;">Design Mitigation</div>'
             f'<div style="font-size:12px; line-height:1.6; color:#333;">{_esc(h.get("mitigation"))}</div>'
+            f'{_heritage_sections(h)}'
             '<div style="margin-top:22px; border:1px solid #171717; background:#fafafa; padding:12px 14px;">'
             '<div class="faint upper" style="font-size:9px; letter-spacing:0.14em; margin-bottom:5px;">Legal Note &middot; Planning Constraints</div>'
             '<div style="font-size:10.5px; line-height:1.55; color:#333;">This Heritage Impact Statement is based on the national planning dataset (planning.data.gov.uk, England-only and subject to change) and does not constitute a formal planning determination. Before any works commence, the client / installer must confirm with the Local Planning Authority whether planning permission, Listed Building Consent, Conservation Area consent, an Article 4 Direction, Area of Outstanding Natural Beauty / National Landscape or National Park constraints, or any other statutory permission applies, and must obtain all necessary consents. No works that require such permission shall be started until the relevant consents are in place. CPH Retrofit accepts no liability for works undertaken without the required planning permissions or statutory consents.</div></div>')
@@ -3531,7 +3710,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                                         f'<div style="margin-top:14px;">{"".join(chunk)}</div>')
 
     # Ventilation Requirements & Strategy (ADF1) — mandatory in every design
-    vent = p.get("ventilation") or {}
+    vent = _normalize_vent(p)
     v_rooms = vent.get("rooms") or []
     vr_html = ""
     if v_rooms:
@@ -3553,7 +3732,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     if v_notes:
         v_extra += '<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Strategy Notes</div>' + _spec_list(v_notes, False)
     v_extra += ('<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Internal Door Undercuts (ADF1 para 1.25)</div>'
-                '<div style="font-size:11.5px; line-height:1.55; color:#333;">All internal doors to habitable rooms are to have a clear air-transfer gap beneath the door leaf &mdash; a minimum <strong>10&nbsp;mm above the finished floor</strong> (or 20&nbsp;mm above an unfinished floor), equivalent to a 7,600&nbsp;mm&sup2; free area &mdash; so that air can move between rooms and support the whole-dwelling ventilation strategy. Undercuts are to be checked and adjusted after any new floor finishes (e.g. carpet, LVT) are laid.</div>')
+                f'<div style="font-size:11.5px; line-height:1.55; color:#333;">A clear air-transfer gap is required beneath the leaf of the internal doors serving <strong>{_esc(_undercut_rooms(p))}</strong> &mdash; a minimum <strong>10&nbsp;mm above the finished floor</strong> (or 20&nbsp;mm above an unfinished floor), equivalent to a 7,600&nbsp;mm&sup2; free area &mdash; so that air can move between rooms and support the whole-dwelling ventilation strategy. Undercuts are to be checked and adjusted after any new floor finishes (e.g. carpet, LVT) are laid.</div>')
     v_extra += ('<div class="faint upper" style="font-size:9.5px; margin-top:16px; margin-bottom:4px;">Radon</div>'
                 '<div style="font-size:11.5px; line-height:1.55; color:#333;">The dwelling has been checked against the UK Radon map (UKradon / BGS). Where the property falls within a radon Affected Area, radon protection is to be maintained in accordance with BR&nbsp;211: sealing works and mechanical extract must not reduce sub-floor ventilation below the level required for radon dispersal, and any floor measures are to preserve the existing radon barrier/membrane.</div>')
     v_strategy = (f'<div class="muted" style="font-size:11px; margin-top:8px;">{_esc(vent.get("strategy"))}</div>' if vent.get("strategy")
@@ -3567,6 +3746,18 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     fp = p.get("floorPlan") or {}
     fp_uri = fp.get("_data")
     cad_svg = fp.get("cadSvg")
+    # Ensure loft insulation is drawn on the plan whenever a loft / room-in-roof measure is in
+    # scope (older saved plans were rendered before loftCoverage was populated). It is drawn on
+    # the top floor only.
+    _loft_m = next((m for m in measures if _mfam(m.get("code"), m.get("name")) in ("LOFT", "RIR")), None)
+    if _loft_m and fp.get("cadData"):
+        try:
+            from cad_floorplan import build_cad_floorplan_svg
+            _cd = dict(fp.get("cadData"))
+            _cd["loftCoverage"] = _cd.get("loftCoverage") or _loft_m.get("name") or "Loft insulation"
+            cad_svg = build_cad_floorplan_svg(_cd)
+        except Exception as _e:
+            logger.warning("loft floorplan regen failed: %s", _e)
     floorplan_page = None
     if fp_uri or cad_svg:
         MK = {"DMEV": "#0891B2", "LOFT": "#B45309", "TRICKLE": "#16A34A", "ASHP": "#0055FF"}

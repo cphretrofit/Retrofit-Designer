@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-06 — Designer feedback fixes (loft draw, ventilation TVR, undercuts, heritage)
+
+- **Loft now draws on the plan (Item 2):** PDF floor-plan regenerates the CAD SVG with loft
+  coverage whenever a LOFT/RIR measure is in scope (older saved plans predated `loftCoverage`).
+  `cad_floorplan.build_cad_floorplan_svg` now applies the loft hatch to the TOP floor only
+  (from any available signal), never the ground floor. `pdf_builder` regen block.
+- **Ventilation covers all wet rooms (Item 4):** new `_normalize_vent(p)` bulks out the wet-room
+  extract schedule so a dMEV/MEV upgrade always lists Kitchen + Bathroom (+ WC/Utility on the plan),
+  not just the one row the assessor typed.
+- **Trickle-vent-removed rule enforced (Item 3):** with continuous dMEV, `_normalize_vent` states
+  trickle (background) ventilators are REMOVED from the served wet rooms (TVR) and provided only to
+  habitable rooms — never a wet room. Skips if the assessment already says so (5 Scudamore untouched).
+  Applied in both the Ventilation Requirements page and the ADF1 sheet.
+- **Door undercuts now name the rooms (Item 5):** `_undercut_rooms(p)` / `_undercut_provision(p)`
+  derive the actual internal doors from the floor plan (abbreviations tidied, e.g. BR1→Bedroom 1,
+  BTH→Bathroom) and list them in the vent-strategy undercut section + all ADF1 checklist undercut rows.
+- **Heritage expanded (Item 6):** `_heritage_sections(h)` adds four render-time sections — Planning &
+  Permitted-Development context, measure-by-measure heritage guidance, required consents & process,
+  and workmanship/materials/monitoring — tailored to designated vs non-designated, for existing and
+  new projects.
+- Item 1 (floor plan not matching) is assessor-plan-quality dependent — tracked as a separate deeper
+  AI-tracing task, not in this pass.
+
 ## 2026-09-10 — Autofill refresh batch + BS 8104 exposure auto-lookup
 
 ### Existing Projects Refresh (measure autofill re-run)
