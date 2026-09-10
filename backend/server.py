@@ -886,6 +886,40 @@ async def _solar_survey_state(project_id: str, measures):
     return has, missing
 
 
+def _auto_resolve_datasheet_items(doc):
+    """Product-specification 'to be confirmed' items resolve themselves once a datasheet for that
+    measure is bound — the spec is READ from the datasheet instead of being requested from the
+    installer. Computed at read time (not persisted) so it reverts if the datasheet is removed."""
+    from pdf_builder import _mfam
+    measures = doc.get("measures") or []
+    labels = {}
+    for m in measures:
+        prods = m.get("products") or []
+        if not prods:
+            continue
+        f = prods[0]
+        label = " ".join(x for x in [(f.get("manufacturer") or "").strip(), (f.get("product") or "").strip()] if x).strip()
+        label = label or (m.get("system") or "").strip()
+        labels.setdefault((m.get("code") or "").upper(), label)
+        labels.setdefault(_mfam(m.get("code"), m.get("name")), label)
+    items = doc.get("itemsBeforeIssue") or []
+    for it in items:
+        if it.get("resolved") or it.get("confirmedBy"):
+            continue
+        text = (it.get("text") or "").lower()
+        if "product specification" not in text:
+            continue
+        key = (it.get("measure") or "").upper()
+        label = labels.get(key) or labels.get(_mfam(key, it.get("measure")))
+        if label:
+            it["resolved"] = True
+            it["auto"] = True
+            it["resolvedBy"] = "Datasheet"
+            it["status"] = "Read from datasheet"
+            it["note"] = f"Resolved automatically — product specification read from the bound datasheet: {label}. No installer confirmation required."
+    doc["itemsBeforeIssue"] = items
+
+
 @api_router.get("/projects/{project_id}")
 async def get_project(project_id: str, request: Request):
     doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
@@ -900,6 +934,7 @@ async def get_project(project_id: str, request: Request):
         doc["defects"] = defects
     doc["partner"] = _resolve_partner(doc)
     _ensure_uvalues(doc)
+    _auto_resolve_datasheet_items(doc)
     doc["readiness"] = _compute_readiness(doc)
     # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
     # Retrofit Design (never a Concept Design). Applied at read so existing projects update too.
@@ -1465,11 +1500,27 @@ async def floorplan_auto_markers(project_id: str):
     return {"markers": markers, "tvr": tvr, "count": len(markers)}
 
 
+def _mineable_pdf(d):
+    """True for PDFs we scrape site photos from — the PHOTOPACK and the RdSAP / site-note /
+    assessment only (per the user's scope). Never datasheets, scope-of-works, floor plans, or the
+    PV / technical / ASHP design surveys (those carry logos, diagrams and product art, not photos)."""
+    ct = (d.get("content_type") or "")
+    fn = (d.get("original_filename") or "").lower()
+    dt = (d.get("doc_type") or "")
+    if not ((ct == "application/pdf" or fn.endswith(".pdf")) and d.get("storage_path")):
+        return False
+    photopack = ("photopack" in fn or "photo pack" in fn or "par photo" in fn or "photograph" in fn
+                 or dt in ("Photopack", "Survey Photo"))
+    rdsap = ("rdsap" in fn or "rd sap" in fn or "sitenote" in fn or "site note" in fn
+             or "assessment" in fn or dt == "Assessment")
+    return photopack or rdsap
+
+
 @api_router.get("/projects/{project_id}/photos/all")
 async def project_all_photos(project_id: str):
     """EVERY photo available to the project — every image embedded in the uploaded PDFs
-    (photopack / site notes), every standalone image document, and the curated pack gallery —
-    deduped. Populates the universal 'Add photo' picker so any image can be placed in any section."""
+    (photopack / RdSAP / site notes), every standalone image document, and the curated pack gallery —
+    deduped, with logos/letterheads stripped. Populates the universal 'Add photo' picker."""
     p = await db.projects.find_one({"id": project_id})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
@@ -1481,28 +1532,13 @@ async def project_all_photos(project_id: str):
             seen.add(url)
             out.append({"url": url, "caption": caption or "", "fig": fig or ""})
 
-    def _is_photopack(d):
-        fn = (d.get("original_filename") or "").lower()
-        return ("photopack" in fn or "photo pack" in fn or "par photo" in fn or "photograph" in fn
-                or (d.get("doc_type") or "") in ("Photopack", "Survey Photo"))
-
     docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(500)
-    any_pack = any(_is_photopack(d) and ((d.get("content_type") or "") == "application/pdf"
-                   or (d.get("original_filename") or "").lower().endswith(".pdf")) for d in docs)
     for d in docs:
         ct = (d.get("content_type") or "")
         dt = (d.get("doc_type") or "")
-        fn = (d.get("original_filename") or "").lower()
         if ct.startswith("image/") or dt in ("Survey Photo", "Floor Plan", "Defect Photo"):
             _add(f"/api/documents/{d['id']}/download", d.get("original_filename") or "Photo")
-        is_pdf = (ct == "application/pdf" or fn.endswith(".pdf"))
-        if is_pdf and d.get("storage_path"):
-            # Only mine the photopack for embedded photos (fall back to survey/assessment PDFs
-            # when the job has no dedicated photopack) — never datasheets or letterheads.
-            if any_pack and not _is_photopack(d):
-                continue
-            if not any_pack and dt not in PHOTO_DOC_TYPES:
-                continue
+        if _mineable_pdf(d):
             try:
                 data, _ = await asyncio.to_thread(get_object, d["storage_path"])
                 imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
@@ -1571,27 +1607,12 @@ async def _gather_measure_evidence_photos(project_id, proj, code, fam, cap=40):
         du = await asyncio.to_thread(_img_to_data_uri, b)
         _push(du, ph.get("caption"), ph.get("observation"))
 
-    # 2) Every image embedded in the photopack / site-note PDFs
-    def _is_photopack(d):
-        fn = (d.get("original_filename") or "").lower()
-        return ("photopack" in fn or "photo pack" in fn or "par photo" in fn or "photograph" in fn
-                or (d.get("doc_type") or "") in ("Photopack", "Survey Photo"))
-
+    # 2) Every image embedded in the photopack / RdSAP / site-note PDFs
     docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(500)
-    any_pack = any(_is_photopack(d) and ((d.get("content_type") or "") == "application/pdf"
-                   or (d.get("original_filename") or "").lower().endswith(".pdf")) for d in docs)
     for d in docs:
         if len(out) >= cap:
             return out
-        ct = (d.get("content_type") or "")
-        fn = (d.get("original_filename") or "").lower()
-        dt = (d.get("doc_type") or "")
-        is_pdf = (ct == "application/pdf" or fn.endswith(".pdf"))
-        if not (is_pdf and d.get("storage_path")):
-            continue
-        if any_pack and not _is_photopack(d):
-            continue
-        if not any_pack and dt not in PHOTO_DOC_TYPES:
+        if not _mineable_pdf(d):
             continue
         try:
             data, _ = await asyncio.to_thread(get_object, d["storage_path"])

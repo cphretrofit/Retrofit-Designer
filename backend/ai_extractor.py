@@ -417,25 +417,87 @@ _COND_EXCLUDE = {
 }
 
 
+def _is_graphic_or_logo(raw):
+    """Heuristic: True when an embedded image is a flat graphic / logo / letterhead / form / floor
+    plan / signature rather than a real survey photograph. Signals: heavy transparency, a page-white
+    border ring (artwork sits on a white page), very few colours, or one flat colour dominating.
+    Photographs fill the frame edge-to-edge with rich colour. Errs towards KEEPING on failure."""
+    try:
+        from PIL import Image
+        from collections import Counter
+        im = Image.open(io.BytesIO(raw))
+        if im.mode in ("RGBA", "LA"):
+            a = im.getchannel("A")
+            a.thumbnail((40, 40))
+            ap = list(a.getdata())
+            if ap and sum(1 for v in ap if v < 24) > len(ap) * 0.2:
+                return True  # meaningful transparency → logo / icon / cut-out
+        im = im.convert("RGB")
+        # Border ring whiteness — forms, diagrams, floor plans and signatures sit on a white page.
+        b = im.copy()
+        b.thumbnail((64, 64))
+        bw, bh = b.size
+        bp = b.load()
+        ring = []
+        for x in range(bw):
+            ring.append(bp[x, 0]); ring.append(bp[x, bh - 1])
+        for y in range(bh):
+            ring.append(bp[0, y]); ring.append(bp[bw - 1, y])
+        if ring and sum(1 for (r, g, bl) in ring if min(r, g, bl) > 222) / len(ring) > 0.7:
+            return True
+        t = im.copy()
+        t.thumbnail((48, 48))
+        px = list(t.getdata())
+        if not px:
+            return False
+        q = [((r >> 4), (g >> 4), (bl >> 4)) for r, g, bl in px]
+        if len(set(q)) < 20:
+            return True  # flat / few-colour artwork or signature
+        if Counter(q).most_common(1)[0][1] > len(q) * 0.85:
+            return True  # one flat colour dominates (letterhead / logo panel)
+        return False
+    except Exception:
+        return False
+
+
 def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
-    """Return [{label, image:(bytes,ext)}] for every embedded photo in a site-note PDF,
-    labelled with the nearest preceding text line (e.g. 'Photo of shower:')."""
+    """Return [{label, image:(bytes,ext)}] for every embedded photo in a site-note / photopack /
+    RdSAP PDF, labelled with the nearest preceding text line. Repeated logos / letterheads are
+    dropped by BOTH xref page-span AND image-content hash (a logo re-embedded once per page gets a
+    fresh xref each time but keeps identical bytes, so hash-based repeat detection catches it)."""
+    import hashlib
     try:
         doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     except Exception:
         return []
     try:
-        # Logos / letterheads repeat on many pages — count each xref's page span so we can drop them.
         page_count = doc.page_count
+        # Pass 1 — map every image xref to the set of pages it appears on.
         xref_pages = {}
         for pno in range(page_count):
             for info in doc[pno].get_image_info(xrefs=True):
                 xr = info.get("xref") or 0
                 if xr:
                     xref_pages.setdefault(xr, set()).add(pno)
-        repeated = {xr for xr, pgs in xref_pages.items()
-                    if len(pgs) >= 3 or (page_count >= 4 and len(pgs) > page_count * 0.4)}
-        out, last_label, seen = [], "", set()
+        # Pass 2 — extract each unique xref once, hash its bytes, aggregate page span by hash.
+        xref_ex, xref_hash, hash_pages = {}, {}, {}
+        for xr, pgs in xref_pages.items():
+            try:
+                ex = doc.extract_image(xr)
+            except Exception:
+                continue
+            xref_ex[xr] = ex
+            h = hashlib.md5(ex.get("image") or b"").hexdigest()
+            xref_hash[xr] = h
+            hash_pages.setdefault(h, set()).update(pgs)
+
+        def _is_repeat(pgs):
+            return len(pgs) >= 3 or (page_count >= 4 and len(pgs) > page_count * 0.4)
+
+        repeated_xrefs = {xr for xr, pgs in xref_pages.items() if _is_repeat(pgs)}
+        repeated_hashes = {h for h, pgs in hash_pages.items() if _is_repeat(pgs)}
+
+        out, last_label, seen_xref, seen_hash = [], "", set(), set()
         for pno in range(page_count):
             pg = doc[pno]
             items = []
@@ -456,20 +518,30 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
             for _, kind, payload in items:
                 if kind == "text":
                     last_label = payload
-                elif payload not in seen:
-                    seen.add(payload)
-                    if payload in repeated:  # logo / letterhead that recurs across pages
-                        continue
-                    try:
-                        ex = doc.extract_image(payload)
-                    except Exception:
-                        continue
-                    w, h = ex.get("width", 0), ex.get("height", 0)
-                    if w >= 150 and h >= 150:
-                        ar = (w / h) if h else 0
-                        if ar and (ar > 4 or ar < 0.25):  # very wide/thin banner, rule or divider
-                            continue
-                        out.append({"label": last_label, "image": (ex["image"], ex.get("ext", "jpg"))})
+                    continue
+                xref = payload
+                if xref in seen_xref:
+                    continue
+                seen_xref.add(xref)
+                h = xref_hash.get(xref)
+                if xref in repeated_xrefs or (h and h in repeated_hashes):
+                    continue  # logo / letterhead / divider that recurs across pages
+                if h and h in seen_hash:
+                    continue  # an identical image was already taken
+                ex = xref_ex.get(xref)
+                if not ex:
+                    continue
+                w, ht = ex.get("width", 0), ex.get("height", 0)
+                if w < 150 or ht < 150:
+                    continue
+                ar = (w / ht) if ht else 0
+                if ar and (ar > 4 or ar < 0.25):  # very wide/thin banner, rule or divider
+                    continue
+                if _is_graphic_or_logo(ex["image"]):
+                    continue  # flat logo / letterhead / icon, not a survey photo
+                if h:
+                    seen_hash.add(h)
+                out.append({"label": last_label, "image": (ex["image"], ex.get("ext", "jpg"))})
             if len(out) >= max_imgs:
                 break
         return out
