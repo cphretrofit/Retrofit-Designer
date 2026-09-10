@@ -149,14 +149,16 @@ PHOTO_KW = {
     "EWI": ["wall", "elevation", "render", "brick", "masonry", "facade", "external", "rear", "front", "gable"],
     "SWI": ["wall", "elevation", "masonry", "cavity", "external"],
     "IWI": ["wall", "internal", "plaster", "reveal", "room"],
-    "LOFT": ["loft", "attic", "roof space", "ceiling", "joist", "insulation"],
+    "LOFT": ["loft", "attic", "roof space", "roof void", "ceiling", "joist", "insulation",
+             "eaves", "hatch", "water tank", "cold water", "tank", "cistern", "rafter",
+             "felt", "sarking", "membrane", "downlight", "spotlight", "wall plate"],
     "RIR": ["roof", "rafter", "ridge", "eaves", "slope"],
-    "WIN": ["window", "glazing", "frame", "sill", "cill"],
+    "WIN": ["window", "glazing", "frame", "sill", "cill", "reveal", "door", "threshold", "entrance"],
     "DOORS": ["door", "threshold", "entrance"],
     "ASHP": ["heat pump", "boiler", "plant", "cylinder", "external unit", "radiator", "condenser"],
     "SOLAR": ["roof", "pv", "panel", "solar", "south"],
     "UFI": ["floor", "underfloor", "joist", "void", "sub-floor", "airbrick"],
-    "VENT": ["vent", "extract", "fan", "damp", "moisture", "mould", "trickle"],
+    "VENT": ["vent", "extract", "fan", "damp", "moisture", "mould", "trickle", "kitchen", "bathroom", "wet room"],
 }
 
 # Negative keywords — a photo whose caption/observation hits these is NOT valid evidence for
@@ -167,6 +169,7 @@ PHOTO_NEG = {
     "RIR": ["loft insulation", "attic"],
     "ASHP": ["loft", "solar", "pv panel"],
     "VENT": ["solar", "pv panel"],
+    "LOFT": ["cavity insulation", "filled cavity", "cavity wall", "external wall", "wall insulation", "elevation", "render"],
 }
 
 
@@ -865,6 +868,82 @@ METHODOLOGY = {
 
 def _measure_methodology(fam):
     return METHODOLOGY.get(fam, METHODOLOGY["GEN"])
+
+
+# Plain-language "what a compliant job looks like" narrative per measure family. Shown read-only
+# above the editable compliance box so the designer can see, at a glance, exactly what has to be
+# achieved (and evidenced) for the measure to pass PAS 2035 / Building Regulations.
+COMPLIANT_JOB = {
+    "LOFT": ("A compliant loft insulation job achieves the design U-value (typically 0.16 W/m\u00b2K) with mineral "
+             "wool laid in two layers \u2014 the first between the joists and the second cross-laid over them to "
+             "~270\u2013300mm total \u2014 tight-butted with no gaps or compression. Roof-space ventilation is "
+             "maintained to BS 5250:2021 (a clear 25mm continuous eaves gap with eaves baffles, plus high-level "
+             "ventilation) so the cold loft cannot condense. The loft hatch is insulated and draught-stripped, "
+             "insulation is carried over the wall plate at the eaves for continuity, and the cold-water tank and any "
+             "pipework are insulated (sides and top, never underneath). Fire-rated caps are fitted over recessed "
+             "downlights, insulation is kept clear of flues and chimneys, and any cabling \u2014 especially a "
+             "high-current electric-shower supply \u2014 is clipped above the insulation or de-rated to BS 7671. "
+             "Where storage is kept, raised boarding legs preserve the full insulation depth. Evidence to capture: "
+             "dated before/during/after photos of the insulation depth, eaves ventilation, hatch, water tank and "
+             "downlight caps."),
+    "WALL": ("A compliant wall insulation job installs a third-party-certified (BBA/KIWA) system strictly to the "
+             "manufacturer's build-up to achieve the design U-value on a sound, dry, defect-free substrate. Junctions "
+             "(jamb, reveal, sill, eaves, verge, plinth) are detailed to bespoke calculations (BRE IP1/06, "
+             "fRsi > 0.75) with insulation continuity at the plinth, party-wall returns and service penetrations to "
+             "avoid cold bridges. Cavity fire barriers and fire-stopping are provided appropriate to the building "
+             "height and boundary (Approved Document B). External services are safely extended through the added "
+             "thickness, background/purge ventilation is re-assessed as the fabric tightens (Approved Document F), and "
+             "a vapour-appropriate, moisture-safe build-up (BS 5250 / BS 7913 for traditional walls) protects against "
+             "trapped moisture. Evidence to capture: substrate condition, key junction details, fire barriers and "
+             "finished elevations."),
+    "WIN": ("A compliant windows & doors job fits units achieving the design U-value (typically \u2264 1.4 W/m\u00b2K) "
+            "with compliant emergency-egress openings to habitable rooms and FD-rated doors where required (Approved "
+            "Document B). Frames are fixed plumb and packed to the manufacturer's schedule with insulated cavity "
+            "closers, a continuous airtight internal seal and a weather-tight, vapour-open external seal; reveals are "
+            "insulated to limit the frame cold bridge. Trickle ventilators provide the Approved Document F equivalent "
+            "areas to each room. Evidence to capture: reveal detailing, perimeter sealing, trickle vents and the "
+            "completed installation."),
+    "ASHP": ("A compliant heat-pump job is sized to a room-by-room heat-loss calculation (BS EN 12831) at the design "
+             "external temperature, with emitters sized to a low design flow temperature (typically \u2264 45\u201350\u00b0C) "
+             "and weather compensation for a good SCOP. The external unit is sited for free airflow, MCS 020 noise "
+             "compliance and frost-safe condensate discharge; wall penetrations are sleeved, sealed and re-insulated "
+             "to avoid cold bridging and air leakage. A dedicated electrical supply, isolation and earthing are "
+             "provided to BS 7671, the system is flushed to BS 7593 and dosed with inhibitor, and controls are set to "
+             "the design flow temperature. Evidence to capture: external unit siting, pipework/penetration sealing, "
+             "cylinder and commissioning records."),
+    "SOLAR": ("A compliant solar PV job confirms roof structural adequacy for the added dead/wind load and fixes "
+              "anchors into rafters with weather-tight, sealed and flashed penetrations. DC cabling runs in fire-safe, "
+              "mechanically-protected routes with clearly labelled DC/AC isolation kept clear of escape routes "
+              "(BS 7671 / IET Code of Practice); insulation continuity and the ceiling air barrier are maintained "
+              "where cabling enters the loft, never buried in insulation. The array is connected with RCD protection "
+              "and earthing, notified to the DNO (G98/G99), and registered and commissioned under MCS with recorded "
+              "string tests and generation. Evidence to capture: roof fixings and flashings, isolators/labelling, "
+              "inverter and commissioning results."),
+    "VENT": ("A compliant ventilation job delivers the whole-dwelling strategy to Approved Document F \u2014 continuous "
+             "or intermittent extract at source in every wet room at the specified rate, with background ventilation "
+             "(trickle/equivalent area) to habitable rooms and adequate transfer/undercut paths. Ducting takes the "
+             "shortest practical run to outside, is insulated in cold zones to prevent condensation, and terminals and "
+             "wall/ceiling penetrations are sealed and fire-stopped where they cross compartment lines. Units are "
+             "wired and controlled to BS 7671, then commissioned and measured to BS EN 12599 to confirm the achieved "
+             "rates. Evidence to capture: unit locations, ducting and terminals, and commissioning/measured extract "
+             "rates."),
+    "FLOOR": ("A compliant floor insulation job fits insulation supported tight between the joists to the design "
+              "depth with no gaps or slumping, achieving the target U-value, and continues insulation to the perimeter "
+              "with continuity to the wall insulation. Suspended-floor sub-floor cross-ventilation is maintained to "
+              "Approved Document C with airbricks kept clear, and a vapour-permeable membrane over a ventilated void "
+              "prevents timber decay. Evidence to capture: sub-floor condition and ventilation, installed insulation "
+              "and reinstated finishes."),
+    "GEN": ("A compliant install follows the manufacturer's instructions and PAS 2030:2023 by a competent, certified "
+            "operative, using third-party-certified products with matched components. Ventilation, thermal bridging, "
+            "fire safety and moisture risk are all controlled in line with the design, the as-built performance is "
+            "verified against the design target, Building Control is notified (Part L, and Part F/Part P where "
+            "applicable), and the measure is commissioned with a full handover pack. Evidence to capture: dated "
+            "before/during/after photographs, datasheets, guarantees and commissioning records."),
+}
+
+
+def _compliant_job_summary(fam):
+    return COMPLIANT_JOB.get(fam, COMPLIANT_JOB["GEN"])
 
 
 # Rich default Design & Specification Requirements per measure family, used when the project has

@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { uploadMeasureEvidence, deleteMeasureEvidence, autofillMeasureCompliance, getAllPhotos, addMeasureEvidencePhotoUrl, mediaUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Trash2, Loader2, ImagePlus, Wand2, X } from "lucide-react";
+import { Trash2, Loader2, ImagePlus, Wand2, X, ShieldCheck } from "lucide-react";
 
 export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
   const photos = m.evidencePhotos || [];
@@ -10,6 +10,7 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
   const [filling, setFilling] = useState(false);
   const [req, setReq] = useState(m.evidenceRequirements || "");
   const [act, setAct] = useState(m.evidenceActions || "");
+  const [guide, setGuide] = useState(m.complianceGuidance || "");
   const [pick, setPick] = useState(false);
   const [pool, setPool] = useState(null);
   const [attaching, setAttaching] = useState(false);
@@ -57,8 +58,9 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
       const r = await autofillMeasureCompliance(projectId, mi, force);
       if (r.evidenceRequirements != null) { setReq(r.evidenceRequirements); onSaveField(`measures.${mi}.evidenceRequirements`, r.evidenceRequirements); }
       if (r.evidenceActions != null) { setAct(r.evidenceActions); onSaveField(`measures.${mi}.evidenceActions`, r.evidenceActions); }
+      if (r.complianceGuidance != null) { setGuide(r.complianceGuidance); onSaveField(`measures.${mi}.complianceGuidance`, r.complianceGuidance); }
       if (r.evidencePhotos?.length) onSaveField(`measures.${mi}.evidencePhotos`, r.evidencePhotos, true);
-      if (force) toast.success("Auto-filled from the assessment", { description: "Review and edit as needed." });
+      if (force) toast.success("Auto-filled from the assessment", { description: `${r.evidencePhotos?.length || 0} site photo(s) attached — review and edit as needed.` });
     } catch { if (force) toast.error("Could not auto-fill this measure"); }
     finally { if (force) setFilling(false); }
   };
@@ -68,8 +70,11 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
   useEffect(() => {
     setReq(m.evidenceRequirements || "");
     setAct(m.evidenceActions || "");
+    setGuide(m.complianceGuidance || "");
     const textEmpty = !(m.evidenceRequirements || "").trim() && !(m.evidenceActions || "").trim();
-    if (textEmpty) autofill(false);
+    const guideEmpty = !(m.complianceGuidance || "").trim();
+    const photosEmpty = !(m.evidencePhotos || []).length;
+    if (textEmpty || guideEmpty || photosEmpty) autofill(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mi]);
 
@@ -113,6 +118,14 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
         ) : (
           <div className="border border-dashed border-border rounded-sm p-6 text-center text-[12px] text-muted-foreground" data-testid="evidence-empty">
             No site photos yet — add survey photos that evidence this measure, or use <span className="text-[var(--c-action)] font-medium">Auto-fill</span>.
+          </div>
+        )}
+        {guide && (
+          <div className="rounded-sm border border-[var(--c-action)]/30 bg-[var(--c-action)]/5 p-3.5" data-testid="evidence-compliance-guidance">
+            <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.1em] text-[var(--c-action)] font-medium mb-1.5">
+              <ShieldCheck className="h-3.5 w-3.5" strokeWidth={1.75} /> What a compliant job looks like
+            </div>
+            <p className="text-[12px] leading-relaxed text-foreground/85 whitespace-pre-line">{guide}</p>
           </div>
         )}
         <div>

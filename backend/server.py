@@ -149,6 +149,7 @@ from pdf_builder import (
     _measure_icon,
     METHODOLOGY,
     _measure_methodology,
+    _compliant_job_summary,
     SCOPE_WORKS,
     _np,
     _sub,
@@ -1536,6 +1537,80 @@ async def document_embedded_image(doc_id: str, index: int):
     return Response(content=raw, media_type=mime)
 
 
+async def _gather_measure_evidence_photos(project_id, proj, code, fam, cap=40):
+    """Gather EVERY photo that evidences this measure — from the curated design-pack gallery AND
+    every image embedded in the photopack / site-note PDFs — matched on a wide keyword net for the
+    measure family, deduped, returned as data-URIs ready to store on the measure."""
+    from pdf_builder import PHOTO_NEG
+    from ai_extractor import extract_sitenote_photo_labels
+    kws = PHOTO_KW.get(code) or PHOTO_KW.get(fam) or []
+    neg = PHOTO_NEG.get(code) or PHOTO_NEG.get(fam) or []
+
+    def _match(text):
+        t = (text or "").lower()
+        if any(k in t for k in neg):
+            return False
+        return (not kws) or any(k in t for k in kws)
+
+    out, seen = [], set()
+
+    def _push(du, caption, note=""):
+        if du and du not in seen:
+            seen.add(du)
+            out.append({"data": du, "caption": caption or "", "note": note or ""})
+
+    # 1) Curated design-pack gallery
+    for ph in ((proj.get("designPack") or {}).get("photos") or []):
+        if len(out) >= cap:
+            return out
+        if not _match((ph.get("caption") or "") + " " + (ph.get("observation") or "")):
+            continue
+        b = await _photo_bytes_from_url(ph.get("url"))
+        if not b:
+            continue
+        du = await asyncio.to_thread(_img_to_data_uri, b)
+        _push(du, ph.get("caption"), ph.get("observation"))
+
+    # 2) Every image embedded in the photopack / site-note PDFs
+    def _is_photopack(d):
+        fn = (d.get("original_filename") or "").lower()
+        return ("photopack" in fn or "photo pack" in fn or "par photo" in fn or "photograph" in fn
+                or (d.get("doc_type") or "") in ("Photopack", "Survey Photo"))
+
+    docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}}).to_list(500)
+    any_pack = any(_is_photopack(d) and ((d.get("content_type") or "") == "application/pdf"
+                   or (d.get("original_filename") or "").lower().endswith(".pdf")) for d in docs)
+    for d in docs:
+        if len(out) >= cap:
+            return out
+        ct = (d.get("content_type") or "")
+        fn = (d.get("original_filename") or "").lower()
+        dt = (d.get("doc_type") or "")
+        is_pdf = (ct == "application/pdf" or fn.endswith(".pdf"))
+        if not (is_pdf and d.get("storage_path")):
+            continue
+        if any_pack and not _is_photopack(d):
+            continue
+        if not any_pack and dt not in PHOTO_DOC_TYPES:
+            continue
+        try:
+            data, _ = await asyncio.to_thread(get_object, d["storage_path"])
+            imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
+        except Exception as e:
+            logger.warning("evidence photo enumerate failed for %s: %s", d.get("id"), e)
+            imgs = []
+        for im in imgs:
+            if len(out) >= cap:
+                return out
+            label = (im.get("label") or "").strip(" :")
+            if not _match(label):
+                continue
+            raw, _ext = im["image"]
+            du = await asyncio.to_thread(_img_to_data_uri, raw)
+            _push(du, label)
+    return out
+
+
 @api_router.post("/projects/{project_id}/measures/{mi}/autofill-compliance")
 async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Query(False)):
     """Auto-populate a measure's Design Requirements & Compliance, Site Actions and
@@ -1557,25 +1632,12 @@ async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Qu
         fam = _mfam(m.get("code"), m.get("name"))
         m["evidenceActions"] = "\n".join(f"- {s}" for s in _measure_methodology(fam))
         changed.append("evidenceActions")
+    if force or not (m.get("complianceGuidance") or "").strip():
+        m["complianceGuidance"] = _compliant_job_summary(_mfam(m.get("code"), m.get("name")))
+        changed.append("complianceGuidance")
     if force or not (m.get("evidencePhotos") or []):
-        code = (m.get("code") or "").upper()
-        kws = PHOTO_KW.get(code) or PHOTO_KW.get(_mfam(m.get("code"), m.get("name"))) or []
-        neg = PHOTO_NEG.get(code) or PHOTO_NEG.get(_mfam(m.get("code"), m.get("name"))) or []
-        ev = []
-        for ph in ((proj.get("designPack") or {}).get("photos") or []):
-            text = ((ph.get("caption") or "") + " " + (ph.get("observation") or "")).lower()
-            if any(k in text for k in neg):
-                continue
-            if kws and not any(k in text for k in kws):
-                continue
-            b = await _photo_bytes_from_url(ph.get("url"))
-            if not b:
-                continue
-            du = await asyncio.to_thread(_img_to_data_uri, b)
-            if du:
-                ev.append({"data": du, "caption": ph.get("caption") or "", "note": ph.get("observation") or ""})
-            if len(ev) >= 4:
-                break
+        ev = await _gather_measure_evidence_photos(
+            project_id, proj, (m.get("code") or "").upper(), _mfam(m.get("code"), m.get("name")))
         if ev:
             m["evidencePhotos"] = ev
             changed.append("evidencePhotos")
@@ -1584,6 +1646,7 @@ async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Qu
     return {"changed": changed,
             "evidenceRequirements": m.get("evidenceRequirements") or "",
             "evidenceActions": m.get("evidenceActions") or "",
+            "complianceGuidance": m.get("complianceGuidance") or "",
             "evidencePhotos": m.get("evidencePhotos") or []}
 
 
