@@ -2294,6 +2294,17 @@ async def _precache_geo(project_id):
                 pass
     except Exception as e:
         logger.warning("precache maps/solar failed: %s", e)
+    # Indicative BS 8104 exposure zone when the assessment left it blank (new imports).
+    try:
+        ec = (proj.get("property") or {}).get("existingConstruction") or {}
+        if not str(ec.get("Exposure Zone") or "").strip():
+            from pdf_builder import _bs8104_zone, _EXPOSURE_LABELS
+            z = _bs8104_zone(h.get("region"), h.get("country"), h.get("longitude") or lon)
+            ec["Exposure Zone"] = f"{_EXPOSURE_LABELS.get(z, _EXPOSURE_LABELS[2])} — indicative (BS 8104, derived from postcode; confirm on site)"
+            ec["_exposureDerived"] = True
+            await db.projects.update_one({"id": project_id}, {"$set": {"property.existingConstruction": ec}})
+    except Exception as e:
+        logger.warning("exposure derive failed: %s", e)
 
 
 

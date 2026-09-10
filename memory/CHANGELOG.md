@@ -1,5 +1,27 @@
 # Changelog
 
+## 2026-09-10 — Autofill refresh batch + BS 8104 exposure auto-lookup
+
+### Existing Projects Refresh (measure autofill re-run)
+- New admin Maintenance card "Refresh measure autofill" (`autofill-refresh-card`) + background batch
+  `POST/GET /api/admin/autofill/rebatch`. Force-overwrites every measure's on-screen
+  `evidenceRequirements` (grouped FIRE SAFETY / THERMAL BRIDGING / … compliance text, mirrors the
+  PDF) and `evidenceActions` (methodology) across all projects; clears `packHash` so packs rebuild.
+- Refactored the shared grouping into `_grouped_compliance_text(m, proj)` (used by the per-measure
+  autofill endpoint + the batch). Verified: 2 projects / 6 measures refreshed.
+
+### Exposure Auto-Lookup (BS 8104 wind-driven-rain zone from postcode)
+- `pdf_builder._derive_exposure_zone(postcode)` → indicative BS 8104 zone label via postcodes.io
+  region + westerly-longitude heuristic (`_postcode_geo_sync`, `_bs8104_zone`, `_EXPOSURE_LABELS`).
+  Region base map (London/SE→1, Midlands/Yorks/NE→2, NW/SW→3, Wales/Scotland→3, NI→4) + a one-band
+  nudge for lon ≤ −3.5 (Atlantic-facing). Labelled "indicative … confirm on site" — never overrides
+  a surveyed value.
+- Only fills `property.existingConstruction["Exposure Zone"]` when the assessment left it blank
+  (tags `_exposureDerived: true`). Wired into (a) the autofill refresh batch (`_ensure_exposure_zone`)
+  and (b) `_precache_geo` at import time for new jobs. Feeds the existing `high_exposure` EWI moisture
+  compliance note. `_heritage_lookup_sync` now also returns region/country. Verified:
+  TR1→Zone 4, RG8/SW1A→Zone 1, M1→Zone 3, LL57/G2/BT1→Zone 4.
+
 ## 2026-09-07 — Automation batch (floor plan, solar, evidence, photos, solar-only pack)
 
 ### Floor plan auto-placement + new dMEV (TVR) tab

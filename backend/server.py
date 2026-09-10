@@ -130,6 +130,7 @@ from pdf_builder import (
     PHOTO_KW,
     _photos_for_measure,
     _measure_compliance,
+    _derive_exposure_zone,
     _geom_rings,
     _pip,
     _heritage_map_svg,
@@ -1497,21 +1498,10 @@ async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Qu
     if mi < 0 or mi >= len(measures):
         raise HTTPException(status_code=404, detail="Measure not found")
     m = measures[mi]
+    await _ensure_exposure_zone(proj)
     changed = []
     if force or not (m.get("evidenceRequirements") or "").strip():
-        items = _measure_compliance(m, proj)
-        groups = {}
-        for cat, txt in items:
-            groups.setdefault(cat, []).append(txt)
-        order = ["Fire Safety", "Thermal Bridging", "Ventilation", "Electrical", "Moisture", "Compliance"]
-        lines = []
-        for cat in order + [c for c in groups if c not in order]:
-            if cat not in groups:
-                continue
-            lines.append(cat.upper())
-            lines.extend(f"- {t}" for t in groups[cat])
-            lines.append("")
-        m["evidenceRequirements"] = "\n".join(lines).strip()
+        m["evidenceRequirements"] = _grouped_compliance_text(m, proj)
         changed.append("evidenceRequirements")
     if force or not (m.get("evidenceActions") or "").strip():
         fam = _mfam(m.get("code"), m.get("name"))
@@ -1884,6 +1874,102 @@ async def loft_photos_rebatch(_: dict = Depends(require_admin)):
 @admin_router.get("/loft-photos/rebatch")
 async def loft_photos_rebatch_status(_: dict = Depends(require_admin)):
     return _loft_photo_batch
+
+
+def _grouped_compliance_text(m, proj):
+    """Grouped, property-specific compliance text (FIRE SAFETY / THERMAL BRIDGING / …) for a
+    measure's on-screen 'Design Requirements & Compliance' box — mirrors the PDF pack."""
+    items = _measure_compliance(m, proj)
+    groups = {}
+    for cat, txt in items:
+        groups.setdefault(cat, []).append(txt)
+    order = ["Fire Safety", "Thermal Bridging", "Ventilation", "Electrical", "Moisture", "Compliance"]
+    lines = []
+    for cat in order + [c for c in groups if c not in order]:
+        if cat not in groups:
+            continue
+        lines.append(cat.upper())
+        lines.extend(f"- {t}" for t in groups[cat])
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
+async def _ensure_exposure_zone(proj):
+    """Fill property.existingConstruction['Exposure Zone'] from the postcode (indicative BS 8104)
+    when the assessment left it blank. Mutates proj in place; returns True if it set a value."""
+    prop = proj.get("property") or {}
+    ec = prop.get("existingConstruction") or {}
+    if str(ec.get("Exposure Zone") or "").strip():
+        return False
+    pc = prop.get("postcode") or proj.get("postcode")
+    if not pc:
+        from ai_extractor import _extract_postcode
+        pc = _extract_postcode(" ".join(str(x) for x in [prop.get("address"), proj.get("address"),
+                                                          proj.get("reference"), proj.get("name")] if x))
+    if not pc:
+        return False
+    label = await asyncio.to_thread(_derive_exposure_zone, pc)
+    if not label:
+        return False
+    ec["Exposure Zone"] = label
+    ec["_exposureDerived"] = True
+    prop["existingConstruction"] = ec
+    prop["postcode"] = prop.get("postcode") or pc
+    proj["property"] = prop
+    return True
+
+
+_autofill_batch = {"running": False, "total": 0, "done": 0, "updated": 0, "measures": 0,
+                   "exposure": 0, "errors": 0, "startedAt": None, "finishedAt": None}
+
+
+async def _run_autofill_rebatch_bg():
+    try:
+        projects = await db.projects.find({}, {"_id": 0, "id": 1}).to_list(3000)
+        ids = [p["id"] for p in projects]
+        _autofill_batch.update({"total": len(ids), "done": 0, "updated": 0, "measures": 0,
+                                "exposure": 0, "errors": 0})
+        for pid in ids:
+            try:
+                proj = await db.projects.find_one({"id": pid}, {"_id": 0})
+                if not proj:
+                    continue
+                exp_changed = await _ensure_exposure_zone(proj)
+                measures = proj.get("measures") or []
+                for m in measures:
+                    m["evidenceRequirements"] = _grouped_compliance_text(m, proj)
+                    m["evidenceActions"] = "\n".join(
+                        f"- {s}" for s in _measure_methodology(_mfam(m.get("code"), m.get("name"))))
+                setter = {"measures": measures, "packHash": ""}
+                if exp_changed:
+                    setter["property"] = proj.get("property")
+                    _autofill_batch["exposure"] += 1
+                await db.projects.update_one({"id": pid}, {"$set": setter})
+                _autofill_batch["updated"] += 1
+                _autofill_batch["measures"] += len(measures)
+            except Exception:
+                logger.exception("autofill rebatch failed for %s", pid)
+                _autofill_batch["errors"] += 1
+            finally:
+                _autofill_batch["done"] += 1
+    finally:
+        _autofill_batch["running"] = False
+        _autofill_batch["finishedAt"] = datetime.now(timezone.utc).isoformat()
+
+
+@admin_router.post("/autofill/rebatch")
+async def autofill_rebatch(_: dict = Depends(require_admin)):
+    if _autofill_batch["running"]:
+        return {"status": "already-running", **_autofill_batch}
+    _autofill_batch.update({"running": True, "startedAt": datetime.now(timezone.utc).isoformat(),
+                            "finishedAt": None})
+    asyncio.create_task(_run_autofill_rebatch_bg())
+    return {"status": "started", **_autofill_batch}
+
+
+@admin_router.get("/autofill/rebatch")
+async def autofill_rebatch_status(_: dict = Depends(require_admin)):
+    return _autofill_batch
 
 
 class DrawingSignoffsIn(BaseModel):

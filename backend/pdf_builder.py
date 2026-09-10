@@ -369,7 +369,9 @@ def _heritage_lookup_sync(postcode):
             except Exception:
                 pass
         return {"postcode": pc, "latitude": lat, "longitude": lon,
-                "admin_district": res.get("admin_district"), "designations": designations}
+                "admin_district": res.get("admin_district"),
+                "region": res.get("region"), "country": res.get("country"),
+                "designations": designations}
     except Exception as e:
         logger.warning("heritage lookup failed: %s", e)
         return {"postcode": pc, "error": "Lookup service unavailable", "designations": []}
@@ -404,6 +406,66 @@ def _heritage_statement(h):
     return {"designated": False,
             "summary": "No statutory heritage or landscape designations (Conservation Area, Listed Building, Article 4 Direction, World Heritage Site, Area of Outstanding Natural Beauty / National Landscape or National Park) were identified at this location on the national planning dataset (planning.data.gov.uk). A standard retrofit approach applies, subject to confirmation on site.",
             "mitigation": "No heritage-specific constraints identified. Standard workmanship, moisture management (BS 5250) and manufacturer specifications apply. Note: planning.data.gov.uk coverage is England-only and may be incomplete — confirm designations with the Local Planning Authority."}
+
+
+# ---------------- BS 8104 wind-driven-rain exposure zone (indicative, from postcode) ----------------
+# Filled ONLY when the assessment leaves Exposure Zone blank. 1 Sheltered .. 4 Very Severe.
+_EXPOSURE_LABELS = {1: "Zone 1 (Sheltered)", 2: "Zone 2 (Moderate)",
+                    3: "Zone 3 (Severe)", 4: "Zone 4 (Very Severe)"}
+# Base zone by postcodes.io region (England) / country (rest of UK).
+_REGION_EXPOSURE = {
+    "london": 1, "south east": 1, "east of england": 1, "east midlands": 2,
+    "west midlands": 2, "yorkshire and the humber": 2, "north east": 2,
+    "north west": 3, "south west": 3,
+}
+_COUNTRY_EXPOSURE = {"wales": 3, "scotland": 3, "northern ireland": 4}
+
+
+def _bs8104_zone(region, country, lon):
+    country = (country or "").strip().lower()
+    region = (region or "").strip().lower()
+    zone = _COUNTRY_EXPOSURE.get(country)
+    if zone is None:
+        zone = _REGION_EXPOSURE.get(region, 2)
+    # Atlantic-facing westerly longitudes are more exposed to wind-driven rain — nudge up a band.
+    try:
+        if lon is not None and float(lon) <= -3.5 and zone < 4:
+            zone += 1
+    except Exception:
+        pass
+    return zone
+
+
+def _postcode_geo_sync(postcode):
+    """Lightweight postcodes.io lookup → {latitude, longitude, region, country, admin_district}."""
+    pc = re.sub(r"\s+", "", (postcode or "")).upper()
+    if not pc:
+        return None
+    if len(pc) >= 5:
+        pc = pc[:-3] + " " + pc[-3:]
+    try:
+        r = requests.get(f"https://api.postcodes.io/postcodes/{requests.utils.quote(pc)}", timeout=(3.05, 12))
+        if r.status_code != 200:
+            return None
+        res = (r.json() or {}).get("result") or {}
+        if res.get("latitude") is None:
+            return None
+        return {"latitude": res.get("latitude"), "longitude": res.get("longitude"),
+                "region": res.get("region"), "country": res.get("country"),
+                "admin_district": res.get("admin_district")}
+    except Exception as e:
+        logger.warning("postcode geo lookup failed: %s", e)
+        return None
+
+
+def _derive_exposure_zone(postcode):
+    """Best-effort indicative BS 8104 exposure-zone label from a UK postcode (region + westerly
+    proximity heuristic). Never authoritative — always tagged 'confirm on site'. None if unresolved."""
+    geo = _postcode_geo_sync(postcode)
+    if not geo:
+        return None
+    z = _bs8104_zone(geo.get("region"), geo.get("country"), geo.get("longitude"))
+    return f"{_EXPOSURE_LABELS.get(z, _EXPOSURE_LABELS[2])} — indicative (BS 8104, derived from postcode; confirm on site)"
 
 
 async def _doc_data_uri(url: str):

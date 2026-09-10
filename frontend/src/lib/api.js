@@ -130,4 +130,7 @@ export const loftPhotosRebatchStatus = () => api.get("/admin/loft-photos/rebatch
 export const wipeDesigns = () => api.post("/admin/wipe-designs").then((r) => r.data);
 export const evidenceSweep = () => api.post("/admin/considerations/evidence-sweep").then((r) => r.data);
 
+export const autofillRebatch = () => api.post("/admin/autofill/rebatch").then((r) => r.data);
+export const autofillRebatchStatus = () => api.get("/admin/autofill/rebatch").then((r) => r.data);
+
 export const mediaUrl = (u) => (!u ? u : u.startsWith("http") ? u : `${BACKEND_URL}${u}`);
