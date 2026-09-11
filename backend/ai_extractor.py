@@ -450,6 +450,9 @@ def _is_graphic_or_logo(raw):
         px = list(t.getdata())
         if not px:
             return False
+        # Whole-image whiteness — signatures / declarations / forms are mostly white with sparse ink.
+        if sum(1 for (r, g, bl) in px if min(r, g, bl) > 222) / len(px) > 0.86:
+            return True
         q = [((r >> 4), (g >> 4), (bl >> 4)) for r, g, bl in px]
         if len(set(q)) < 20:
             return True  # flat / few-colour artwork or signature
@@ -458,6 +461,13 @@ def _is_graphic_or_logo(raw):
         return False
     except Exception:
         return False
+
+
+# Labels near signature / declaration blocks — these images are signatures, never site photos.
+SIGNATURE_KW = ("signature", "signed", "sign here", "signatory", "declaration", "declare",
+                "assessor sign", "surveyor sign", "homeowner sign", "home owner sign", "occupier sign",
+                "tenant sign", "resident sign", "customer sign", "client sign", "print name",
+                "name (print", "date signed", "authorised", "witness")
 
 
 def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
@@ -537,8 +547,10 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
                 ar = (w / ht) if ht else 0
                 if ar and (ar > 4 or ar < 0.25):  # very wide/thin banner, rule or divider
                     continue
+                if any(k in last_label.lower() for k in SIGNATURE_KW):
+                    continue  # signature / declaration block — never a site photo
                 if _is_graphic_or_logo(ex["image"]):
-                    continue  # flat logo / letterhead / icon, not a survey photo
+                    continue  # flat logo / letterhead / icon / signature, not a survey photo
                 if h:
                     seen_hash.add(h)
                 out.append({"label": last_label, "image": (ex["image"], ex.get("ext", "jpg"))})

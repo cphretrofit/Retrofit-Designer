@@ -916,7 +916,15 @@ def _auto_resolve_datasheet_items(doc):
         if it.get("resolved") or it.get("confirmedBy"):
             continue
         text = (it.get("text") or "").lower()
-        if "product specification" not in text:
+        # Any item asking for a product / manufacturer / datasheet / specification to be confirmed
+        # or provided — resolves once that measure has a bound datasheet (the spec is READ from it).
+        is_datasheet_item = (
+            "product specification" in text
+            or ("datasheet" in text and any(k in text for k in ("not confirmed", "to be confirmed", "must be provided", "not provided", "confirm", "required")))
+            or ("manufacturer" in text and any(k in text for k in ("datasheet", "not confirmed", "to be confirmed", "confirm")))
+            or ("product" in text and any(k in text for k in ("not confirmed", "to be confirmed")))
+        )
+        if not is_datasheet_item:
             continue
         key = (it.get("measure") or "").upper()
         label = labels.get(key) or labels.get(_mfam(key, it.get("measure")))
@@ -925,7 +933,7 @@ def _auto_resolve_datasheet_items(doc):
             it["auto"] = True
             it["resolvedBy"] = "Datasheet"
             it["status"] = "Read from datasheet"
-            it["note"] = f"Resolved automatically — product specification read from the bound datasheet: {label}. No installer confirmation required."
+            it["note"] = f"Resolved automatically — product / manufacturer details read from the bound datasheet: {label}. No installer confirmation required."
     doc["itemsBeforeIssue"] = items
 
 
