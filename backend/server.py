@@ -872,17 +872,26 @@ def _public_origin(request):
 
 
 async def _solar_survey_state(project_id: str, measures):
-    """(has_solar_measure, survey_missing) — survey considered present if any non-datasheet/photo
-    document mentions a solar/PV/MCS/structural survey or PV design."""
+    """(has_solar_measure, survey_missing). The survey is present if an explicit Technical Survey /
+    ASHP Survey document is about PV/solar, or any non-datasheet/photo document names a solar/PV/MCS
+    survey, design or report."""
     from pdf_builder import _mfam
     has = any(_mfam(m.get("code"), m.get("name")) == "SOLAR" for m in (measures or []))
     if not has:
         return False, False
     docs = await db.documents.find({"project_id": project_id, "is_deleted": {"$ne": True}},
                                    {"_id": 0, "original_filename": 1, "doc_type": 1}).to_list(300)
+    for d in docs:
+        dt = (d.get("doc_type") or "")
+        fn = (d.get("original_filename") or "").lower()
+        if dt in ("Technical Survey", "ASHP Survey") and any(k in fn for k in ("pv", "solar", "mcs", "easypv", "easy pv")):
+            return has, False
     blob = " ".join(((d.get("original_filename") or "") + " " + (d.get("doc_type") or "")) for d in docs
                     if (d.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
-    missing = not any(k in blob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design", "easypv", "easy pv", "easy-pv", "pv report", "solar report", "solar design"))
+    keys = ("solar survey", "pv survey", "pv design", "pv tech", "tech survey", "technical survey",
+            "mcs", "solar technical", "solar tech", "roof survey", "structural survey",
+            "solar pv design", "easypv", "easy pv", "easy-pv", "pv report", "solar report", "solar design")
+    missing = not any(k in blob for k in keys)
     return has, missing
 
 
@@ -920,6 +929,66 @@ def _auto_resolve_datasheet_items(doc):
     doc["itemsBeforeIssue"] = items
 
 
+def _apply_measure_progress(doc):
+    """Live per-measure module indicators (spec/calc/junc/risk/evid/qa) + completion, computed at
+    read time from the ACTUAL design data so a measure reaches 100% once everything is genuinely in
+    place — replacing the static seeded percentage. Handover-only items (commissioning evidence) do
+    not block design completion."""
+    from pdf_builder import _mfam
+    items = doc.get("itemsBeforeIssue") or []
+    score = {"done": 1.0, "warn": 0.5, "pending": 0.0}
+    for m in doc.get("measures") or []:
+        code = (m.get("code") or "").upper()
+        fam = _mfam(code, m.get("name"))
+        products = len(m.get("products") or [])
+        buildup = len(m.get("buildup") or [])
+        is_fabric = code in _FABRIC_CODES or bool(buildup) or m.get("targetU") is not None
+        ind = dict(m.get("indicators") or {})
+        # Specification
+        if products >= 1 and (buildup >= 1 or m.get("system") or code == "WIN"):
+            ind["specification"] = "done"
+        elif products >= 1 or m.get("system"):
+            ind["specification"] = "warn"
+        else:
+            ind["specification"] = "pending"
+        # Calculations
+        if is_fabric:
+            if _rd_filled(m.get("targetU")) and _rd_filled(m.get("calculatedU")):
+                ind["calculations"] = "done"
+            elif _rd_filled(m.get("targetU")) or _rd_filled(m.get("calculatedU")):
+                ind["calculations"] = "warn"
+            else:
+                ind["calculations"] = "pending"
+        elif fam == "ASHP":
+            ind["calculations"] = "done" if doc.get("heatLoss") else "pending"
+        elif fam == "VENT":
+            ind["calculations"] = "done" if (doc.get("ventilation") or doc.get("ventSummary") or m.get("rates")) else "warn"
+        elif fam == "SOLAR":
+            ind["calculations"] = "done" if (doc.get("solar") or m.get("system")) else "pending"
+        else:
+            ind["calculations"] = "done" if m.get("system") else "n/a"
+        # Junctions
+        if is_fabric:
+            js = m.get("junctions") or []
+            npass = sum(1 for j in js if j.get("status") == "pass")
+            ind["junctions"] = "done" if (js and npass == len(js)) else ("warn" if npass else "pending")
+        else:
+            ind["junctions"] = "n/a"
+        # Risks / Evidence
+        ind["risks"] = "done" if m.get("risks") else "pending"
+        ind["evidence"] = "done" if (products >= 1 or len(m.get("evidencePhotos") or [])) else "pending"
+        # QA — no unresolved action item belongs to this measure's family
+        open_qa = [it for it in items
+                   if _mfam((it.get("measure") or ""), it.get("measure")) == fam
+                   and not (it.get("resolved") or it.get("confirmedBy"))]
+        ind["qa"] = "pending" if open_qa else "done"
+        m["indicators"] = ind
+        applicable = [v for v in ind.values() if v != "n/a"]
+        comp = round(100 * sum(score.get(v, 0) for v in applicable) / (len(applicable) or 1))
+        m["completion"] = comp
+        m["status"] = "designed" if comp >= 100 else ("in_progress" if comp >= 40 else "not_started")
+
+
 @api_router.get("/projects/{project_id}")
 async def get_project(project_id: str, request: Request):
     doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
@@ -934,15 +1003,9 @@ async def get_project(project_id: str, request: Request):
         doc["defects"] = defects
     doc["partner"] = _resolve_partner(doc)
     _ensure_uvalues(doc)
-    _auto_resolve_datasheet_items(doc)
-    doc["readiness"] = _compute_readiness(doc)
-    # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
-    # Retrofit Design (never a Concept Design). Applied at read so existing projects update too.
-    doc["designStage"] = "Retrofit Design"
-    doc["designer"] = "Alex Leighton"
-    doc["designerQualification"] = "MCIOB 7009478"
     # Auto-managed outstanding item: flags a missing solar technical survey and clears itself the
-    # moment the survey is uploaded (computed at read time, never persisted).
+    # moment the survey is uploaded (computed at read time, never persisted). Run BEFORE progress so
+    # the Solar QA module reflects it.
     try:
         _has_solar, _survey_missing = await _solar_survey_state(project_id, doc.get("measures"))
         if _survey_missing:
@@ -962,6 +1025,14 @@ async def get_project(project_id: str, request: Request):
                     _m["outstanding"] = _outs
     except Exception:
         pass
+    _auto_resolve_datasheet_items(doc)
+    _apply_measure_progress(doc)
+    doc["readiness"] = _compute_readiness(doc)
+    # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
+    # Retrofit Design (never a Concept Design). Applied at read so existing projects update too.
+    doc["designStage"] = "Retrofit Design"
+    doc["designer"] = "Alex Leighton"
+    doc["designerQualification"] = "MCIOB 7009478"
     if doc.get("templateName"):
         doc["templateName"] = display_template_name(
             doc["templateName"], [m.get("code") for m in (doc.get("measures") or [])])
