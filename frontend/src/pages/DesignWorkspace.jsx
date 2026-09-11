@@ -32,6 +32,14 @@ import { ReextractControl } from "./workspace/ReextractControl";
 import { IntelligencePanel } from "./workspace/IntelligencePanel";
 
 /* ---------------- Main workspace ---------------- */
+const COORDINATORS = [
+  { name: "Reece Mawson", tm: "3155303" },
+  { name: "Sean Crozier", tm: "4004735" },
+  { name: "Lewis Crozier", tm: "4013507" },
+  { name: "Sam Welch", tm: "3770743" },
+  { name: "Benjamin Lee", tm: "4138832" },
+].map((c) => ({ value: `${c.name} (TrustMark ${c.tm})`, label: `${c.name} — TrustMark ${c.tm}` }));
+
 export default function DesignWorkspace() {
   const { id, section = "overview" } = useParams();
   const navigate = useNavigate();
@@ -362,7 +370,16 @@ export default function DesignWorkspace() {
             </div>
             <Field label="Client" value={p.client} mono={false} path="client" onSave={saveField} />
             <Field label="Retrofit Assessor" value={p.assessor} mono={false} path="assessor" onSave={saveField} />
-            <Field label="Retrofit Coordinator" value={p.coordinator} mono={false} path="coordinator" onSave={saveField} />
+            <div className="flex items-center gap-3 py-2 border-b border-border/60">
+              <span className="text-[11px] uppercase tracking-[0.06em] text-muted-foreground w-40 shrink-0">Retrofit Coordinator</span>
+              <select data-testid="coordinator-select"
+                value={COORDINATORS.some((c) => c.value === p.coordinator) ? p.coordinator : ""}
+                onChange={(e) => { setP((prev) => ({ ...prev, coordinator: e.target.value })); saveField("coordinator", e.target.value); }}
+                className="flex-1 bg-background border rounded-sm px-2 py-1 text-[13px] outline-none focus:border-[var(--c-action)]">
+                <option value="">{p.coordinator && !COORDINATORS.some((c) => c.value === p.coordinator) ? p.coordinator : "Select a coordinator…"}</option>
+                {COORDINATORS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
+            </div>
             <Field label="Retrofit Designer" value={p.designer} mono={false} path="designer" onSave={saveField} />
             <Field label="Installer" value={p.installer} mono={false} path="installer" onSave={saveField} />
             <Field label="Tenant / Resident" value={p.tenant} mono={false} path="tenant" onSave={saveField} />

@@ -1045,7 +1045,7 @@ async def get_project(project_id: str, request: Request):
     # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
     # Retrofit Design (never a Concept Design). Applied at read so existing projects update too.
     doc["designStage"] = "Retrofit Design"
-    doc["designer"] = "Alex Leighton"
+    doc["designer"] = "Alex Leighton (MCIOB 7009478)"
     doc["designerQualification"] = "MCIOB 7009478"
     if doc.get("templateName"):
         doc["templateName"] = display_template_name(
@@ -1601,6 +1601,32 @@ def _mineable_pdf(d):
     return photopack or rdsap
 
 
+_EMBED_CACHE = {}
+_EMBED_CACHE_ORDER = []
+_EMBED_CACHE_MAX = 60
+
+
+async def _mine_pdf_photos(storage_path):
+    """Extract (and cache) the embedded survey photos of one PDF. Cached in-memory keyed by
+    storage path so the photo picker's many thumbnail requests never re-mine the same PDF."""
+    if not storage_path:
+        return []
+    if storage_path in _EMBED_CACHE:
+        return _EMBED_CACHE[storage_path]
+    from ai_extractor import extract_sitenote_photo_labels
+    try:
+        data, _ = await asyncio.to_thread(get_object, storage_path)
+        imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
+    except Exception as e:
+        logger.warning("embedded mine failed for %s: %s", storage_path, e)
+        imgs = []
+    _EMBED_CACHE[storage_path] = imgs
+    _EMBED_CACHE_ORDER.append(storage_path)
+    if len(_EMBED_CACHE_ORDER) > _EMBED_CACHE_MAX:
+        _EMBED_CACHE.pop(_EMBED_CACHE_ORDER.pop(0), None)
+    return imgs
+
+
 @api_router.get("/projects/{project_id}/photos/all")
 async def project_all_photos(project_id: str):
     """EVERY photo available to the project — every image embedded in the uploaded PDFs
@@ -1624,12 +1650,7 @@ async def project_all_photos(project_id: str):
         if ct.startswith("image/") or dt in ("Survey Photo", "Floor Plan", "Defect Photo"):
             _add(f"/api/documents/{d['id']}/download", d.get("original_filename") or "Photo")
         if _mineable_pdf(d):
-            try:
-                data, _ = await asyncio.to_thread(get_object, d["storage_path"])
-                imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
-            except Exception as e:
-                logger.warning("embedded photo enumerate failed for %s: %s", d.get("id"), e)
-                imgs = []
+            imgs = await _mine_pdf_photos(d["storage_path"])
             for i, im in enumerate(imgs):
                 cap = (im.get("label") or "").strip(" :") or f"{d.get('original_filename') or 'Document'} — image {i + 1}"
                 _add(f"/api/documents/{d['id']}/embedded/{i}", cap)
@@ -1645,12 +1666,7 @@ async def document_embedded_image(doc_id: str, index: int):
     d = await db.documents.find_one({"id": doc_id})
     if not d or not d.get("storage_path"):
         raise HTTPException(status_code=404, detail="Document not found")
-    from ai_extractor import extract_sitenote_photo_labels
-    try:
-        data, _ = await asyncio.to_thread(get_object, d["storage_path"])
-        imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
-    except Exception as e:
-        raise HTTPException(status_code=422, detail=f"Could not read document images: {e}")
+    imgs = await _mine_pdf_photos(d["storage_path"])
     if index < 0 or index >= len(imgs):
         raise HTTPException(status_code=404, detail="Image index out of range")
     raw, ext = imgs[index]["image"]
@@ -1699,12 +1715,7 @@ async def _gather_measure_evidence_photos(project_id, proj, code, fam, cap=40):
             return out
         if not _mineable_pdf(d):
             continue
-        try:
-            data, _ = await asyncio.to_thread(get_object, d["storage_path"])
-            imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
-        except Exception as e:
-            logger.warning("evidence photo enumerate failed for %s: %s", d.get("id"), e)
-            imgs = []
+        imgs = await _mine_pdf_photos(d["storage_path"])
         for im in imgs:
             if len(out) >= cap:
                 return out
@@ -2219,6 +2230,8 @@ class FloorPlanIn(BaseModel):
     cadData: Optional[dict] = None
     reviewed: Optional[bool] = None
     useOriginal: Optional[bool] = None
+    loftArea: Optional[bool] = None
+    orientationDeg: Optional[float] = None
 
 
 @api_router.put("/projects/{project_id}/floorplan")
@@ -2251,6 +2264,19 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
         fp["reviewedAt"] = datetime.now(timezone.utc).isoformat()
     if payload.useOriginal is not None:
         fp["useOriginal"] = payload.useOriginal
+    if payload.loftArea is not None:
+        fp["loftArea"] = payload.loftArea
+    if payload.orientationDeg is not None:
+        fp["orientationDeg"] = payload.orientationDeg
+        cd = fp.get("cadData")
+        if cd:
+            cd["orientationDeg"] = payload.orientationDeg
+            from cad_floorplan import build_cad_floorplan_svg
+            try:
+                cad_svg, anchors = build_cad_floorplan_svg(cd, with_anchors=True)
+                fp["cadSvg"], fp["cadData"], fp["anchors"] = cad_svg, cd, anchors
+            except Exception:
+                pass
     await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": fp, "packHash": ""}})
     return {"floorPlan": fp}
 

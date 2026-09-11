@@ -565,7 +565,8 @@ def _render_single(d: dict):
             parts.append(f'<text x="{RCX}" y="{ry}" font-size="18" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
             ry += 25
     # north arrow
-    parts.append(f'<g transform="translate({col_x+120},{ry+20})">{_north()}</g>')
+    _odeg = float(d.get("orientationDeg") or 0)
+    parts.append(f'<g transform="translate({col_x+120},{ry+20}) rotate({-_odeg:.0f},40,40)">{_north()}</g>')
     ry += 150
     db = d.get("dataBox") or {}
     if db:
@@ -660,7 +661,7 @@ def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
     VB_W = 1040
     floors = d.get("floors")
     if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
-        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey") if d.get(k)}
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey", "orientationDeg") if d.get(k)}
         # Loft insulation covers the ceilings beneath the roof — draw it on the TOP floor only,
         # from any available signal (top-level loftCoverage or a per-floor value).
         loft_signal = d.get("loftCoverage") or next((f.get("loftCoverage") for f in floors if f.get("loftCoverage")), None)

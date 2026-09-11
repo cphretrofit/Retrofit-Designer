@@ -158,7 +158,7 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
                 className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1"><X className="h-4 w-4" /> Close</button>
             </div>
           </div>
-          <div className="max-w-4xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-3 sm:grid-cols-4 gap-3 content-start" onClick={(e) => e.stopPropagation()}>
+          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" onClick={(e) => e.stopPropagation()}>
             {pool == null ? (
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10 flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading the photopack…</div>
             ) : pool.length === 0 ? (
@@ -166,8 +166,8 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
             ) : pool.map((ph, pi) => (
               <button key={ph.url || pi} data-testid={`evidence-photo-option-${pi}`} disabled={attaching}
                 onClick={() => attachFromUrl(ph)}
-                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left disabled:opacity-50">
-                <div className="aspect-[4/3] overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" loading="lazy" /></div>
+                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left disabled:opacity-50 bg-card">
+                <div className="h-52 bg-neutral-100 flex items-center justify-center overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="max-w-full max-h-full object-contain" loading="lazy" /></div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
             ))}

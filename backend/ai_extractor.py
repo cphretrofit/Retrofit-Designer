@@ -482,24 +482,31 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
         return []
     try:
         page_count = doc.page_count
-        # Pass 1 — map every image xref to the set of pages it appears on.
-        xref_pages = {}
+        # Pass 1 — map every image xref to the pages it appears on AND its intrinsic pixel size
+        # (from get_image_info, no extraction), so we can skip tiny icons before the costly extract.
+        xref_pages, xref_dim = {}, {}
         for pno in range(page_count):
             for info in doc[pno].get_image_info(xrefs=True):
                 xr = info.get("xref") or 0
-                if xr:
-                    xref_pages.setdefault(xr, set()).add(pno)
-        # Pass 2 — extract each unique xref once, hash its bytes, aggregate page span by hash.
+                if not xr:
+                    continue
+                xref_pages.setdefault(xr, set()).add(pno)
+                pw, ph = xref_dim.get(xr, (0, 0))
+                xref_dim[xr] = (max(pw, info.get("width") or 0), max(ph, info.get("height") or 0))
+        # Pass 2 — extract only the real-sized images once, hash bytes, aggregate page span by hash.
         xref_ex, xref_hash, hash_pages = {}, {}, {}
         for xr, pgs in xref_pages.items():
+            w, h = xref_dim.get(xr, (0, 0))
+            if w < 150 or h < 150:
+                continue  # icon / rule / tiny logo — never a survey photo
             try:
                 ex = doc.extract_image(xr)
             except Exception:
                 continue
             xref_ex[xr] = ex
-            h = hashlib.md5(ex.get("image") or b"").hexdigest()
-            xref_hash[xr] = h
-            hash_pages.setdefault(h, set()).update(pgs)
+            hh = hashlib.md5(ex.get("image") or b"").hexdigest()
+            xref_hash[xr] = hh
+            hash_pages.setdefault(hh, set()).update(pgs)
 
         def _is_repeat(pgs):
             return len(pgs) >= 3 or (page_count >= 4 and len(pgs) > page_count * 0.4)

@@ -200,14 +200,14 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
             </div>
             <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0"><X className="h-4 w-4" /> Close</button>
           </div>
-          <div className="max-w-4xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-3 sm:grid-cols-4 gap-3 content-start" onClick={(ev) => ev.stopPropagation()}>
+          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" onClick={(ev) => ev.stopPropagation()}>
             {photos.length === 0 ? (
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
             ) : photos.map((ph, pi) => (
               <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
                 onClick={() => { updateEv(pick, { url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" }); setPick(null); toast.success("Photo attached — click Save to persist"); }}
-                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left">
-                <div className="aspect-[4/3] overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover" /></div>
+                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left bg-card">
+                <div className="h-52 bg-neutral-100 flex items-center justify-center overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="max-w-full max-h-full object-contain" loading="lazy" /></div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
             ))}

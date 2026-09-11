@@ -163,3 +163,14 @@
 
 ### Removed "Commissioning evidence" items — pre-install stage (2026-06, Jun fork)
 - Commissioning evidence is a post-install/handover artefact, not a design-stage outstanding item. Removed for ALL measures: read-time filter in `get_project` (strips any "Commissioning evidence…" from itemsBeforeIssue and each measure's `outstanding`, covering existing projects), plus source fixes in `ai_extractor.py` (skip commissioning entries when building items) and `deps.py` mk_service (outstanding now always []). Verified on 13 Mill View: no commissioning items remain, Solar/Vent 0 outstanding.
+
+### Photo picker perf/UX + compass orientation + loft area (2026-06, Jun fork)
+- **FIXED regression (blank picker / 502)**: `/photos/all` timed out because the extractor hashed EVERY image xref (incl. thousands of tiny report icons) and every thumbnail re-mined the whole PDF. Now `extract_sitenote_photo_labels` size-gates xrefs via `get_image_info` intrinsic dims before extracting, and `server._mine_pdf_photos` caches per-PDF results in memory (shared by `/photos/all`, `/embedded`, evidence auto-fill). Cold ~13s, warm ~0.16s on 13 Mill View.
+- **Picker shows full images**: both pickers (SiteConditions + MeasureEvidence) now use 3-col tall tiles (`h-52` + `object-contain`) instead of the broken `aspect-[4/3]`+`object-cover` that squashed photos into strips.
+- **Signature filtering**: extractor drops assessor/homeowner/tenant signatures via caption keywords (`SIGNATURE_KW`) + whole-image whiteness test.
+- **Compass orientation**: `floorPlan.orientationDeg` (front-elevation facing). `_render_single` rotates the N/E/S/W rose by `-orientationDeg`; `update_floorplan` accepts `orientationDeg` and re-renders `cadSvg` so the pack updates. FloorPlanPanel has a "Front faces" 8-point selector; image-mode north arrow rotates via CSS.
+- **Loft = whole top floor**: LOFT is no longer a per-room pin. FloorPlanPanel has a "Loft insulation (whole top floor)" toggle (`floorPlan.loftArea`) that shades the entire plan with a single hatch overlay + label; existing LOFT pins auto-migrate to the area toggle. (PDF already hatches the full footprint via `loftCoverage`.)
+
+### Designer MCIOB + coordinator dropdown (2026-06, Jun fork)
+- Retrofit Designer now renders "Alex Leighton (MCIOB 7009478)" everywhere (set in get_project; flows to PDF sign-off/compliance blocks via p.designer).
+- Retrofit Coordinator is now a dropdown (DesignWorkspace → Project Details) with the 5 CPH coordinators + TrustMark numbers: Reece Mawson (3155303), Sean Crozier (4004735), Lewis Crozier (4013507), Sam Welch (3770743), Benjamin Lee (4138832). Selection stores "Name (TrustMark N)" → shows on the issued pack sign-off. Any pre-existing free-text coordinator is preserved as a fallback option.

@@ -13,6 +13,9 @@ const TYPES = [
   { key: "ASHP", label: "ASHP unit", color: "#0055FF" },
 ];
 
+const PLACE_TYPES = TYPES.filter((t) => t.key !== "LOFT");
+const FACES = [["N", 0], ["NE", 45], ["E", 90], ["SE", 135], ["S", 180], ["SW", 225], ["W", 270], ["NW", 315]];
+
 const NorthArrow = () => (
   <svg viewBox="0 0 40 46" width="30" height="34" aria-hidden>
     <polygon points="20,3 27,26 20,20 13,26" fill="#171717" />
@@ -57,6 +60,32 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const ref = useRef(null);
   const fileRef = useRef(null);
   const markers = fp.markers || [];
+  const loftArea = !!fp.loftArea;
+  const orientationDeg = fp.orientationDeg || 0;
+
+  useEffect(() => {
+    const pins = (fp.markers || []).filter((m) => (m.type || "").toUpperCase() === "LOFT");
+    if (pins.length) {
+      const cleaned = (fp.markers || []).filter((m) => (m.type || "").toUpperCase() !== "LOFT");
+      setFp((s) => ({ ...s, loftArea: true, markers: cleaned }));
+      updateFloorPlan(projectId, { loftArea: true, markers: cleaned }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const toggleLoft = async () => {
+    const v = !loftArea;
+    const cleaned = (fp.markers || []).filter((m) => (m.type || "").toUpperCase() !== "LOFT");
+    setFp((s) => ({ ...s, loftArea: v, markers: cleaned }));
+    try { const r = await updateFloorPlan(projectId, { loftArea: v, markers: cleaned }); onChange?.(r.floorPlan); toast.success(v ? "Loft insulation applied across the whole top floor" : "Loft area highlight removed"); }
+    catch { toast.error("Could not update loft coverage"); }
+  };
+
+  const setOrientation = async (deg) => {
+    setFp((s) => ({ ...s, orientationDeg: deg }));
+    try { const r = await updateFloorPlan(projectId, { orientationDeg: deg }); setFp((s) => ({ ...s, ...r.floorPlan })); onChange?.(r.floorPlan); toast.success(`Compass set — front faces ${FACES.find((f) => f[1] === deg)?.[0] || deg + "\u00b0"}`); }
+    catch { toast.error("Could not set orientation"); }
+  };
 
   const autoPlace = async (silent) => {
     if (!silent) setPlacing(true);
@@ -298,13 +327,24 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
           ) : (
           <>
           <div className="flex items-center gap-2 flex-wrap">
-            {TYPES.map((t) => (
+            {PLACE_TYPES.map((t) => (
               <button key={t.key} onClick={() => setArm(arm === t.key ? null : t.key)} data-testid={`floorplan-tool-${t.key}`}
                 className="flex items-center gap-1.5 h-8 px-3 rounded-sm border text-[12px] font-medium transition-colors"
                 style={arm === t.key ? { background: t.color, color: "#fff", borderColor: t.color } : { borderColor: "var(--border)" }}>
                 <MeasureSymbol type={t.key} color={arm === t.key ? "#fff" : t.color} size={16} /> {t.label}
               </button>
             ))}
+            <button onClick={toggleLoft} data-testid="floorplan-tool-LOFT"
+              className="flex items-center gap-1.5 h-8 px-3 rounded-sm border text-[12px] font-medium transition-colors"
+              style={loftArea ? { background: "#B45309", color: "#fff", borderColor: "#B45309" } : { borderColor: "var(--border)" }}>
+              <MeasureSymbol type="LOFT" color={loftArea ? "#fff" : "#B45309"} size={16} /> Loft insulation {loftArea ? "(whole top floor \u2713)" : "(whole top floor)"}
+            </button>
+            <label className="flex items-center gap-1.5 h-8 px-2.5 rounded-sm border border-border text-[12px]" data-testid="floorplan-orientation-wrap" title="Rotate the compass to the way the front of the house faces">
+              <span className="text-muted-foreground">Front faces</span>
+              <select value={orientationDeg} onChange={(e) => setOrientation(Number(e.target.value))} data-testid="floorplan-orientation" className="bg-transparent outline-none font-medium">
+                {FACES.map(([l, dg]) => <option key={dg} value={dg}>{l}</option>)}
+              </select>
+            </label>
             <button onClick={() => autoPlace(false)} disabled={placing} data-testid="floorplan-autoplace"
               className="flex items-center gap-1.5 h-8 px-3 ml-auto border border-[var(--c-action)] text-[var(--c-action)] rounded-sm text-[12px] font-medium hover:bg-[var(--c-action)]/5 disabled:opacity-50">
               {placing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />} Auto-place from strategy
@@ -329,7 +369,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
               ) : (
                 <>
                   <img src={mediaUrl(fp.imageUrl)} alt="Floor plan" className="w-full block pointer-events-none" draggable={false} />
-                  <div className="absolute top-2 right-2 bg-white/85 border border-neutral-300 px-1 py-0.5"><NorthArrow /></div>
+                  <div className="absolute top-2 right-2 bg-white/85 border border-neutral-300 px-1 py-0.5" style={{ transform: `rotate(${-orientationDeg}deg)` }}><NorthArrow /></div>
                 </>
               )}
               {markers.map((m, i) => {
@@ -347,6 +387,12 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
                   </div>
                 );
               })}
+              {loftArea && (
+                <div data-testid="floorplan-loft-overlay" className="absolute inset-0 pointer-events-none flex items-center justify-center"
+                  style={{ background: "repeating-linear-gradient(45deg, rgba(180,83,9,0.14) 0 2px, transparent 2px 13px)", boxShadow: "inset 0 0 0 2px rgba(180,83,9,0.5)" }}>
+                  <span className="text-[10px] font-medium text-white px-2 py-0.5 rounded" style={{ background: "#B45309" }}>Loft insulation — full top-floor ceiling coverage</span>
+                </div>
+              )}
             </div>
             {/* Title block (photo mode only — the CAD sheet has its own) */}
             {!fp.cadSvg && (
