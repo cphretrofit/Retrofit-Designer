@@ -87,7 +87,7 @@ def mk_service(code, name, pas, system, comp, img, checks_extra, rates=None):
     return {
         "code": code, "name": name, "pas": pas, "status": _mstatus(comp),
         "system": system, "targetU": None, "calculatedU": None, "existingU": None, "unit": "",
-        "completion": comp, "outstanding": [] if comp >= 100 else ["Commissioning evidence"],
+        "completion": comp, "outstanding": [],
         "indicators": indicators("done" if comp >= 40 else "pending", "done" if comp >= 40 else "n/a", "n/a",
                                  "done" if comp >= 40 else "pending", "done" if comp >= 100 else "warn",
                                  "done" if comp >= 100 else "pending"),

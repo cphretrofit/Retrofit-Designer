@@ -1730,6 +1730,8 @@ def ai_build_project(ai: dict, ref: str, photos=None) -> dict:
     items = ai.get("itemsBeforeIssue") or []
     for m in measures:
         for o in m.get("outstanding", [])[:1]:
+            if "commissioning" in (o or "").lower():
+                continue  # post-install / handover, not a design-stage item
             items.append({"text": f"{o} — {m['name']}", "measure": m["code"], "severity": "warning"})
     items = [it for it in items if not _is_out_of_scope_action(it.get("text") if isinstance(it, dict) else it)]
     if not items:

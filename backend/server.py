@@ -1026,6 +1026,12 @@ async def get_project(project_id: str, request: Request):
     except Exception:
         pass
     _auto_resolve_datasheet_items(doc)
+    # Commissioning evidence is a post-install / handover artefact — never an outstanding design item.
+    doc["itemsBeforeIssue"] = [it for it in (doc.get("itemsBeforeIssue") or [])
+                               if not (it.get("text") or "").lower().startswith("commissioning evidence")]
+    for _m in (doc.get("measures") or []):
+        if _m.get("outstanding"):
+            _m["outstanding"] = [o for o in _m["outstanding"] if "commissioning evidence" not in (o or "").lower()]
     _apply_measure_progress(doc)
     doc["readiness"] = _compute_readiness(doc)
     # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
