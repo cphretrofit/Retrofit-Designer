@@ -190,3 +190,8 @@
 
 ## 2026-06-14 — Photo picker thumbnails
 - Fixed blank grey tiles in evidence photo pickers: they loaded 75+ full-res embedded images at once. Backend now serves cached ~440px JPEG thumbnails via `?w=` on `/documents/{id}/embedded/{i}` and `/documents/{id}/download` (see `_thumbnail_bytes`/`_cached_thumb` in server.py). Frontend `thumbUrl()` helper + fade-in applied in SiteConditionsPanel, MeasureEvidence, DefectsPanel pickers. Full-res still used on attach/zoom. Verified: 162KB→21KB per tile.
+
+## 2026-06-14 — Door routing, B-code import, red-line boundary
+- **Door routing (P0):** `_sanitise_doors` in cad_floorplan.py drops/re-anchors any internal door tracing a family bathroom/WC straight into a bedroom (en-suites preserved); door re-anchored onto the wall the wet room shares with hall/landing, else dropped. CAD prompt hardened. Verified with unit + full SVG render.
+- **B-code recognition (P1):** `_normalise_measure_code` + `_REV_PAS` in ai_extractor.py map PAS 2030 Annex B codes (B1..B10) on the job card to internal codes; EXTRACT prompt updated. Verified B3→WIN, B9→LOFT, name-embedded B10→RIR.
+- **Red-line boundary (P2):** indicative dashed red-line site boundary + label overlaid on the aerial view (SolarPanel.jsx) and the PDF Aerial page (`_subject_highlight`, aerial only — not flux). Verified.

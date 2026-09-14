@@ -117,6 +117,10 @@ export function SolarPanel({ projectId, initial, onChange, solarMeasure, address
               <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
                 <span className="rounded-full" style={{ width: 76, height: 76, boxShadow: "0 0 0 9999px rgba(8,12,20,0.5)", border: "2.5px solid #fde047", outline: "2px solid rgba(0,0,0,0.4)" }} />
               </div>
+              <div data-testid="site-redline" className="absolute pointer-events-none" style={{ top: "27%", left: "27%", width: "46%", height: "46%", border: "2px dashed #ef4444", borderRadius: 3, boxShadow: "0 0 0 1px rgba(255,255,255,0.6)" }} />
+              <div className="absolute pointer-events-none flex items-center gap-1 bg-red-600/90 text-white text-[10px] px-2 py-0.5 rounded-sm" style={{ top: "23%", left: "27%" }}>
+                Red-line boundary · indicative
+              </div>
               <div className="absolute left-1/2 -translate-x-1/2 pointer-events-none" style={{ top: "calc(50% - 30px)" }}>
                 <MapPin className="h-8 w-8 text-yellow-300 drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)]" strokeWidth={2.25} fill="#facc15" />
               </div>

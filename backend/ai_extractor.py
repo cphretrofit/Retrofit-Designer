@@ -1066,7 +1066,7 @@ Extract and DRAFT a retrofit design to approximately 75% completion. Return ONLY
 Rules:
 - Use the exact values found in the documents. Where a value is missing or you make a sensible PAS 2035 default assumption, still fill it in BUT add an entry to itemsBeforeIssue describing what must be confirmed (severity "info_required" for missing data, "warning" for an assumption, "critical" for a defect/risk).
 - Do NOT raise itemsBeforeIssue (or design considerations) for any of these — they are out of scope at the design stage: (a) notes printed on the Job Card — ignore Job Card notes entirely; (b) DNO / G99 approval for Solar PV — this is obtained after installation; (c) flat-roof insulation or flat-roof U-values when no flat-roof measure is in scope — do not mention flat roofs at all; (d) a post-installation or lodged EPC — this is produced after the works.
-- measures[].code must be one of: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT.
+- measures[].code must be one of: EWI, IWI, SWI, LOFT, RIR, UFI, WIN, DOORS, ASHP, SOLAR, VENT. If the Job Card identifies a measure only by its PAS 2030:2023 Annex B code (B1 = cavity wall, B2 = internal/solid wall, B3 = windows, B4 = external wall insulation, B5 = doors, B6 = under-floor, B9 = loft insulation, B10 = room-in-roof), map it to the matching internal code above — never skip a recommended measure because it is written only as a B-code.
 - Only include measures that the documents say are being installed for THIS property.
 - U-values in W/m2K as numbers. Omit (null) targetU/existingU/calculatedU for non-fabric measures (ASHP, SOLAR, VENT).
 - calculatedU is the AS-DESIGNED U-value. Set it to null unless the documents state an actual calculated/assessed as-built value that differs from the target. NEVER copy targetU into calculatedU.
@@ -1680,6 +1680,25 @@ async def _apply_client_catalog(project: dict):
 # their measure name rather than a fabric annex code, so the badge is never misleading.
 PAS_MAP = {"EWI": "B4", "IWI": "B2", "SWI": "B2", "CWI": "B1", "LOFT": "B9", "RIR": "B10",
            "UFI": "B6", "WIN": "B3", "DOORS": "B5"}
+# Reverse: recognise a raw PAS 2030:2023 Annex B code on the job card and map it to our code.
+_REV_PAS = {"B1": "CWI", "B2": "IWI", "B3": "WIN", "B4": "EWI", "B5": "DOORS",
+            "B6": "UFI", "B9": "LOFT", "B10": "RIR"}
+_VALID_CODES = {"EWI", "IWI", "SWI", "CWI", "LOFT", "RIR", "UFI", "WIN", "DOORS", "ASHP", "SOLAR", "VENT"}
+
+
+def _normalise_measure_code(code, name=""):
+    """Accept a PAS 2030:2023 Annex B code (B1..B10) written on the job card and map it to the
+    internal measure code, so measures auto-tag on import without manual entry."""
+    c = re.sub(r"\s+", "", (code or "")).upper()
+    if c in _VALID_CODES:
+        return c
+    m = re.match(r"([BC]\d+)", c)
+    if m and m.group(1) in _REV_PAS:
+        return _REV_PAS[m.group(1)]
+    tok = re.search(r"\b([BC]\d+)\b", (name or "").upper())
+    if tok and tok.group(1) in _REV_PAS:
+        return _REV_PAS[tok.group(1)]
+    return c or "EWI"
 SERVICE_CODES = {"ASHP", "SOLAR", "VENT"}
 JN_BY_CODE = {
     "EWI": EWI_JN, "IWI": WIN_JN, "SWI": EWI_JN,
@@ -1692,7 +1711,7 @@ BUILD_BY_CODE = {"EWI": EWI_BUILD, "IWI": IWI_BUILD, "SWI": EWI_BUILD, "LOFT": L
 
 
 def ai_to_measure(m: dict) -> dict:
-    code = (m.get("code") or "EWI").upper()
+    code = _normalise_measure_code(m.get("code"), m.get("name"))
     name = m.get("name") or code
     system = m.get("system") or ""
     pas = PAS_MAP.get(code, "")
@@ -1982,6 +2001,7 @@ Return ONLY JSON:
 MULTI-FLOOR: if the survey shows more than one storey (e.g. Ground + First), return a top-level "floors" ARRAY with ONE COMPLETE ENTRY PER FLOOR — each with its own "title" ("Ground Floor" / "First Floor"), "overall", "rooms", dimension chains, "windows", "doors", "symbols", "frontDoor" and "dataBox". Each floor occupies the FULL building footprint (do NOT place ground- and first-floor rooms in one shared plan). Put shared fields (address, wallType, date, legend) at the TOP LEVEL, not inside each floor. For a single-storey dwelling, return "rooms" at the top level as shown above (no "floors").
 Rules: read EVERY room name and its window-circle code (e.g. E1..E7) exactly as written; if a circle shows a plain letter with no number keep it as-is. Read all dimension numbers exactly (windows chain 'wall' must be top|bottom|left|right, position in metres along that wall). Keep rectangles consistent so shared walls align (snap coordinates to a sensible grid so topDims sum to overall.w and leftDims sum to overall.h). Do not invent rooms. If a value is unreadable use "".
 CIRCULATION & FRONT DOOR: dwellings almost always have a circulation space (entrance hall / hallway on the ground floor, landing upstairs) linking the front door to the rooms. If the plan shows such a space — even if it is unlabelled or just a gap between rooms — include it as a room named "Hall" (ground floor) or "Landing" (upper floor). A STAIRCASE (drawn as a run of parallel hatched lines / steps, often with an arrow) ALWAYS sits inside circulation space: the space that contains or is immediately adjacent to the ground-floor staircase MUST be output as a room named "Hall", and the space around the upper-floor staircase as "Landing" — never merge the staircase area into an adjoining Lounge, Kitchen, Bedroom or Bathroom. If a ground-floor staircase is visible you MUST return a "Hall" room. Place "frontDoor" on the external wall of the entrance hall / circulation space; the front door must NOT open directly into a bathroom, WC, kitchen or bedroom. If no separate circulation space is drawn, place the front door on the external wall of the main living room.
+INTERNAL DOORS: a family bathroom or WC is ALWAYS entered from the hall/landing (circulation space), NEVER directly from a bedroom — only an en-suite legitimately opens off a bedroom. Never place a door on the wall between a bathroom/WC and a bedroom.
 ACCURACY (critical — the redrawn plan is checked automatically, so be precise): (1) every dimension chain MUST sum to the overall size — topDims (+topDims2) sum to overall.w and leftDims/rightDims sum to overall.h; (2) rooms MUST tile together WITHOUT overlapping and MUST stay within the overall envelope; (3) include EVERY room shown and always include the hall/landing circulation; (4) snap coordinates to a consistent grid so shared walls align exactly (shared walls between two rooms must use the identical coordinate); (5) if the plan's data box shows a floor area (m²), your rooms' combined area should be within ~10% of it — re-read your dimensions if it is not.
 """
 

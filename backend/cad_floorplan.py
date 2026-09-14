@@ -327,6 +327,76 @@ def _carve_hall(rooms, W, H, upper):
                   "x": round(x, 2), "y": round(y, 2), "w": round(w, 2), "h": round(h, 2), "_carved": True})
 
 
+def _rect(r):
+    return _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+
+
+def _room_kind(name):
+    n = (name or "").lower()
+    if any(w in n for w in _CIRC_ROOMS):
+        return "circ"
+    if "en-suite" in n or "ensuite" in n or "en suite" in n:
+        return "ensuite"
+    if any(w in n for w in _WET_ROOMS):
+        return "wet"
+    if "bed" in n:
+        return "bed"
+    return "other"
+
+
+def _rooms_touching(rooms, dx, dy, tol=0.45):
+    """Rooms whose rectangle boundary passes near a door point, nearest edge first."""
+    hit = []
+    for r in rooms:
+        x, y, w, h = _rect(r)
+        if x - tol <= dx <= x + w + tol and y - tol <= dy <= y + h + tol:
+            near = min(abs(dx - x), abs(dx - (x + w)), abs(dy - y), abs(dy - (y + h)))
+            hit.append((near, r))
+    hit.sort(key=lambda t: t[0])
+    return [r for _, r in hit]
+
+
+def _shared_wall_mid(a, b, tol=0.2):
+    """Midpoint of the wall shared by rooms a and b, or None if they don't share one."""
+    ax, ay, aw, ah = _rect(a); bx, by, bw, bh = _rect(b)
+    for wx in (ax, ax + aw):
+        if abs(wx - bx) <= tol or abs(wx - (bx + bw)) <= tol:
+            y0, y1 = max(ay, by), min(ay + ah, by + bh)
+            if y1 - y0 > 0.5:
+                return (wx, (y0 + y1) / 2)
+    for wy in (ay, ay + ah):
+        if abs(wy - by) <= tol or abs(wy - (by + bh)) <= tol:
+            x0, x1 = max(ax, bx), min(ax + aw, bx + bw)
+            if x1 - x0 > 0.5:
+                return ((x0 + x1) / 2, wy)
+    return None
+
+
+def _sanitise_doors(rooms, doors):
+    """Drop / relocate physically-impossible internal doors. A family bathroom or WC is entered
+    from circulation (hall/landing), NEVER straight from a bedroom — only an en-suite opens off a
+    bedroom. Where the AI traced a bathroom→bedroom door, re-anchor it onto the wall the wet room
+    shares with a circulation space, or drop it if there is none."""
+    out = []
+    for dr in (doors or []):
+        dx, dy = _num(dr.get("x")), _num(dr.get("y"))
+        touch = _rooms_touching(rooms, dx, dy)[:2]
+        kinds = {_room_kind(r.get("name")) for r in touch}
+        if "wet" in kinds and "bed" in kinds and "circ" not in kinds:
+            wet = next((r for r in touch if _room_kind(r.get("name")) == "wet"), None)
+            mid = None
+            for c in [r for r in rooms if _room_kind(r.get("name")) == "circ"]:
+                mid = _shared_wall_mid(wet, c) if wet else None
+                if mid:
+                    break
+            if mid:
+                nd = dict(dr); nd["x"], nd["y"] = round(mid[0], 2), round(mid[1], 2)
+                out.append(nd)
+            continue  # else: drop the impossible door entirely
+        out.append(dr)
+    return out
+
+
 def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
@@ -338,6 +408,7 @@ def _render_single(d: dict):
     _carve_hall(rooms, W, H, _upper)
     _fd = d.get("frontDoor") or {}
     _fdp = _front_door_placement(rooms, _fd if _fd else None, W, H, _upper)
+    _doors = _sanitise_doors(rooms, d.get("doors"))
 
     col_x = 745                      # right column divider
     X0 = 150                         # plan origin x (left dims to the left)
@@ -475,8 +546,8 @@ def _render_single(d: dict):
         if tvr:
             parts.append(f'<text x="{lx:.1f}" y="{ly+tdy:.1f}" font-size="8.5" font-weight="bold" text-anchor="middle" fill="#DC2626" font-family="Helvetica,Arial,sans-serif">TVR</text>')
 
-    # doors: quarter-circle swing
-    for dr in (d.get("doors") or []):
+    # doors: quarter-circle swing (sanitised so a bathroom never opens straight into a bedroom)
+    for dr in _doors:
         x, y = mx(_num(dr.get("x"))), my(_num(dr.get("y")))
         rr = 26
         parts.append(f'<path d="M{x:.1f},{y:.1f} l{rr},0 a{rr},{rr} 0 0 1 -{rr},{rr}" fill="none" stroke="#111" stroke-width="1.2"/>')

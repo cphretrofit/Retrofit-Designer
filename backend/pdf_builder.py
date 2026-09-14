@@ -1816,7 +1816,14 @@ def _subject_highlight(img_uri, zoom=1.5, label="SUBJECT PROPERTY"):
         '<div style="position:absolute; top:50%; left:50%; width:15%; height:15%; '
         'transform:translate(-50%,-50%); border:2.5px solid #0055FF; border-radius:3px; '
         'box-shadow:0 0 0 2px rgba(255,255,255,0.95);"></div>'
-        '<div style="position:absolute; top:50%; left:50%; '
+        + ('<div style="position:absolute; top:50%; left:50%; width:38%; height:38%; '
+           'transform:translate(-50%,-50%); border:1.6px dashed #E0261E; border-radius:2px; '
+           'box-shadow:0 0 0 1px rgba(255,255,255,0.55);"></div>'
+           '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%,255%); '
+           "background:#E0261E; color:#fff; font-family:'JetBrains Mono',monospace; font-size:6px; "
+           'letter-spacing:0.06em; padding:1px 5px; white-space:nowrap;">RED-LINE BOUNDARY &middot; INDICATIVE</div>'
+           if label == "SUBJECT PROPERTY" else "")
+        + '<div style="position:absolute; top:50%; left:50%; '
         "transform:translate(-50%,-165%); background:#0055FF; color:#fff; "
         "font-family:'JetBrains Mono',monospace; font-size:7px; letter-spacing:0.1em; "
         f'padding:2px 6px; white-space:nowrap;">{label}</div>'
