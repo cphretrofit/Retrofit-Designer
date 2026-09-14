@@ -1088,6 +1088,9 @@ def _measure_datasheet_block(m, fam, p):
     if has_pdf:
         names = ", ".join(_esc(d.get("name")) for d in docs[:4])
         badge = f'<div style="margin-top:14px; border:1px solid #16A34A; background:#f0fdf4; padding:9px 12px; font-size:10.5px; color:#166534;">&#10003; Manufacturer datasheet bound in Appendix A &mdash; {names}</div>'
+    elif prods:
+        badge = ('<div style="margin-top:14px; border:1px solid #16A34A; background:#f0fdf4; padding:9px 12px; font-size:10.5px; color:#166534;">'
+                 '&#10003; Specification read from the provided datasheet &mdash; product data captured above; no further datasheet required.</div>')
     else:
         badge = ('<div style="margin-top:14px; border:1px solid #B45309; background:#fffbeb; padding:9px 12px; font-size:10.5px; color:#9a3412;">'
                  '&#9888; Manufacturer datasheet required &mdash; to be supplied and bound into Appendix A before issue. The generated summary above serves as an interim specification record.</div>')
@@ -3285,7 +3288,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     items = list(items) + [
         {"severity": "info_required",
          "text": f'Manufacturer datasheet required for {c["name"]} \u2014 supply the product datasheet / BBA certificate to bind into Appendix A before issue.'}
-        for c in _ds_cov if not c["has_pdf"]]
+        for c in _ds_cov if not c["has_pdf"] and not c["prods"]]
     SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
     SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
     it_row_list = []

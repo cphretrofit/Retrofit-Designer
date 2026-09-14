@@ -195,3 +195,9 @@
 - **Door routing (P0):** `_sanitise_doors` in cad_floorplan.py drops/re-anchors any internal door tracing a family bathroom/WC straight into a bedroom (en-suites preserved); door re-anchored onto the wall the wet room shares with hall/landing, else dropped. CAD prompt hardened. Verified with unit + full SVG render.
 - **B-code recognition (P1):** `_normalise_measure_code` + `_REV_PAS` in ai_extractor.py map PAS 2030 Annex B codes (B1..B10) on the job card to internal codes; EXTRACT prompt updated. Verified B3→WIN, B9→LOFT, name-embedded B10→RIR.
 - **Red-line boundary (P2):** indicative dashed red-line site boundary + label overlaid on the aerial view (SolarPanel.jsx) and the PDF Aerial page (`_subject_highlight`, aerial only — not flux). Verified.
+
+## 2026-06-14 — dMEV / datasheet no longer re-requested once provided
+- Root cause: readiness (`_compute_readiness`) only checked bound `products`, ignoring uploaded Datasheet files & parsed `datasheetProducts`; and the PDF synthetic "datasheet required" item/badge only cleared on a bound PDF. So dMEV kept being asked for even after a datasheet was uploaded.
+- Fix (server.py): new `_datasheet_families()` (bound product OR parsed datasheetProduct OR uploaded Datasheet file matched by `DS_FAM_KW`); Specifications + Evidence readiness bars now treat a family with a provided datasheet as satisfied. `_compute_readiness(doc, ds_fams)`.
+- Fix (pdf_builder.py): Items-Before-Issue only appends "datasheet required" when there is NEITHER a bound PDF NOR product data; per-measure badge shows a positive "Specification read from the provided datasheet — no further datasheet required" when product data exists.
+- Read-time computation → applies to existing AND new jobs. Verified via unit tests + live API (VENT satisfied by bound product / NUAIRE datasheet file).

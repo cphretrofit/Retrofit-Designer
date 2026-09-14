@@ -19,7 +19,8 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - `backend/server.py` — routes, pack jobs.
 
 ## Implemented — Jun 14 2026 (fork)
-- **Photo picker thumbnails**: `?w=` cached JPEG thumbnails on `/documents/{id}/embedded/{i}` + `/download`; frontend `thumbUrl()` + fade-in across Site Conditions / Measure Evidence / Defects pickers. Fixes blank grey tiles (162KB→21KB/tile).
+- **dMEV / datasheet not re-requested**: once a datasheet is provided (bound product, parsed `datasheetProduct`, or uploaded Datasheet file matched by family), readiness (Specifications + Evidence) and the PDF stop asking for it. `_datasheet_families()` in server.py; PDF badge shows "read from provided datasheet". Read-time → existing + new jobs.
+- **Photo picker thumbnails**: `?w=` cached JPEG thumbnails on `/documents/{id}/embedded/{i}` + `/download`; frontend `thumbUrl()` + fade-in across Site Conditions / Measure Evidence / Defects pickers.
 - **Door routing (P0 fixed)**: `_sanitise_doors` in cad_floorplan.py drops/re-anchors bathroom→bedroom doors (en-suites kept). CAD prompt hardened.
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).

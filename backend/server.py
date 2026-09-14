@@ -670,8 +670,10 @@ def _ensure_uvalues(p):
                 m["calculatedU"] = m.get("targetU")
 
 
-def _compute_readiness(p):
+def _compute_readiness(p, ds_fams=None):
     """Live, gap-based readiness so 100% genuinely means issue-ready."""
+    from pdf_builder import _mfam
+    ds_fams = ds_fams or set()
     prop = p.get("property") or {}
     ec = prop.get("existingConstruction") or {}
     ms = p.get("measures") or []
@@ -714,12 +716,13 @@ def _compute_readiness(p):
         code = (m.get("code") or "").upper()
         prods = len(m.get("products") or [])
         bu = len(m.get("buildup") or [])
+        has_ds = prods >= 1 or _mfam(code, m.get("name")) in ds_fams
         if code == "WIN":
-            ok = prods >= 1 and (bu >= 1 or _rd_filled(p.get("windowSchedule")))
+            ok = has_ds and (bu >= 1 or _rd_filled(p.get("windowSchedule")))
         elif code in _FABRIC_CODES:
-            ok = prods >= 1 and bu >= 1
+            ok = has_ds and bu >= 1
         else:
-            ok = prods >= 1 and bool(m.get("system"))
+            ok = has_ds and bool(m.get("system"))
         if ok:
             spec_pass += 1
         else:
@@ -771,7 +774,7 @@ def _compute_readiness(p):
             e_missing.append(e.get("label") or e.get("key"))
     for m in ms:
         e_total += 1
-        if len(m.get("products") or []) > 0:
+        if len(m.get("products") or []) > 0 or _mfam(m.get("code"), m.get("name")) in ds_fams:
             e_pass += 1
         else:
             e_missing.append(f"{m.get('name') or m.get('code')} datasheet")
@@ -930,6 +933,28 @@ DS_FAM_KW = {
     "SOLAR": ("solar", "pv", "panel", "inverter", "jinko", "longi", "trina", "easypv", "battery"),
     "FLOOR": ("floor",),
 }
+
+
+def _datasheet_families(doc, ds_files=None):
+    """Families of measure for which a datasheet has been provided — bound to the measure, parsed
+    into datasheetProducts, or uploaded as a Datasheet document matched by filename. Readiness uses
+    this so it stops asking for a datasheet (e.g. dMEV) once one has been supplied."""
+    from pdf_builder import _mfam
+    fams = set()
+    for m in doc.get("measures") or []:
+        if m.get("products"):
+            fams.add(_mfam(m.get("code"), m.get("name")))
+    for d in doc.get("datasheetProducts") or []:
+        mref = str(d.get("measure") or d.get("family") or d.get("code") or "")
+        if mref:
+            fams.add(_mfam(mref, mref))
+    for fn in (ds_files or []):
+        for fam, kws in DS_FAM_KW.items():
+            if any(k in fn for k in kws):
+                fams.add(fam)
+    fams.discard("")
+    fams.discard("GEN")
+    return fams
 
 
 def _auto_resolve_datasheet_items(doc, ds_files=None):
@@ -1097,7 +1122,7 @@ async def get_project(project_id: str, request: Request):
         if _m.get("outstanding"):
             _m["outstanding"] = [o for o in _m["outstanding"] if "commissioning evidence" not in (o or "").lower()]
     _apply_measure_progress(doc)
-    doc["readiness"] = _compute_readiness(doc)
+    doc["readiness"] = _compute_readiness(doc, _datasheet_families(doc, _ds_files))
     # Auto-orient the plan compass from the assessment's stated orientation (one-time, persisted).
     _fp = doc.get("floorPlan") or {}
     if _fp and _fp.get("orientationDeg") is None:
