@@ -209,3 +209,6 @@
 ## 2026-06-14 (3) — Commissioning & datasheet items removed from Actions Required
 - New `_is_handover_item()` (pdf_builder) flags commissioning/handover items (excludes "decommission") AND datasheet/product-/spec-"to be confirmed" items. GET /projects/{id} strips them from `itemsBeforeIssue` and each measure `outstanding`; the PDF Pre-Issue register filters the same and the synthetic "Manufacturer datasheet required" append was removed. Read-time → existing + new jobs.
 - Verified live: 3 projects now show 0 commissioning and 0 datasheet items; remaining items are genuine design actions only. Trickle-vent "specification not confirmed" also removed.
+
+## 2026-06-14 (4) — Compass letters stay upright
+- `_north(odeg)` in cad_floorplan.py now rotates only the needle; N/S/E/W are placed at their rotated positions but rendered as upright text (no group rotate), so letters never appear mirrored/upside-down. Verified visually at 0/90/180/270 deg.

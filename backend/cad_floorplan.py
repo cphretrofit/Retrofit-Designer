@@ -195,16 +195,24 @@ def _circle_label(cx, cy, txt, r=12):
             f'<text x="{cx:.1f}" y="{cy+fs*0.35:.1f}" font-size="{fs:.0f}" text-anchor="middle" fill="#111" font-family="Georgia,serif">{_esc(txt)}</text>')
 
 
-def _north():
-    return ('<g transform="translate(0,0)">'
-            '<line x1="40" y1="8" x2="40" y2="72" stroke="#111" stroke-width="1.4"/>'
-            '<line x1="12" y1="40" x2="68" y2="40" stroke="#111" stroke-width="1.4"/>'
-            '<path d="M40,4 l7,20 l-14,0 z" fill="#111"/>'
-            '<text x="40" y="-2" font-size="13" text-anchor="middle" font-family="Georgia,serif">N</text>'
-            '<text x="40" y="88" font-size="13" text-anchor="middle" font-family="Georgia,serif">S</text>'
-            '<text x="4" y="45" font-size="13" text-anchor="middle" font-family="Georgia,serif">W</text>'
-            '<text x="76" y="45" font-size="13" text-anchor="middle" font-family="Georgia,serif">E</text>'
-            '</g>')
+def _north(odeg=0):
+    """North point: the needle rotates to indicate true north, but the N/S/E/W letters are placed
+    at their rotated positions yet kept UPRIGHT so they always read the right way."""
+    import math
+    rad = math.radians(-odeg)
+    cx = cy = 40
+    needle = (f'<g transform="rotate({-odeg:.0f},{cx},{cy})">'
+              '<line x1="40" y1="8" x2="40" y2="72" stroke="#111" stroke-width="1.4"/>'
+              '<line x1="12" y1="40" x2="68" y2="40" stroke="#111" stroke-width="1.4"/>'
+              '<path d="M40,4 l7,20 l-14,0 z" fill="#111"/>'
+              '</g>')
+    labels = []
+    for txt, dx, dy in (("N", 0, -42), ("S", 0, 42), ("W", -40, 0), ("E", 40, 0)):
+        rx = cx + dx * math.cos(rad) - dy * math.sin(rad)
+        ry = cy + dx * math.sin(rad) + dy * math.cos(rad)
+        labels.append(f'<text x="{rx:.1f}" y="{ry + 4.5:.1f}" font-size="13" '
+                      f'text-anchor="middle" font-family="Georgia,serif">{txt}</text>')
+    return f'<g>{needle}{"".join(labels)}</g>'
 
 
 def _hatch_rect(x, y, w, h, gap=15, color="#B45309", sw=1.0, opacity=0.5):
@@ -637,7 +645,7 @@ def _render_single(d: dict):
             ry += 25
     # north arrow
     _odeg = float(d.get("orientationDeg") or 0)
-    parts.append(f'<g transform="translate({col_x+120},{ry+20}) rotate({-_odeg:.0f},40,40)">{_north()}</g>')
+    parts.append(f'<g transform="translate({col_x+120},{ry+20})">{_north(_odeg)}</g>')
     ry += 150
     db = d.get("dataBox") or {}
     if db:
