@@ -201,3 +201,7 @@
 - Fix (server.py): new `_datasheet_families()` (bound product OR parsed datasheetProduct OR uploaded Datasheet file matched by `DS_FAM_KW`); Specifications + Evidence readiness bars now treat a family with a provided datasheet as satisfied. `_compute_readiness(doc, ds_fams)`.
 - Fix (pdf_builder.py): Items-Before-Issue only appends "datasheet required" when there is NEITHER a bound PDF NOR product data; per-measure badge shows a positive "Specification read from the provided datasheet — no further datasheet required" when product data exists.
 - Read-time computation → applies to existing AND new jobs. Verified via unit tests + live API (VENT satisfied by bound product / NUAIRE datasheet file).
+
+## 2026-06-14 (2) — dMEV item now clears from client datasheet library too
+- Follow-up: the *Outstanding actions* list is driven by `_auto_resolve_datasheet_items`, which only scanned project-attached datasheets. If the dMEV datasheet lived in the CLIENT library it never cleared. GET /projects/{id} now appends the client-library Datasheet filenames to `_ds_files` (matched by client name, same as the PDF), so auto-resolve + readiness both see it. Broadened VENT keyword net (faithplus, svara, lo-carbon, silhouette, revive, domus, greenwood, manrose, xpelair, ventaxia).
+- Verified: vent datasheet in library → item resolves ("Read from datasheet"); solar-only library (DMEGC) does NOT falsely resolve VENT. Read-time → existing + new jobs.

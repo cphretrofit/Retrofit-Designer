@@ -925,7 +925,7 @@ def _parse_front_bearing(text):
 
 
 DS_FAM_KW = {
-    "VENT": ("dmev", "mev", "mvhr", "fan", "extract", "ventil", "nuaire", "titon", "envirovent", "vectaire", "vent axia", "vent-axia", "airflow"),
+    "VENT": ("dmev", "mev", "mvhr", "fan", "extract", "ventil", "nuaire", "titon", "envirovent", "vectaire", "vent axia", "vent-axia", "ventaxia", "airflow", "faithplus", "svara", "lo-carbon", "silhouette", "revive", "domus", "greenwood", "manrose", "xpelair", "trickle"),
     "LOFT": ("loft", "insulation", "mineral wool", "glass wool", "rockwool", "earthwool", "knauf", "isover", "spacesaver", "quilt"),
     "WALL": ("ewi", "iwi", "render", "wall insulation", "kingspan", "celotex", "board", "masonry"),
     "WIN": ("window", "glazing", "casement", "door", "frame", "anglian"),
@@ -1114,6 +1114,14 @@ async def get_project(project_id: str, request: Request):
     _ds_files = [(x.get("original_filename") or "").lower() for x in
                  await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
                                          {"_id": 0, "original_filename": 1}).to_list(100)]
+    # A datasheet provided in the client's shared library counts as provided for this project too.
+    _cname = (doc.get("client") or "").strip()
+    if _cname:
+        _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}}, {"id": 1})
+        if _cl:
+            _ds_files += [(x.get("original_filename") or "").lower() for x in
+                          await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                                  {"_id": 0, "original_filename": 1}).to_list(200)]
     _auto_resolve_datasheet_items(doc, _ds_files)
     # Commissioning evidence is a post-install / handover artefact — never an outstanding design item.
     doc["itemsBeforeIssue"] = [it for it in (doc.get("itemsBeforeIssue") or [])
