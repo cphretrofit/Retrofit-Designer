@@ -895,29 +895,56 @@ async def _solar_survey_state(project_id: str, measures):
     return has, missing
 
 
-def _auto_resolve_datasheet_items(doc):
-    """Product-specification 'to be confirmed' items resolve themselves once a datasheet for that
-    measure is bound — the spec is READ from the datasheet instead of being requested from the
-    installer. Computed at read time (not persisted) so it reverts if the datasheet is removed."""
+DS_FAM_KW = {
+    "VENT": ("dmev", "mev", "mvhr", "fan", "extract", "ventil", "nuaire", "titon", "envirovent", "vectaire", "vent axia", "vent-axia", "airflow"),
+    "LOFT": ("loft", "insulation", "mineral wool", "glass wool", "rockwool", "earthwool", "knauf", "isover", "spacesaver", "quilt"),
+    "WALL": ("ewi", "iwi", "render", "wall insulation", "kingspan", "celotex", "board", "masonry"),
+    "WIN": ("window", "glazing", "casement", "door", "frame", "anglian"),
+    "ASHP": ("heat pump", "ashp", "arotherm", "vaillant", "daikin", "mitsubishi", "cylinder", "ecodan"),
+    "SOLAR": ("solar", "pv", "panel", "inverter", "jinko", "longi", "trina", "easypv", "battery"),
+    "FLOOR": ("floor",),
+}
+
+
+def _auto_resolve_datasheet_items(doc, ds_files=None):
+    """Product / datasheet 'to be confirmed' items resolve themselves once a datasheet for that
+    measure is available — bound to the measure, parsed into datasheetProducts, OR simply uploaded
+    as a Datasheet document that names the measure. The spec is READ from the datasheet rather than
+    re-requested from the installer. Read-time (not persisted) so it reverts if the datasheet is gone."""
     from pdf_builder import _mfam
-    measures = doc.get("measures") or []
     labels = {}
-    for m in measures:
+
+    def _put(mref, label):
+        if not mref:
+            return
+        labels.setdefault(str(mref).upper(), label)
+        fam = _mfam(str(mref), str(mref))
+        if fam:
+            labels.setdefault(fam, label)
+
+    for m in doc.get("measures") or []:
         prods = m.get("products") or []
         if not prods:
             continue
         f = prods[0]
-        label = " ".join(x for x in [(f.get("manufacturer") or "").strip(), (f.get("product") or "").strip()] if x).strip()
-        label = label or (m.get("system") or "").strip()
+        label = " ".join(x for x in [(f.get("manufacturer") or "").strip(), (f.get("product") or "").strip()] if x).strip() or (m.get("system") or "").strip()
         labels.setdefault((m.get("code") or "").upper(), label)
         labels.setdefault(_mfam(m.get("code"), m.get("name")), label)
+    # Parsed datasheet products (may not yet be bound onto a measure)
+    for d in doc.get("datasheetProducts") or []:
+        label = " ".join(x for x in [(d.get("manufacturer") or "").strip(), (d.get("product") or d.get("name") or "").strip()] if x).strip() or "the uploaded datasheet"
+        _put(d.get("measure") or d.get("family") or d.get("code"), label)
+    # Uploaded Datasheet documents, matched to a measure family by filename keyword
+    for fn in (ds_files or []):
+        for fam, kws in DS_FAM_KW.items():
+            if any(k in fn for k in kws):
+                labels.setdefault(fam, "the uploaded datasheet")
+
     items = doc.get("itemsBeforeIssue") or []
     for it in items:
         if it.get("resolved") or it.get("confirmedBy"):
             continue
         text = (it.get("text") or "").lower()
-        # Any item asking for a product / manufacturer / datasheet / specification to be confirmed
-        # or provided — resolves once that measure has a bound datasheet (the spec is READ from it).
         is_datasheet_item = (
             "product specification" in text
             or ("datasheet" in text and any(k in text for k in ("not confirmed", "to be confirmed", "must be provided", "not provided", "confirm", "required")))
@@ -933,7 +960,7 @@ def _auto_resolve_datasheet_items(doc):
             it["auto"] = True
             it["resolvedBy"] = "Datasheet"
             it["status"] = "Read from datasheet"
-            it["note"] = f"Resolved automatically — product / manufacturer details read from the bound datasheet: {label}. No installer confirmation required."
+            it["note"] = f"Resolved automatically — details read from {label}. No installer confirmation required."
     doc["itemsBeforeIssue"] = items
 
 
@@ -1033,7 +1060,10 @@ async def get_project(project_id: str, request: Request):
                     _m["outstanding"] = _outs
     except Exception:
         pass
-    _auto_resolve_datasheet_items(doc)
+    _ds_files = [(x.get("original_filename") or "").lower() for x in
+                 await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                         {"_id": 0, "original_filename": 1}).to_list(100)]
+    _auto_resolve_datasheet_items(doc, _ds_files)
     # Commissioning evidence is a post-install / handover artefact — never an outstanding design item.
     doc["itemsBeforeIssue"] = [it for it in (doc.get("itemsBeforeIssue") or [])
                                if not (it.get("text") or "").lower().startswith("commissioning evidence")]

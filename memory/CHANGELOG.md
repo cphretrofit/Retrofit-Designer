@@ -174,3 +174,6 @@
 ### Designer MCIOB + coordinator dropdown (2026-06, Jun fork)
 - Retrofit Designer now renders "Alex Leighton (MCIOB 7009478)" everywhere (set in get_project; flows to PDF sign-off/compliance blocks via p.designer).
 - Retrofit Coordinator is now a dropdown (DesignWorkspace → Project Details) with the 5 CPH coordinators + TrustMark numbers: Reece Mawson (3155303), Sean Crozier (4004735), Lewis Crozier (4013507), Sam Welch (3770743), Benjamin Lee (4138832). Selection stores "Name (TrustMark N)" → shows on the issued pack sign-off. Any pre-existing free-text coordinator is preserved as a fallback option.
+
+### Datasheet items never re-asked once a datasheet exists (2026-06, Jun fork)
+- Broadened `_auto_resolve_datasheet_items(doc, ds_files)`: a measure's product/datasheet "to be confirmed" item now resolves if the spec is available via ANY route — bound `m.products`, parsed `datasheetProducts`, OR simply an uploaded Datasheet document whose filename names the measure family (new `DS_FAM_KW` keyword map, e.g. nuaire/dmev/fan→VENT, knauf/loft/insulation→LOFT). `get_project` passes the project's Datasheet filenames. Unit-verified: VENT item clears on "nuaire dmev fan.pdf" upload while an unrelated LOFT item stays open; no regression (13 Mill View 0 open datasheet items).
