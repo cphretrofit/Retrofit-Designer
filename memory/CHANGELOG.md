@@ -187,3 +187,6 @@
 - Split compliance: confirmed already per-measure — each measure's spec pages render a "Design Compliance Checklist" grouping Fire Safety / Thermal Bridging / Ventilation / Electrical / Moisture / Compliance, plus a dedicated Thermal Bridging HLP table (pdf_builder ~3527-3572). No change needed.
 - Readiness checklist: MeasureDetail now shows a per-measure "To reach 100% — N to clear" list derived from live module indicators (spec/calc/junctions/risks/evidence/qa), or a green "Design complete" line when done (data-testid measure-readiness-checklist).
 - Auto-orient compass: `_parse_front_bearing` derives the front bearing from property.orientation (handles rear/front wording) and get_project seeds floorPlan.orientationDeg once (persisted) + re-renders cadSvg. Verified 13 Mill View "front elevation facing South" → 180°.
+
+## 2026-06-14 — Photo picker thumbnails
+- Fixed blank grey tiles in evidence photo pickers: they loaded 75+ full-res embedded images at once. Backend now serves cached ~440px JPEG thumbnails via `?w=` on `/documents/{id}/embedded/{i}` and `/documents/{id}/download` (see `_thumbnail_bytes`/`_cached_thumb` in server.py). Frontend `thumbUrl()` helper + fade-in applied in SiteConditionsPanel, MeasureEvidence, DefectsPanel pickers. Full-res still used on attach/zoom. Verified: 162KB→21KB per tile.

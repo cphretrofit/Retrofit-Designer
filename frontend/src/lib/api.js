@@ -138,3 +138,10 @@ export const autofillRebatch = () => api.post("/admin/autofill/rebatch").then((r
 export const autofillRebatchStatus = () => api.get("/admin/autofill/rebatch").then((r) => r.data);
 
 export const mediaUrl = (u) => (!u ? u : u.startsWith("http") ? u : `${BACKEND_URL}${u}`);
+
+// Picker thumbnail: append ?w=<px> to our own media endpoints so tiles load fast (full-res stays on attach/zoom).
+export const thumbUrl = (u, w = 440) => {
+  const m = mediaUrl(u);
+  if (!m || !/\/api\/documents\/[^/]+\/(embedded\/\d+|download)/.test(m)) return m;
+  return m + (m.includes("?") ? "&" : "?") + `w=${w}`;
+};

@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { uploadMeasureEvidence, deleteMeasureEvidence, autofillMeasureCompliance, getAllPhotos, addMeasureEvidencePhotoUrl, mediaUrl } from "@/lib/api";
+import { uploadMeasureEvidence, deleteMeasureEvidence, autofillMeasureCompliance, getAllPhotos, addMeasureEvidencePhotoUrl, mediaUrl, thumbUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { Trash2, Loader2, ImagePlus, Wand2, X, ShieldCheck } from "lucide-react";
 
@@ -167,7 +167,7 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
               <button key={ph.url || pi} data-testid={`evidence-photo-option-${pi}`} disabled={attaching}
                 onClick={() => attachFromUrl(ph)}
                 className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left disabled:opacity-50 bg-card">
-                <div className="h-52 bg-neutral-100 flex items-center justify-center overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="max-w-full max-h-full object-contain" loading="lazy" /></div>
+                <div className="h-52 bg-neutral-100 flex items-center justify-center overflow-hidden"><img src={thumbUrl(ph.url)} alt={ph.caption} className="max-w-full max-h-full object-contain opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
             ))}

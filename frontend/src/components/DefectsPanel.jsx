@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl } from "@/lib/api";
+import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl, thumbUrl } from "@/lib/api";
 import { toast } from "sonner";
 import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images, ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
 
@@ -257,7 +257,7 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
               {photos.map((ph, i) => (
                 <button key={i} onClick={() => pickSurvey(picking, ph)} data-testid={`gallery-photo-${i}`}
                   className="text-left border border-border rounded-sm overflow-hidden hover:border-foreground/40 transition-colors">
-                  <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-24 object-cover" />
+                  <img src={thumbUrl(ph.url)} alt={ph.caption} className="w-full h-24 object-cover opacity-0 transition-opacity duration-300 bg-neutral-100" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} />
                   <div className="px-2 py-1.5 text-[11px] leading-tight"><span className="font-mono text-muted-foreground mr-1">{ph.fig}</span>{ph.caption}</div>
                 </button>
               ))}

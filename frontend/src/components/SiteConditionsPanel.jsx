@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { detectSiteConditions, saveSiteConditions, mediaUrl, getAllPhotos } from "@/lib/api";
+import { detectSiteConditions, saveSiteConditions, mediaUrl, thumbUrl, getAllPhotos } from "@/lib/api";
 import { toast } from "sonner";
 import { Sparkles, Loader2, Save, Maximize2, ImagePlus, X } from "lucide-react";
 
@@ -207,7 +207,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
               <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
                 onClick={() => { updateEv(pick, { url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" }); setPick(null); toast.success("Photo attached — click Save to persist"); }}
                 className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left bg-card">
-                <div className="h-52 bg-neutral-100 flex items-center justify-center overflow-hidden"><img src={mediaUrl(ph.url)} alt={ph.caption} className="max-w-full max-h-full object-contain" loading="lazy" /></div>
+                <div className="h-52 bg-neutral-100 flex items-center justify-center overflow-hidden"><img src={thumbUrl(ph.url)} alt={ph.caption} className="max-w-full max-h-full object-contain opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
             ))}

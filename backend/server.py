@@ -1678,6 +1678,39 @@ _EMBED_CACHE = {}
 _EMBED_CACHE_ORDER = []
 _EMBED_CACHE_MAX = 60
 
+_THUMB_CACHE = {}
+_THUMB_ORDER = []
+_THUMB_MAX = 800
+
+
+def _thumbnail_bytes(raw: bytes, w: int) -> bytes:
+    """Downscale image bytes to a picker thumbnail (max width `w`), re-encoded as JPEG."""
+    from PIL import Image
+    im = Image.open(io.BytesIO(raw))
+    if im.mode not in ("RGB", "L"):
+        im = im.convert("RGB")
+    im.thumbnail((w, w * 4), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=72, optimize=True)
+    return buf.getvalue()
+
+
+async def _cached_thumb(key: str, raw: bytes, w: int) -> bytes:
+    """Return a cached thumbnail for the given cache key, building it once on demand."""
+    ck = f"{key}:{w}"
+    if ck in _THUMB_CACHE:
+        return _THUMB_CACHE[ck]
+    try:
+        thumb = await asyncio.to_thread(_thumbnail_bytes, raw, w)
+    except Exception as e:
+        logger.warning("thumbnail failed for %s: %s", key, e)
+        return raw
+    _THUMB_CACHE[ck] = thumb
+    _THUMB_ORDER.append(ck)
+    if len(_THUMB_ORDER) > _THUMB_MAX:
+        _THUMB_CACHE.pop(_THUMB_ORDER.pop(0), None)
+    return thumb
+
 
 async def _mine_pdf_photos(storage_path):
     """Extract (and cache) the embedded survey photos of one PDF. Cached in-memory keyed by
@@ -1733,9 +1766,9 @@ async def project_all_photos(project_id: str):
 
 
 @api_router.get("/documents/{doc_id}/embedded/{index}")
-async def document_embedded_image(doc_id: str, index: int):
+async def document_embedded_image(doc_id: str, index: int, w: Optional[int] = Query(None)):
     """Serve the Nth image embedded inside a PDF document (used by the photo picker to expose
-    every image in the photopack without pre-storing each one)."""
+    every image in the photopack without pre-storing each one). Pass ?w=<px> for a cached thumbnail."""
     d = await db.documents.find_one({"id": doc_id})
     if not d or not d.get("storage_path"):
         raise HTTPException(status_code=404, detail="Document not found")
@@ -1743,6 +1776,9 @@ async def document_embedded_image(doc_id: str, index: int):
     if index < 0 or index >= len(imgs):
         raise HTTPException(status_code=404, detail="Image index out of range")
     raw, ext = imgs[index]["image"]
+    if w and w > 0:
+        return Response(content=await _cached_thumb(f"emb:{doc_id}:{index}", raw, min(w, 1000)),
+                        media_type="image/jpeg")
     mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
     return Response(content=raw, media_type=mime)
 
@@ -3117,11 +3153,14 @@ async def list_documents(project_id: str):
 
 
 @api_router.get("/documents/{doc_id}/download")
-async def download_document(doc_id: str):
+async def download_document(doc_id: str, w: Optional[int] = Query(None)):
     rec = await db.documents.find_one({"id": doc_id, "is_deleted": False})
     if not rec or not rec.get("storage_path"):
         raise HTTPException(status_code=404, detail="Document not found")
     data, ctype = await asyncio.to_thread(get_object, rec["storage_path"])
+    if w and w > 0 and (rec.get("content_type") or ctype or "").startswith("image/"):
+        return Response(content=await _cached_thumb(f"dl:{doc_id}", data, min(w, 1000)),
+                        media_type="image/jpeg")
     return Response(content=data, media_type=rec.get("content_type", ctype),
                     headers={"Content-Disposition": f'inline; filename="{rec.get("original_filename","file")}"'})
 
