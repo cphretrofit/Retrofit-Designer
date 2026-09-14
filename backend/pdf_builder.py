@@ -2962,6 +2962,28 @@ def compute_drawing_register(p):
     return rows
 
 
+def _signoff_html(p, issued_date=""):
+    def block(role, name):
+        return (f'<div style="width:31%; display:inline-block; vertical-align:top; margin-right:2%;">'
+                f'<div class="faint upper" style="font-size:9px;">{_esc(role)}</div>'
+                f'<div style="font-size:12px; color:#262626; margin-top:4px; min-height:30px; line-height:1.4;">{_esc(name or "—")}</div>'
+                f'<div style="border-bottom:1px solid #111; height:34px;"></div>'
+                f'<div class="faint upper" style="font-size:8px; margin-top:4px;">Signature</div>'
+                f'<div style="border-bottom:1px solid #bbb; height:22px; margin-top:14px;"></div>'
+                f'<div class="faint upper" style="font-size:8px; margin-top:4px;">Date</div></div>')
+    body = (block("Retrofit Designer", p.get("designer"))
+            + block("Retrofit Coordinator", p.get("coordinator"))
+            + block("Client / Homeowner", p.get("client")))
+    intro = ('This design pack has been prepared under PAS 2035:2023. By signing, the Retrofit Designer confirms the design is complete and '
+             'compliant; the Retrofit Coordinator confirms independent review and sign-off (PAS 2030 Annex B9); and the client acknowledges '
+             'receipt and approval of the design prior to installation.')
+    return ('<div style="padding-top:8px;"><div class="faint upper" style="font-size:10px; letter-spacing:0.14em;">Design Sign-Off</div>'
+            '<h2 style="font-size:22px; font-weight:400; margin:6px 0 0;">Approval &amp; Declaration</h2>'
+            f'<div class="muted" style="font-size:11px; margin-top:12px; line-height:1.6; max-width:660px;">{intro}</div>'
+            f'<div style="margin-top:44px;">{body}</div>'
+            f'<div class="faint" style="font-size:10px; margin-top:44px;">Date issued: {_esc(issued_date)}</div></div>')
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -4036,6 +4058,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
+    signoff_page = _signoff_html(p, issued_date)
     pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
@@ -4046,7 +4069,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              measures_schedule_page, performance,
              *([standards_page] if standards_page else []), *([exclusions_page] if exclusions_page else []), *([commissioning_page] if commissioning_page else []),
              compliance_handover_page,
-             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
+             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages, signoff_page,
              *([appendix_index_page] if appendix_index_page else []),
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]

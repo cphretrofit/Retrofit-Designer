@@ -39,6 +39,14 @@ export function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField })
   const [sel, setSel] = useState(m.junctions?.[0]?.name || null);
   const junction = m.junctions?.find((j) => j.name === sel);
   const pass = m.calculatedU != null && m.targetU != null && m.calculatedU <= m.targetU;
+  const blocking = [
+    ["specification", "Select the product / datasheet"],
+    ["calculations", "Complete the U-value / calculation"],
+    ["junctions", "Resolve all junction details"],
+    ["risks", "Record the measure risks"],
+    ["evidence", "Attach site evidence photos"],
+    ["qa", "Clear outstanding action items"],
+  ].filter(([k]) => { const v = (m.indicators || {})[k]; return v && v !== "done" && v !== "n/a"; });
 
   return (
     <div className="anim-in space-y-5">
@@ -72,6 +80,22 @@ export function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField })
               <div><div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground">Outstanding</div><div className="font-mono text-sm mt-1">{m.outstanding.length} items</div></div>
               <div className="col-span-2"><div className="text-[10px] uppercase tracking-[0.1em] text-muted-foreground mb-1.5">Modules</div><IndicatorDots indicators={m.indicators} /></div>
             </div>
+            {blocking.length > 0 ? (
+              <div data-testid="measure-readiness-checklist" className="mt-4 border border-[var(--c-critical)]/30 bg-[var(--c-critical)]/5 rounded-sm p-3">
+                <div className="text-[10px] uppercase tracking-[0.1em] text-[var(--c-critical)] mb-2">To reach 100% — {blocking.length} to clear</div>
+                <ul className="space-y-1.5">
+                  {blocking.map(([k, l]) => (
+                    <li key={k} className="flex items-center gap-2 text-[12px] text-foreground/85">
+                      <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: "var(--c-critical)" }} /> {l}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <div data-testid="measure-readiness-checklist" className="mt-4 flex items-center gap-2 text-[12px]" style={{ color: "var(--c-pass)" }}>
+                <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} /> Design complete — nothing outstanding for this measure
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -895,6 +895,32 @@ async def _solar_survey_state(project_id: str, measures):
     return has, missing
 
 
+_CARDINALS = {"north-east": 45, "northeast": 45, "north east": 45, "north-west": 315, "northwest": 315,
+              "north west": 315, "south-east": 135, "southeast": 135, "south east": 135, "south-west": 225,
+              "southwest": 225, "south west": 225, "north": 0, "south": 180, "east": 90, "west": 270}
+
+
+def _parse_front_bearing(text):
+    """Derive the front-elevation bearing (deg from N) from free-text orientation such as
+    'South-facing rear' or 'Rear elevation South-West'. If the text describes the REAR, the front
+    is the opposite bearing."""
+    if not text:
+        return None
+    t = str(text).lower()
+    deg = None
+    for k in ("north-east", "northeast", "north east", "north-west", "northwest", "north west",
+              "south-east", "southeast", "south east", "south-west", "southwest", "south west",
+              "north", "south", "east", "west"):
+        if k in t:
+            deg = _CARDINALS[k]
+            break
+    if deg is None:
+        return None
+    if any(w in t for w in ("rear", "back")) and not any(w in t for w in ("front", "principal", "entrance", "main elevation")):
+        deg = (deg + 180) % 360
+    return deg
+
+
 DS_FAM_KW = {
     "VENT": ("dmev", "mev", "mvhr", "fan", "extract", "ventil", "nuaire", "titon", "envirovent", "vectaire", "vent axia", "vent-axia", "airflow"),
     "LOFT": ("loft", "insulation", "mineral wool", "glass wool", "rockwool", "earthwool", "knauf", "isover", "spacesaver", "quilt"),
@@ -1072,6 +1098,23 @@ async def get_project(project_id: str, request: Request):
             _m["outstanding"] = [o for o in _m["outstanding"] if "commissioning evidence" not in (o or "").lower()]
     _apply_measure_progress(doc)
     doc["readiness"] = _compute_readiness(doc)
+    # Auto-orient the plan compass from the assessment's stated orientation (one-time, persisted).
+    _fp = doc.get("floorPlan") or {}
+    if _fp and _fp.get("orientationDeg") is None:
+        _deg = _parse_front_bearing((doc.get("property") or {}).get("orientation"))
+        if _deg is not None:
+            _fp["orientationDeg"] = _deg
+            _cd = _fp.get("cadData")
+            if _cd:
+                _cd["orientationDeg"] = _deg
+                from cad_floorplan import build_cad_floorplan_svg
+                try:
+                    _svg, _anch = build_cad_floorplan_svg(_cd, True)
+                    _fp["cadSvg"], _fp["cadData"], _fp["anchors"] = _svg, _cd, _anch
+                except Exception:
+                    pass
+            doc["floorPlan"] = _fp
+            await db.projects.update_one({"id": project_id}, {"$set": {"floorPlan": _fp}})
     # House rule: the retrofit designer is always Alex Leighton (MCIOB 7009478) and every job is a
     # Retrofit Design (never a Concept Design). Applied at read so existing projects update too.
     doc["designStage"] = "Retrofit Design"

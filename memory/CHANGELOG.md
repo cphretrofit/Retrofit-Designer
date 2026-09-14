@@ -181,3 +181,9 @@
 ### Loft coverage confined to floor area + datasheet chips (2026-06, Jun fork)
 - FIX: the frontend loft toggle previously drew a whole-canvas overlay (covering the compass/legend column too). Now the loft toggle sets cadData.loftCoverage server-side and re-renders cadSvg, so the loft hatch is drawn per-room (clipped to the actual floor footprint) in BOTH the panel and the PDF pack. Removed the full-canvas overlay. update_floorplan handles loftArea → toggles loftCoverage + re-render.
 - "Read from datasheet ✓" chips: MeasureDetail header shows "Read from datasheet: <manufacturer product>" when the measure has a bound datasheet; the Pre-Issue Register (ActionItems) shows a green "Read from datasheet" chip on items auto-resolved by a datasheet (resolvedBy === "Datasheet").
+
+### Sign-off panel, per-measure compliance, readiness checklist, auto-orient compass (2026-06, Jun fork)
+- Sign-off: new `_signoff_html` "Approval & Declaration" page added to the pack with signature/date lines for Retrofit Designer (Alex Leighton MCIOB 7009478), Retrofit Coordinator (name + TrustMark) and Client/Homeowner, plus a PAS 2035 declaration.
+- Split compliance: confirmed already per-measure — each measure's spec pages render a "Design Compliance Checklist" grouping Fire Safety / Thermal Bridging / Ventilation / Electrical / Moisture / Compliance, plus a dedicated Thermal Bridging HLP table (pdf_builder ~3527-3572). No change needed.
+- Readiness checklist: MeasureDetail now shows a per-measure "To reach 100% — N to clear" list derived from live module indicators (spec/calc/junctions/risks/evidence/qa), or a green "Design complete" line when done (data-testid measure-readiness-checklist).
+- Auto-orient compass: `_parse_front_bearing` derives the front bearing from property.orientation (handles rear/front wording) and get_project seeds floorPlan.orientationDeg once (persisted) + re-renders cadSvg. Verified 13 Mill View "front elevation facing South" → 180°.
