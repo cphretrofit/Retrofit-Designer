@@ -205,3 +205,7 @@
 ## 2026-06-14 (2) — dMEV item now clears from client datasheet library too
 - Follow-up: the *Outstanding actions* list is driven by `_auto_resolve_datasheet_items`, which only scanned project-attached datasheets. If the dMEV datasheet lived in the CLIENT library it never cleared. GET /projects/{id} now appends the client-library Datasheet filenames to `_ds_files` (matched by client name, same as the PDF), so auto-resolve + readiness both see it. Broadened VENT keyword net (faithplus, svara, lo-carbon, silhouette, revive, domus, greenwood, manrose, xpelair, ventaxia).
 - Verified: vent datasheet in library → item resolves ("Read from datasheet"); solar-only library (DMEGC) does NOT falsely resolve VENT. Read-time → existing + new jobs.
+
+## 2026-06-14 (3) — Commissioning & datasheet items removed from Actions Required
+- New `_is_handover_item()` (pdf_builder) flags commissioning/handover items (excludes "decommission") AND datasheet/product-/spec-"to be confirmed" items. GET /projects/{id} strips them from `itemsBeforeIssue` and each measure `outstanding`; the PDF Pre-Issue register filters the same and the synthetic "Manufacturer datasheet required" append was removed. Read-time → existing + new jobs.
+- Verified live: 3 projects now show 0 commissioning and 0 datasheet items; remaining items are genuine design actions only. Trickle-vent "specification not confirmed" also removed.

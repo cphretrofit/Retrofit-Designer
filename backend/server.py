@@ -1123,12 +1123,14 @@ async def get_project(project_id: str, request: Request):
                           await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
                                                   {"_id": 0, "original_filename": 1}).to_list(200)]
     _auto_resolve_datasheet_items(doc, _ds_files)
-    # Commissioning evidence is a post-install / handover artefact — never an outstanding design item.
+    # Commissioning/handover artefacts and datasheet items are never outstanding DESIGN actions —
+    # strip them from the Actions Required list (and each measure's outstanding list) entirely.
+    from pdf_builder import _is_handover_item
     doc["itemsBeforeIssue"] = [it for it in (doc.get("itemsBeforeIssue") or [])
-                               if not (it.get("text") or "").lower().startswith("commissioning evidence")]
+                               if not _is_handover_item(it.get("text"))]
     for _m in (doc.get("measures") or []):
         if _m.get("outstanding"):
-            _m["outstanding"] = [o for o in _m["outstanding"] if "commissioning evidence" not in (o or "").lower()]
+            _m["outstanding"] = [o for o in _m["outstanding"] if not _is_handover_item(o)]
     _apply_measure_progress(doc)
     doc["readiness"] = _compute_readiness(doc, _datasheet_families(doc, _ds_files))
     # Auto-orient the plan compass from the assessment's stated orientation (one-time, persisted).

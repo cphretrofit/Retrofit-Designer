@@ -750,6 +750,21 @@ MEASURE_COLORS = {"LOFT": "#B45309", "ASHP": "#0055FF", "SOLAR": "#CA8A04", "WIN
                   "WALL": "#7C3AED", "VENT": "#16A34A", "FLOOR": "#BE185D", "GEN": "#525252"}
 
 
+def _is_handover_item(text):
+    """Commissioning/handover artefacts and datasheet 'to be confirmed' items are NOT outstanding
+    DESIGN actions — the datasheets are read at design time and commissioning happens at install.
+    Used to keep them out of the Actions Required list and the Pre-Issue register."""
+    t = (text or "").lower()
+    if "commission" in t and "decommission" not in t:
+        return True
+    if ("product specification" in t
+            or ("datasheet" in t and any(k in t for k in ("not confirmed", "to be confirmed", "must be provided", "not provided", "confirm", "required", "supply")))
+            or ("manufacturer" in t and any(k in t for k in ("datasheet", "not confirmed", "to be confirmed", "confirm")))
+            or ("specification" in t and any(k in t for k in ("not confirmed", "to be confirmed", "not provided", "must be provided")))):
+        return True
+    return False
+
+
 def _mfam(code, name=""):
     c = (code or "").upper()
     n = (name or "").lower()
@@ -3277,18 +3292,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                      '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Pack Contents</div>'
                      f'{summary_html}<div style="margin-top:20px;">{sec_rows}</div>{tbls_html}{tmpl_note}')
 
-    # Items Before Issue register
-    items = p.get("itemsBeforeIssue") or []
+    # Items Before Issue register — exclude commissioning/handover & datasheet items (not design actions)
+    items = [it for it in (p.get("itemsBeforeIssue") or []) if not _is_handover_item(it.get("text"))]
     _ds_cov = []
     for _cm in measures:
         _cf = _mfam(_cm.get("code"), _cm.get("name"))
         _mp, _md, _hp = _measure_ds_match(_cf, p.get("datasheetProducts"), p.get("_datasheetDocs"))
         _ds_cov.append({"name": _cm.get("name") or "Measure", "fam": _cf,
                         "prods": _mp or (_cm.get("products") or []), "docs": _md, "has_pdf": _hp})
-    items = list(items) + [
-        {"severity": "info_required",
-         "text": f'Manufacturer datasheet required for {c["name"]} \u2014 supply the product datasheet / BBA certificate to bind into Appendix A before issue.'}
-        for c in _ds_cov if not c["has_pdf"] and not c["prods"]]
     SEV_COL = {"critical": "#DC2626", "warning": "#B45309", "info_required": "#0055FF"}
     SEV_LBL = {"critical": "Critical", "warning": "Warning", "info_required": "Info Required"}
     it_row_list = []
