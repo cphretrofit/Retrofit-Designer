@@ -69,6 +69,13 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
             ? <Clock className="h-3.5 w-3.5 mt-[1px] shrink-0" style={{ color: "var(--c-info)" }} strokeWidth={1.75} />
             : <sev.Icon className="h-3.5 w-3.5 mt-[1px] shrink-0" style={{ color: sev.color }} strokeWidth={1.75} />}
         <span className={`flex-1 ${resolved ? "line-through text-muted-foreground" : "text-foreground"}`}>{a.text}</span>
+        {a.resolvedBy === "Datasheet" && (
+          <span data-testid={`action-datasheet-chip-${a._i}`} title={a.note || "Read from the uploaded datasheet"}
+            className="shrink-0 inline-flex items-center gap-1 text-[9.5px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm border max-w-[150px] truncate"
+            style={{ color: "var(--c-pass)", borderColor: "var(--c-pass)", background: "color-mix(in srgb, var(--c-pass) 10%, transparent)" }}>
+            <CheckCircle2 className="h-3 w-3 shrink-0" strokeWidth={2} /> Read from datasheet
+          </span>
+        )}
         {a.status && !resolved && (
           <span className="shrink-0 text-[9.5px] uppercase tracking-[0.06em] px-1.5 py-0.5 rounded-sm bg-surface-2 border border-border/60 text-muted-foreground max-w-[90px] truncate" title={a.status}>{a.status}</span>
         )}

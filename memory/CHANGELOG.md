@@ -177,3 +177,7 @@
 
 ### Datasheet items never re-asked once a datasheet exists (2026-06, Jun fork)
 - Broadened `_auto_resolve_datasheet_items(doc, ds_files)`: a measure's product/datasheet "to be confirmed" item now resolves if the spec is available via ANY route — bound `m.products`, parsed `datasheetProducts`, OR simply an uploaded Datasheet document whose filename names the measure family (new `DS_FAM_KW` keyword map, e.g. nuaire/dmev/fan→VENT, knauf/loft/insulation→LOFT). `get_project` passes the project's Datasheet filenames. Unit-verified: VENT item clears on "nuaire dmev fan.pdf" upload while an unrelated LOFT item stays open; no regression (13 Mill View 0 open datasheet items).
+
+### Loft coverage confined to floor area + datasheet chips (2026-06, Jun fork)
+- FIX: the frontend loft toggle previously drew a whole-canvas overlay (covering the compass/legend column too). Now the loft toggle sets cadData.loftCoverage server-side and re-renders cadSvg, so the loft hatch is drawn per-room (clipped to the actual floor footprint) in BOTH the panel and the PDF pack. Removed the full-canvas overlay. update_floorplan handles loftArea → toggles loftCoverage + re-render.
+- "Read from datasheet ✓" chips: MeasureDetail header shows "Read from datasheet: <manufacturer product>" when the measure has a bound datasheet; the Pre-Issue Register (ActionItems) shows a green "Read from datasheet" chip on items auto-resolved by a datasheet (resolvedBy === "Datasheet").

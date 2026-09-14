@@ -2296,6 +2296,18 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
         fp["useOriginal"] = payload.useOriginal
     if payload.loftArea is not None:
         fp["loftArea"] = payload.loftArea
+        cd = fp.get("cadData")
+        if cd:
+            if payload.loftArea:
+                cd["loftCoverage"] = cd.get("loftCoverage") or "Loft insulation \u2014 full ceiling coverage"
+            else:
+                cd.pop("loftCoverage", None)
+            from cad_floorplan import build_cad_floorplan_svg
+            try:
+                cad_svg, anchors = build_cad_floorplan_svg(cd, with_anchors=True)
+                fp["cadSvg"], fp["cadData"], fp["anchors"] = cad_svg, cd, anchors
+            except Exception:
+                pass
     if payload.orientationDeg is not None:
         fp["orientationDeg"] = payload.orientationDeg
         cd = fp.get("cadData")

@@ -76,8 +76,7 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
   const toggleLoft = async () => {
     const v = !loftArea;
     const cleaned = (fp.markers || []).filter((m) => (m.type || "").toUpperCase() !== "LOFT");
-    setFp((s) => ({ ...s, loftArea: v, markers: cleaned }));
-    try { const r = await updateFloorPlan(projectId, { loftArea: v, markers: cleaned }); onChange?.(r.floorPlan); toast.success(v ? "Loft insulation applied across the whole top floor" : "Loft area highlight removed"); }
+    try { const r = await updateFloorPlan(projectId, { loftArea: v, markers: cleaned }); setFp(r.floorPlan); onChange?.(r.floorPlan); toast.success(v ? "Loft insulation applied across the whole top floor" : "Loft coverage removed"); }
     catch { toast.error("Could not update loft coverage"); }
   };
 
@@ -387,12 +386,6 @@ export function FloorPlanPanel({ projectId, initial, project, onChange }) {
                   </div>
                 );
               })}
-              {loftArea && (
-                <div data-testid="floorplan-loft-overlay" className="absolute inset-0 pointer-events-none flex items-center justify-center"
-                  style={{ background: "repeating-linear-gradient(45deg, rgba(180,83,9,0.14) 0 2px, transparent 2px 13px)", boxShadow: "inset 0 0 0 2px rgba(180,83,9,0.5)" }}>
-                  <span className="text-[10px] font-medium text-white px-2 py-0.5 rounded" style={{ background: "#B45309" }}>Loft insulation — full top-floor ceiling coverage</span>
-                </div>
-              )}
             </div>
             {/* Title block (photo mode only — the CAD sheet has its own) */}
             {!fp.cadSvg && (

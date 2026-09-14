@@ -55,6 +55,14 @@ export function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField })
               <div>
                 <h2 className="font-display text-xl tracking-tight">{m.name}</h2>
                 <div className="text-[13px] text-muted-foreground mt-1">{m.system}</div>
+                {(m.products && m.products.length > 0) && (
+                  <div data-testid="measure-datasheet-chip" className="inline-flex items-center gap-1.5 mt-2 text-[11px] px-2 py-0.5 rounded-sm border"
+                    style={{ color: "var(--c-pass)", borderColor: "var(--c-pass)", background: "color-mix(in srgb, var(--c-pass) 10%, transparent)" }}
+                    title="This measure's specification has been read from the uploaded product datasheet — no installer confirmation required">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0" strokeWidth={2} />
+                    Read from datasheet: {[m.products[0].manufacturer, m.products[0].product].filter(Boolean).join(" ") || "product datasheet"}
+                  </div>
+                )}
               </div>
               <StatusChip status={m.status} />
             </div>
