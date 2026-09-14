@@ -585,7 +585,7 @@ export default function DesignWorkspace() {
             </NavGroup>
             <NavGroup title="QA">
               <NavItem icon={ClipboardList} label="Design Review" section="design-review" active={section} onClick={() => setSection("design-review")} />
-              <NavItem icon={AlertTriangle} label="Outstanding Items" section="outstanding" active={section} onClick={() => setSection("outstanding")} badge={p.itemsBeforeIssue.length} tone="critical" />
+              <NavItem icon={AlertTriangle} label="Outstanding Items" section="outstanding" active={section} onClick={() => setSection("outstanding")} badge={p.itemsBeforeIssue.filter((it) => !it.resolved && !it.confirmedBy).length || null} tone="critical" />
             </NavGroup>
           </nav>
         )}

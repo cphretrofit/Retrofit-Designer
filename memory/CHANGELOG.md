@@ -212,3 +212,6 @@
 
 ## 2026-06-14 (4) — Compass letters stay upright
 - `_north(odeg)` in cad_floorplan.py now rotates only the needle; N/S/E/W are placed at their rotated positions but rendered as upright text (no group rotate), so letters never appear mirrored/upside-down. Verified visually at 0/90/180/270 deg.
+
+## 2026-06-14 (5) — Outstanding Items badge counts only open items
+- DesignWorkspace.jsx sidebar badge was `p.itemsBeforeIssue.length` (total). Changed to count only unresolved items (`!it.resolved && !it.confirmedBy`), `|| null` so it hides at 0. Verified on 60889268: 6 items, all resolved -> badge value 0 (hidden).
