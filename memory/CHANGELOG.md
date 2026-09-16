@@ -225,3 +225,7 @@
 ## 2026-06-14 (7) — PDF cover spacing: removed blank ghost page 2
 - Root cause: `_premium_cover_html` embedded the full floor-plan `cadSvg` as a faint 26mm watermark strip (`plan_strip`); WeasyPrint did not clamp the inline SVG height to its overflow:hidden box, so the cover spilled onto a near-blank 2nd page showing the ghosted plan/legend/dimensions. Replaced the cadSvg watermark with a plain spacer. Verified: cover now renders as a single page. Applies to all jobs (read-time).
 - Noted (not yet changed): the Contents "Technical Schedules" chip list can wrap onto a sparse page — natural overflow, lower priority.
+
+## 2026-06-14 (8) — Photo picker: show every real photo (fix over-aggressive repeat cull)
+- Analysed the uploaded Photopack (151 pages, 1 image/page, 75 distinct; many real photos legitimately reused 2-6x). `_is_repeat` (page-span) was culling reused survey photos when the stored PDF shares one xref across pages. Restricted it to only genuine page furniture: `page_count>=8 and len(pgs)>max(10, page_count*0.7)`.
+- Result: photopack now yields 73 real photos (all distinct survey shots); only the 2 handwritten SIGNATURES are barred (by `_is_graphic_or_logo`), which is correct. Verified by rendering the dropped images.

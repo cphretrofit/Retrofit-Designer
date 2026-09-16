@@ -513,7 +513,10 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
             hash_pages.setdefault(hh, set()).update(pgs)
 
         def _is_repeat(pgs):
-            return len(pgs) >= 5 or (page_count >= 6 and len(pgs) > page_count * 0.5)
+            # Only cull genuine page furniture (a logo / watermark / footer that recurs on almost
+            # every page). Real survey photos are legitimately reused a handful of times across a
+            # photopack, so a modest page span must NOT drop them.
+            return page_count >= 8 and len(pgs) > max(10, page_count * 0.7)
 
         repeated_xrefs = {xr for xr, pgs in xref_pages.items() if _is_repeat(pgs)}
         repeated_hashes = {h for h, pgs in hash_pages.items() if _is_repeat(pgs)}
