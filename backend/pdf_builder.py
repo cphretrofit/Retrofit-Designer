@@ -2806,9 +2806,7 @@ def _premium_cover_html(p, hero_uri, issued_date):
              + _tile(_tic('<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M8 8h8M8 12h8M8 16h5"/>'), "DOCUMENT TYPE", "Design Document") + tsep
              + _tile(_tic('<rect x="4" y="5" width="16" height="16" rx="1"/><path d="M4 9h16M8 3v4M16 3v4"/>'), "DATE", _esc(issued_date)) + tsep
              + _tile(_tic(pin), "LOCATION", postcode or addr) + '</div>')
-    cad = ((p.get("floorPlan") or {}).get("cadSvg")) or ""
-    plan_strip = (f'<div style="height:26mm; overflow:hidden; opacity:0.07; padding:2mm 14mm 0;">{cad}</div>'
-                  if cad else '<div style="height:8mm;"></div>')
+    plan_strip = '<div style="height:8mm;"></div>'
     return (
         '<div style="min-height:250mm; background:#fff; color:#14233b; display:flex; flex-direction:column;">'
         '<div style="display:flex; justify-content:space-between; align-items:center; padding:13mm 14mm 6mm;">'

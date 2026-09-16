@@ -221,3 +221,7 @@
 - Picker tiles: SiteConditions & MeasureEvidence now use a 3:4 aspect box with object-cover (survey photos are 768x1024) so each photo shows large/clear instead of a thin slice.
 - PDF export: `_collect_source_docs` restricted to product Datasheets only (dropped scope-of-works/job-card/assessment/reports) — faster export; Appendix B retitled "Product Datasheets". Design/vent-strategy/D1 remain as generated pack pages.
 - Floor-plan swap: honour `useOriginal` only when the original image is actually loaded, else fall back to CAD (fixes ordering where _data loaded after page build).
+
+## 2026-06-14 (7) — PDF cover spacing: removed blank ghost page 2
+- Root cause: `_premium_cover_html` embedded the full floor-plan `cadSvg` as a faint 26mm watermark strip (`plan_strip`); WeasyPrint did not clamp the inline SVG height to its overflow:hidden box, so the cover spilled onto a near-blank 2nd page showing the ghosted plan/legend/dimensions. Replaced the cadSvg watermark with a plain spacer. Verified: cover now renders as a single page. Applies to all jobs (read-time).
+- Noted (not yet changed): the Contents "Technical Schedules" chip list can wrap onto a sparse page — natural overflow, lower priority.
