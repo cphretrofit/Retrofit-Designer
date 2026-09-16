@@ -215,3 +215,9 @@
 
 ## 2026-06-14 (5) — Outstanding Items badge counts only open items
 - DesignWorkspace.jsx sidebar badge was `p.itemsBeforeIssue.length` (total). Changed to count only unresolved items (`!it.resolved && !it.confirmedBy`), `|| null` so it hides at 0. Verified on 60889268: 6 items, all resolved -> badge value 0 (hidden).
+
+## 2026-06-14 (6) — Fuller photo list + clearer picker + datasheet-only export + floor-plan swap
+- Photo picker: `_mineable_pdf` now mines EVERY uploaded PDF except product datasheets and EPC/certificate PDFs (was photopack+RdSAP only) so PV/technical/ASHP survey photos appear. Loosened `_is_graphic_or_logo` (white-border cull only when interior is also flat) and raised the cross-page repeat threshold (>=5 pages / >50%) so real photos survive. Picker 236 -> 257 photos on 60889268.
+- Picker tiles: SiteConditions & MeasureEvidence now use a 3:4 aspect box with object-cover (survey photos are 768x1024) so each photo shows large/clear instead of a thin slice.
+- PDF export: `_collect_source_docs` restricted to product Datasheets only (dropped scope-of-works/job-card/assessment/reports) — faster export; Appendix B retitled "Product Datasheets". Design/vent-strategy/D1 remain as generated pack pages.
+- Floor-plan swap: honour `useOriginal` only when the original image is actually loaded, else fall back to CAD (fixes ordering where _data loaded after page build).

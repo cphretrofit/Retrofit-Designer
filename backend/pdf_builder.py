@@ -3950,7 +3950,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     fp = p.get("floorPlan") or {}
     fp_uri = fp.get("_data")
     cad_svg = fp.get("cadSvg")
-    _use_original = bool(fp.get("useOriginal"))
+    # Honour the assessor's-original choice only when the original image is actually available
+    # (it is fetched into _data before this runs); otherwise fall back to the CAD redraw so the
+    # plan page is never blank/broken.
+    _use_original = bool(fp.get("useOriginal")) and bool(fp_uri)
     # Always redraw the CAD plan from the stored geometry so the loft coverage and the address/
     # postcode label are correct (older saved SVGs pre-date these). Skipped when the designer has
     # chosen to use the assessor's original plan instead.
@@ -4332,10 +4335,7 @@ async def _collect_source_docs(project_id: str):
     out, seen = [], set()
     try:
         recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
-                "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Solar", "Scope of Works",
-                                     "Assessment", "Heat Pump Report", "Report", "Certificate",
-                                     "Ventilation", "Ventilation Strategy", "Air Tightness", "ADF1", "Checklist",
-                                     "Supporting Document", "Other"]}}, {"_id": 0}).to_list(60)
+                "doc_type": "Datasheet"}, {"_id": 0}).to_list(60)
         proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1})
         cname = (proj or {}).get("client")
         if cname:
@@ -4410,7 +4410,7 @@ def _merge_appendix(pdf_bytes, docs, max_pages=6):
         idx = main.new_page(width=595, height=842)
         idx_no = main.page_count - 1
         idx.insert_text((54, 92), "APPENDIX B", fontsize=8, color=(0.64, 0.64, 0.64))
-        idx.insert_text((54, 120), "Bound Source Documents", fontsize=18, color=(0.09, 0.09, 0.09))
+        idx.insert_text((54, 120), "Product Datasheets", fontsize=18, color=(0.09, 0.09, 0.09))
         idx.draw_line((54, 132), (541, 132), color=(0.9, 0.9, 0.9))
         idx.insert_text((54, 150), "Click any entry below to jump straight to that document.", fontsize=7.5, color=(0.6, 0.6, 0.6))
         entries = []

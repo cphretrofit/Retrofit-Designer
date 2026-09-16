@@ -433,31 +433,35 @@ def _is_graphic_or_logo(raw):
             if ap and sum(1 for v in ap if v < 24) > len(ap) * 0.2:
                 return True  # meaningful transparency → logo / icon / cut-out
         im = im.convert("RGB")
-        # Border ring whiteness — forms, diagrams, floor plans and signatures sit on a white page.
-        b = im.copy()
-        b.thumbnail((64, 64))
-        bw, bh = b.size
-        bp = b.load()
-        ring = []
-        for x in range(bw):
-            ring.append(bp[x, 0]); ring.append(bp[x, bh - 1])
-        for y in range(bh):
-            ring.append(bp[0, y]); ring.append(bp[bw - 1, y])
-        if ring and sum(1 for (r, g, bl) in ring if min(r, g, bl) > 222) / len(ring) > 0.7:
-            return True
         t = im.copy()
         t.thumbnail((48, 48))
         px = list(t.getdata())
         if not px:
             return False
-        # Whole-image whiteness — signatures / declarations / forms are mostly white with sparse ink.
-        if sum(1 for (r, g, bl) in px if min(r, g, bl) > 222) / len(px) > 0.86:
-            return True
         q = [((r >> 4), (g >> 4), (bl >> 4)) for r, g, bl in px]
-        if len(set(q)) < 20:
+        ncol = len(set(q))
+        white = sum(1 for (r, g, bl) in px if min(r, g, bl) > 222) / len(px)
+        # Whole-image whiteness — signatures / declarations / forms are mostly white with sparse ink.
+        if white > 0.86:
+            return True
+        if ncol < 10:
             return True  # flat / few-colour artwork or signature
         if Counter(q).most_common(1)[0][1] > len(q) * 0.85:
             return True  # one flat colour dominates (letterhead / logo panel)
+        # Page-white border ring: only a graphic when the interior is ALSO flat/low-colour. A real
+        # survey photo keeps rich colour (even with white matting), so it is NOT culled here.
+        if ncol < 60:
+            b = im.copy()
+            b.thumbnail((64, 64))
+            bw, bh = b.size
+            bp = b.load()
+            ring = []
+            for x in range(bw):
+                ring.append(bp[x, 0]); ring.append(bp[x, bh - 1])
+            for y in range(bh):
+                ring.append(bp[0, y]); ring.append(bp[bw - 1, y])
+            if ring and sum(1 for (r, g, bl) in ring if min(r, g, bl) > 222) / len(ring) > 0.75:
+                return True
         return False
     except Exception:
         return False
@@ -509,7 +513,7 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
             hash_pages.setdefault(hh, set()).update(pgs)
 
         def _is_repeat(pgs):
-            return len(pgs) >= 3 or (page_count >= 4 and len(pgs) > page_count * 0.4)
+            return len(pgs) >= 5 or (page_count >= 6 and len(pgs) > page_count * 0.5)
 
         repeated_xrefs = {xr for xr, pgs in xref_pages.items() if _is_repeat(pgs)}
         repeated_hashes = {h for h, pgs in hash_pages.items() if _is_repeat(pgs)}

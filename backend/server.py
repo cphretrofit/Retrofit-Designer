@@ -1694,19 +1694,21 @@ async def floorplan_auto_markers(project_id: str):
 
 
 def _mineable_pdf(d):
-    """True for PDFs we scrape site photos from — the PHOTOPACK and the RdSAP / site-note /
-    assessment only (per the user's scope). Never datasheets, scope-of-works, floor plans, or the
-    PV / technical / ASHP design surveys (those carry logos, diagrams and product art, not photos)."""
+    """Mine embedded survey photos from ANY uploaded PDF (photopack, RdSAP / site notes, and the
+    technical / PV / ASHP surveys) so the picker exposes the full photo set. Excluded: product
+    datasheets and EPC / certificate PDFs (whose only images are product art or the EPC rating
+    chart). Signatures, logos, letterheads, forms and floor-plan graphics are stripped by the
+    extractor's own heuristics."""
     ct = (d.get("content_type") or "")
     fn = (d.get("original_filename") or "").lower()
     dt = (d.get("doc_type") or "")
     if not ((ct == "application/pdf" or fn.endswith(".pdf")) and d.get("storage_path")):
         return False
-    photopack = ("photopack" in fn or "photo pack" in fn or "par photo" in fn or "photograph" in fn
-                 or dt in ("Photopack", "Survey Photo"))
-    rdsap = ("rdsap" in fn or "rd sap" in fn or "sitenote" in fn or "site note" in fn
-             or "assessment" in fn or dt == "Assessment")
-    return photopack or rdsap
+    if dt in ("Datasheet", "Certificate", "EPC"):
+        return False
+    if "datasheet" in fn:
+        return False
+    return True
 
 
 _EMBED_CACHE = {}
