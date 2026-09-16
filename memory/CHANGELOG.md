@@ -232,3 +232,6 @@
 
 ## 2026-06-16 — Picker tile height (definitive)
 - SiteConditionsPanel & MeasureEvidence photo tiles were rendering as thin compass-strip slices: the Tailwind arbitrary `aspect-[3/4]` class collapsed in the served build. Replaced with an explicit inline `style={{height:220}}` + object-cover so each survey photo shows full-height/large. webpack compiled OK.
+
+## 2026-06-16 (2) — Picker tile height put on the <img> itself
+- Site Conditions picker tiles started correct then collapsed to thin slices once lazy images decoded (h-full container height recomputed). Moved the fixed 220px height onto the <img> (style height/width/display) in SiteConditionsPanel & MeasureEvidence so it cannot collapse after load.
