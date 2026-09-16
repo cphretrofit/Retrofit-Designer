@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { saveFloorplanCad } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Save, Code2, Table2 } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, Code2, Table2, Move } from "lucide-react";
 
 const NUM = ["x", "y", "w", "h"];
+const GRID = 0.05;
+const CW = 620; // canvas width in px
+const PALETTE = ["#DBEAFE", "#DCFCE7", "#FEF3C7", "#FCE7F3", "#E0E7FF", "#FEE2E2", "#CCFBF1", "#F3E8FF"];
 
 const toFloors = (cad) => {
   if (!cad) return [{ title: "Plan", overall: {}, rooms: [] }];
@@ -11,24 +14,86 @@ const toFloors = (cad) => {
   return [{ ...cad }];
 };
 
+const snap = (v) => Math.round(v / GRID) * GRID;
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const num = (v) => (typeof v === "number" ? v : Number(v) || 0);
+
+function FloorCanvas({ floor, onPatch }) {
+  const svgRef = useRef(null);
+  const drag = useRef(null);
+  const rooms = floor.rooms || [];
+  const ow = num(floor.overall?.w) || Math.max(1, ...rooms.map((r) => num(r.x) + num(r.w)));
+  const oh = num(floor.overall?.h) || Math.max(1, ...rooms.map((r) => num(r.y) + num(r.h)));
+  const scale = CW / ow;
+  const CH = oh * scale;
+
+  const start = (ri, mode) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const r = rooms[ri];
+    drag.current = { ri, mode, sx: e.clientX, sy: e.clientY, ox: num(r.x), oy: num(r.y), ow: num(r.w), oh: num(r.h) };
+  };
+  const move = (e) => {
+    const d = drag.current;
+    if (!d) return;
+    const dxm = (e.clientX - d.sx) / scale;
+    const dym = (e.clientY - d.sy) / scale;
+    if (d.mode === "move") {
+      onPatch(d.ri, {
+        x: clamp(snap(d.ox + dxm), 0, Math.max(0, ow - d.ow)),
+        y: clamp(snap(d.oy + dym), 0, Math.max(0, oh - d.oh)),
+      });
+    } else {
+      onPatch(d.ri, {
+        w: clamp(snap(d.ow + dxm), 0.5, ow - d.ox),
+        h: clamp(snap(d.oh + dym), 0.5, oh - d.oy),
+      });
+    }
+  };
+  const end = () => { drag.current = null; };
+
+  return (
+    <svg ref={svgRef} width="100%" viewBox={`0 0 ${CW} ${CH}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
+      className="border border-border rounded-sm bg-white touch-none select-none" data-testid="fp-visual-canvas"
+      style={{ maxHeight: 460 }}>
+      <rect x="0" y="0" width={CW} height={CH} fill="none" stroke="#171717" strokeWidth="2" />
+      {rooms.map((r, ri) => {
+        const x = num(r.x) * scale, y = num(r.y) * scale, w = num(r.w) * scale, h = num(r.h) * scale;
+        return (
+          <g key={ri} data-testid={`fp-visual-room-${ri}`}>
+            <rect x={x} y={y} width={w} height={h} fill={PALETTE[ri % PALETTE.length]} stroke="#334155" strokeWidth="1.2"
+              onPointerDown={start(ri, "move")} style={{ cursor: "grab" }} />
+            <text x={x + w / 2} y={y + h / 2 - 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#0f172a"
+              style={{ pointerEvents: "none" }}>{r.name || "Room"}</text>
+            <text x={x + w / 2} y={y + h / 2 + 11} textAnchor="middle" fontSize="10" fill="#475569"
+              style={{ pointerEvents: "none" }}>{num(r.w).toFixed(2)}×{num(r.h).toFixed(2)}m</text>
+            <rect x={x + w - 12} y={y + h - 12} width="12" height="12" fill="#334155"
+              onPointerDown={start(ri, "resize")} style={{ cursor: "nwse-resize" }} data-testid={`fp-visual-resize-${ri}`} />
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
   const multi = Array.isArray(cadData?.floors) && cadData.floors.length > 0;
   const [floors, setFloors] = useState(() => toFloors(cadData));
-  const [raw, setRaw] = useState(false);
+  const [mode, setMode] = useState("visual");
   const [json, setJson] = useState(() => JSON.stringify(cadData || {}, null, 2));
   const [saving, setSaving] = useState(false);
 
-  const setRoom = (fi, ri, key, val) => {
-    setFloors((fs) => fs.map((f, i) => (i !== fi ? f : {
-      ...f, rooms: (f.rooms || []).map((r, j) => (j !== ri ? r : { ...r, [key]: NUM.includes(key) ? (val === "" ? "" : Number(val)) : val })),
-    })));
-  };
+  const patchRoom = (fi, ri, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : {
+    ...f, rooms: (f.rooms || []).map((r, j) => (j !== ri ? r : { ...r, ...patch })),
+  })));
+  const setRoom = (fi, ri, key, val) => patchRoom(fi, ri, { [key]: NUM.includes(key) ? (val === "" ? "" : Number(val)) : val });
   const setOverall = (fi, key, val) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, overall: { ...(f.overall || {}), [key]: val === "" ? "" : Number(val) } })));
   const addRoom = (fi) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: [...(f.rooms || []), { name: "Room", x: 0, y: 0, w: 2, h: 2 }] })));
   const delRoom = (fi, ri) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: (f.rooms || []).filter((_, j) => j !== ri) })));
 
   const buildCad = () => {
-    if (raw) return JSON.parse(json);
+    if (mode === "json") return JSON.parse(json);
     if (multi) return { ...cadData, floors };
     return { ...cadData, ...floors[0] };
   };
@@ -46,26 +111,45 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
     } finally { setSaving(false); }
   };
 
+  const Tab = ({ id, icon: Icon, label }) => (
+    <button onClick={() => { if (id === "json") setJson(JSON.stringify(buildCadSafe(cadData, floors, multi), null, 2)); setMode(id); }}
+      data-testid={`fp-editor-${id}-mode`}
+      className={`flex items-center gap-1 h-7 px-2.5 rounded-sm border text-[11.5px] ${mode === id ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-secondary"}`}>
+      <Icon className="h-3.5 w-3.5" /> {label}
+    </button>
+  );
+
   return (
     <div className="border border-border rounded-sm bg-card p-4 mt-3" data-testid="floorplan-geometry-editor">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="text-[13px] font-medium">Edit floor-plan geometry</div>
         <div className="flex items-center gap-2">
-          <button onClick={() => setRaw(false)} data-testid="fp-editor-form-mode"
-            className={`flex items-center gap-1 h-7 px-2.5 rounded-sm border text-[11.5px] ${!raw ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-secondary"}`}>
-            <Table2 className="h-3.5 w-3.5" /> Rooms
-          </button>
-          <button onClick={() => { setJson(JSON.stringify(buildCadSafe(cadData, floors, multi), null, 2)); setRaw(true); }} data-testid="fp-editor-json-mode"
-            className={`flex items-center gap-1 h-7 px-2.5 rounded-sm border text-[11.5px] ${raw ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-secondary"}`}>
-            <Code2 className="h-3.5 w-3.5" /> Raw JSON
-          </button>
+          <Tab id="visual" icon={Move} label="Visual" />
+          <Tab id="form" icon={Table2} label="Rooms" />
+          <Tab id="json" icon={Code2} label="Raw JSON" />
         </div>
       </div>
 
-      {raw ? (
+      {mode === "visual" && (
+        <div className="space-y-4">
+          <div className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
+            <Move className="h-3.5 w-3.5" /> Drag a room to move it, or drag its bottom-right handle to resize. Snaps to 5&thinsp;cm. Save to re-render.
+          </div>
+          {floors.map((f, fi) => (
+            <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
+              {floors.length > 1 && <div className="text-[12px] font-medium mb-1.5">{f.title || `Floor ${fi + 1}`}</div>}
+              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {mode === "json" && (
         <textarea value={json} onChange={(e) => setJson(e.target.value)} spellCheck={false} data-testid="fp-editor-json"
           className="w-full h-72 font-mono text-[11px] border border-border rounded-sm p-2 bg-background" />
-      ) : (
+      )}
+
+      {mode === "form" && (
         <div className="space-y-4">
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-editor-floor-${fi}`}>

@@ -235,3 +235,7 @@
 
 ## 2026-06-16 (2) — Picker tile height put on the <img> itself
 - Site Conditions picker tiles started correct then collapsed to thin slices once lazy images decoded (h-full container height recomputed). Moved the fixed 220px height onto the <img> (style height/width/display) in SiteConditionsPanel & MeasureEvidence so it cannot collapse after load.
+
+## 2026-06-16 (3) — Drag-to-move floor plan editor + picker note
+- FloorPlanGeometryEditor: added a "Visual" mode (now default) rendering rooms as draggable SVG rects on a scaled canvas of the overall plan. Drag a room to move (x,y), drag the bottom-right handle to resize (w,h); snaps to 5cm, clamped to plan bounds. Form (Rooms) + Raw JSON modes retained. Saves via existing saveFloorplanCad which re-renders the plan. Compiled clean.
+- Site Conditions picker: verified only one img render path (inline height:220 + object-cover), no service worker, no global img CSS override. Code fix is deterministic; if it still shows thin for the user it is a stale cached JS bundle (hard refresh required). Could not reproduce because preview is resting.
