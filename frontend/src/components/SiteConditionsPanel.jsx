@@ -207,7 +207,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
               <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
                 onClick={() => { updateEv(pick, { url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" }); setPick(null); toast.success("Photo attached — click Save to persist"); }}
                 className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left bg-card">
-                <div className="aspect-[3/4] bg-neutral-100 overflow-hidden"><img src={thumbUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
+                <div className="bg-neutral-100 overflow-hidden" style={{ height: 220 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
             ))}

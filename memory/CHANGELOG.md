@@ -229,3 +229,6 @@
 ## 2026-06-14 (8) — Photo picker: show every real photo (fix over-aggressive repeat cull)
 - Analysed the uploaded Photopack (151 pages, 1 image/page, 75 distinct; many real photos legitimately reused 2-6x). `_is_repeat` (page-span) was culling reused survey photos when the stored PDF shares one xref across pages. Restricted it to only genuine page furniture: `page_count>=8 and len(pgs)>max(10, page_count*0.7)`.
 - Result: photopack now yields 73 real photos (all distinct survey shots); only the 2 handwritten SIGNATURES are barred (by `_is_graphic_or_logo`), which is correct. Verified by rendering the dropped images.
+
+## 2026-06-16 — Picker tile height (definitive)
+- SiteConditionsPanel & MeasureEvidence photo tiles were rendering as thin compass-strip slices: the Tailwind arbitrary `aspect-[3/4]` class collapsed in the served build. Replaced with an explicit inline `style={{height:220}}` + object-cover so each survey photo shows full-height/large. webpack compiled OK.
