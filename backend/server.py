@@ -786,12 +786,13 @@ def _compute_readiness(p, ds_fams=None):
             e_missing.append(c.get("topic") or c.get("title") or "consideration")
     bars.append(_rd_frac_bar("Evidence", "evidence", e_pass, e_total, e_missing, "unbacked claim"))
 
-    # QA — items before issue cleared, plus coordinator sign-off
-    resolved = sum(1 for it in items if it.get("resolved") or it.get("confirmedBy"))
-    open_items = len(items) - resolved
+    # QA — items before issue cleared, plus coordinator sign-off (dismissed/N/A items excluded)
+    _active = [it for it in items if not (isinstance(it, dict) and it.get("dismissed"))]
+    resolved = sum(1 for it in _active if isinstance(it, dict) and (it.get("resolved") or it.get("confirmedBy")))
+    open_items = len(_active) - resolved
     signed = p.get("status") in ("approved",)
     qa_pass = resolved + (1 if signed else 0)
-    qa_total = len(items) + 1
+    qa_total = len(_active) + 1
     qa_val = _rd_pct(qa_pass, qa_total)
     if open_items > 0:
         qa_detail = f"{open_items} item{'s' if open_items != 1 else ''} before issue still open"
@@ -2572,6 +2573,7 @@ class ActionUpdate(BaseModel):
     note: Optional[str] = None
     actionedBy: Optional[str] = None
     resolved: Optional[bool] = None
+    dismissed: Optional[bool] = None
 
 
 def _norm_item(it):
@@ -2595,6 +2597,8 @@ async def update_action_item(project_id: str, index: int, payload: ActionUpdate)
         it["actionedBy"] = payload.actionedBy.strip()
     if payload.resolved is not None:
         it["resolved"] = payload.resolved
+    if payload.dismissed is not None:
+        it["dismissed"] = payload.dismissed
     it["actionedAt"] = datetime.now(timezone.utc).isoformat()
     items[index] = it
     await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})

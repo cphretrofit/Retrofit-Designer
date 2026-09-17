@@ -1537,9 +1537,9 @@ def _design_summary_html(p, measures):
     meas_kpi = _kpi("Retrofit Measures", f'<span class="disp" style="font-size:30px;">{len(measures)}</span>',
                     "PROPOSED FOR THIS DWELLING")
 
-    # KPI 4 — outstanding items
-    items = p.get("itemsBeforeIssue") or []
-    outstanding = [it for it in items if not it.get("confirmedBy")]
+    # KPI 4 — outstanding items (dismissed / N/A items excluded entirely)
+    items = [it for it in (p.get("itemsBeforeIssue") or []) if not (isinstance(it, dict) and it.get("dismissed"))]
+    outstanding = [it for it in items if isinstance(it, dict) and not it.get("confirmedBy")]
     n_out = len(outstanding)
     out_col = "#DC2626" if n_out else "#16A34A"
     out_body = f'<span class="disp" style="font-size:30px; color:{out_col};">{n_out}</span>'
@@ -2810,7 +2810,7 @@ def _premium_cover_html(p, hero_uri, issued_date):
     return (
         '<div style="min-height:250mm; background:#fff; color:#14233b; display:flex; flex-direction:column;">'
         '<div style="display:flex; justify-content:space-between; align-items:center; padding:13mm 14mm 6mm;">'
-        f'<div>{logo_html}</div>'
+        f'<div>{logo_html}<div style="font-size:8px; letter-spacing:0.26em; color:#5a6b7a; margin-top:7px;">PEOPLE &nbsp;&middot;&nbsp; HOMES &nbsp;&middot;&nbsp; A CLEANER TOMORROW</div></div>'
         '<div style="display:flex; align-items:center;">'
         '<div style="width:1px; height:56px; background:#e2e2e2; margin-right:16px;"></div>'
         f'{contact}</div></div>'
@@ -3290,8 +3290,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                      '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Design Pack Contents</div>'
                      f'{summary_html}<div style="margin-top:20px;">{sec_rows}</div>{tbls_html}{tmpl_note}')
 
-    # Items Before Issue register — exclude commissioning/handover & datasheet items (not design actions)
-    items = [it for it in (p.get("itemsBeforeIssue") or []) if not _is_handover_item(it.get("text"))]
+    # Items Before Issue register — exclude commissioning/handover, datasheet, and dismissed (N/A) items
+    items = [it for it in (p.get("itemsBeforeIssue") or [])
+             if not _is_handover_item(it.get("text")) and not (isinstance(it, dict) and it.get("dismissed"))]
     _ds_cov = []
     for _cm in measures:
         _cf = _mfam(_cm.get("code"), _cm.get("name"))
@@ -4081,7 +4082,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     compliance_pages = _compliance_html(p, measures)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
     signoff_page = _signoff_html(p, issued_date)
-    pages = [premium_cover, cover, summary_page, contents_page, foreword_page, *directory_pages,
+    pages = [premium_cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
              ventilation_page, *([] if p.get("_uploadedAdf1") else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),

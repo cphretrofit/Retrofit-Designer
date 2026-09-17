@@ -50,6 +50,9 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
 
   const save = async () => { await persist({ status, note, actionedBy }); toast.success("Action updated"); };
   const toggleResolved = async () => { await persist({ resolved: !resolved }); };
+  const dismissed = !!a.dismissed;
+  const dismiss = async () => { await persist({ dismissed: true }); toast.success("Item dismissed as N/A"); };
+  const restore = async () => { await persist({ dismissed: false }); toast.success("Item restored"); };
   const remove = async () => {
     try { const r = await deleteActionItem(pid, a._i); onItemsChange(r.itemsBeforeIssue); toast.success("Action removed"); }
     catch (e) { toast.error("Could not remove", { description: e?.response?.data?.detail }); }
@@ -98,6 +101,17 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
                 <button type="button" onClick={remove} data-testid={`action-delete-${a._i}`}
                   className="flex items-center gap-1 text-[10.5px] px-1.5 py-0.5 rounded-sm border border-border/60 text-muted-foreground hover:text-[var(--c-critical)] transition-colors">
                   <Trash2 className="h-3 w-3" strokeWidth={1.75} />
+                </button>
+              )}
+              {dismissed ? (
+                <button type="button" onClick={restore} disabled={saving} data-testid={`action-restore-${a._i}`}
+                  className="flex items-center gap-1 text-[10.5px] px-1.5 py-0.5 rounded-sm border border-border/60 text-muted-foreground hover:text-foreground transition-colors">
+                  Restore
+                </button>
+              ) : (
+                <button type="button" onClick={dismiss} disabled={saving} data-testid={`action-dismiss-${a._i}`}
+                  className="flex items-center gap-1 text-[10.5px] px-1.5 py-0.5 rounded-sm border border-border/60 text-muted-foreground hover:text-foreground transition-colors">
+                  <X className="h-3 w-3" strokeWidth={1.75} /> Dismiss (N/A)
                 </button>
               )}
             </div>
@@ -153,6 +167,7 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
 
 export function ActionItems({ p, measure, onOpen, onItemsChange }) {
   const [showList, setShowList] = useState(false);
+  const [showDismissed, setShowDismissed] = useState(false);
   const [adding, setAdding] = useState(false);
   const [newText, setNewText] = useState("");
   const [newSev, setNewSev] = useState("info_required");
@@ -163,7 +178,9 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
     const o = typeof a === "string" ? { text: a, severity: "info_required" } : a;
     return { ...o, _i: idx };
   });
-  const acts = measure ? all.filter((a) => a.measure === measure.code) : all;
+  const scoped = measure ? all.filter((a) => a.measure === measure.code) : all;
+  const acts = scoped.filter((a) => !a.dismissed);
+  const dismissedActs = scoped.filter((a) => a.dismissed);
   const openCount = acts.filter((a) => !a.resolved && !(a.actionedBy || a.status)).length;
   const inProgressCount = acts.filter((a) => !a.resolved && (a.actionedBy || a.status)).length;
 
@@ -186,7 +203,7 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
       <button
         type="button"
         onClick={() => setShowList((v) => !v)}
-        disabled={acts.length === 0}
+        disabled={acts.length === 0 && dismissedActs.length === 0}
         data-testid="actions-required-toggle"
         className="w-full flex items-center gap-2 text-[12px] rounded-sm px-1.5 py-1 -mx-1.5 hover:bg-surface-1 transition-colors disabled:cursor-default"
         style={{ color: openCount ? "var(--c-warning)" : inProgressCount ? "var(--c-info)" : "var(--c-pass)" }}
@@ -197,7 +214,7 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
         <span className="flex-1 text-left">
           {openCount === 0 ? (inProgressCount ? `${inProgressCount} in progress` : (acts.length ? "All actions resolved" : "No actions")) : `${openCount} action${openCount === 1 ? "" : "s"} required`}
         </span>
-        {acts.length > 0 && (showList ? <ChevronDown className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />)}
+        {(acts.length > 0 || dismissedActs.length > 0) && (showList ? <ChevronDown className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />)}
       </button>
 
       {showList && (
@@ -208,6 +225,22 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
                 <ActionRow key={a._i} pid={p.id} act={a} measureCodes={measureCodes} onOpen={onOpen} onItemsChange={onItemsChange} />
               ))}
             </ul>
+          )}
+          {dismissedActs.length > 0 && (
+            <div className="mt-2">
+              <button type="button" onClick={() => setShowDismissed((v) => !v)} data-testid="actions-show-dismissed"
+                className="flex items-center gap-1.5 text-[10.5px] text-muted-foreground hover:text-foreground transition-colors">
+                {showDismissed ? <ChevronDown className="h-3 w-3" strokeWidth={1.75} /> : <ChevronRight className="h-3 w-3" strokeWidth={1.75} />}
+                {showDismissed ? "Hide" : "Show"} dismissed (N/A) · {dismissedActs.length}
+              </button>
+              {showDismissed && (
+                <ul className="mt-1.5 space-y-1.5 opacity-70" data-testid="actions-dismissed-list">
+                  {dismissedActs.map((a) => (
+                    <ActionRow key={a._i} pid={p.id} act={a} measureCodes={measureCodes} onOpen={onOpen} onItemsChange={onItemsChange} />
+                  ))}
+                </ul>
+              )}
+            </div>
           )}
         </>
       )}
