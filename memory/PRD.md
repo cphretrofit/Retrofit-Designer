@@ -25,6 +25,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 16 2026 (fork) — Cover picker, U-value recalc, auto-fill all
+- **Cover Photo Picker:** `PUT /projects/{id}/cover-photo` sets/clears `coverPhotoUrl` (already honored by pdf_builder hero logic, priority 1b) and clears any curated `isMain` so the choice wins; also clears packHash. Frontend: "Front-cover photo" card at the top of the Photos section with current cover + "Choose cover photo" (opens an all-survey-photos picker using the bulletproof grid-auto-rows tiles) + "Auto" reset. Verified via API (set/reset) and UI.
+- **U-value auto-recalc:** `_compute_u_value` (server.py) computes U from build-up layers using standard Rsi/Rse + a material→λ fallback map for layers with no λ. Runs on autofill-buildup, autofill-all, and on any `measures.*.buildup*` field patch; frontend `saveField` refreshes `calculatedU` live and the Specifications page shows a U / target badge per measure. Verified: LOFT U=0.13; editing a layer to 400mm → U auto-updates to 0.08.
+- **Auto-fill all build-ups:** `POST /projects/{id}/measures/autofill-buildups-all` drafts build-ups for every fabric measure lacking one (recomputes U). Frontend: "Auto-fill all build-ups" button on the Specifications section. Verified via API.
+
 ## Added — Jun 16 2026 (fork) — Build-up auto-fill
 - **Wall/Loft/Floor Build-up auto-complete:** new `POST /projects/{id}/measures/{mi}/autofill-buildup` (server.py `_autofill_buildup`) drafts the construction layer stack from the assessment's `existingConstruction` + the measure's proposed system/target U (deterministic PAS 2035 defaults where the assessment is silent). Frontend `MeasureDetail.jsx`: "Auto-fill" button in the panel header + a prominent "Auto-fill from assessment" button in the empty state; panel label now reflects the measure (Wall/Loft/Floor Build-up) instead of always "Wall Build-up". `BUILD_BY_CODE` also gained RIR so imports rarely leave it empty. Verified via API (LOFT → ceiling+existing+new = 300mm total) and in the UI.
 

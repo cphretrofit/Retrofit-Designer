@@ -116,6 +116,8 @@ export const saveFloorplanCad = (id, cadData) => api.put(`/projects/${id}/floorp
 export const getAllPhotos = (id) => api.get(`/projects/${id}/photos/all`).then((r) => r.data);
 export const autofillMeasureCompliance = (id, mi, force = false) => api.post(`/projects/${id}/measures/${mi}/autofill-compliance`, null, { params: { force } }).then((r) => r.data);
 export const autofillMeasureBuildup = (id, mi) => api.post(`/projects/${id}/measures/${mi}/autofill-buildup`).then((r) => r.data);
+export const autofillAllBuildups = (id, force = false) => api.post(`/projects/${id}/measures/autofill-buildups-all`, null, { params: { force } }).then((r) => r.data);
+export const setCoverPhoto = (id, url) => api.put(`/projects/${id}/cover-photo`, { url }).then((r) => r.data);
 export const addMeasureEvidencePhotoUrl = (id, mi, url, caption) => api.post(`/projects/${id}/measures/${mi}/evidence-photo-url`, { url, caption }).then((r) => r.data);
 export const solarSurveyStatus = (id) => api.get(`/projects/${id}/solar/survey-status`).then((r) => r.data);
 

@@ -1972,6 +1972,63 @@ def _autofill_buildup(m, prop):
     return []
 
 
+_MATERIAL_LAMBDA = {  # W/mK fallbacks for common layers when lambda is not stated
+    "plasterboard": 0.21, "plaster": 0.57, "skim": 0.57, "lime": 0.70,
+    "masonry": 0.77, "brick": 0.77, "block": 0.51, "stone": 1.70, "concrete": 1.13,
+    "render": 0.50, "adhesive": 0.83, "basecoat": 0.83, "mortar": 0.83, "mesh": 0.50,
+    "screed": 1.15, "timber": 0.13, "deck": 0.13, "board": 0.13, "joist": 0.13, "floorboard": 0.13,
+    "mineral wool": 0.040, "quilt": 0.040, "insulation": 0.035, "wood-fibre": 0.038, "wood fibre": 0.038,
+    "eps": 0.035, "pir": 0.022, "phenolic": 0.020,
+}
+_RSI_RSE = {"roof": (0.10, 0.04), "wall": (0.13, 0.04), "floor": (0.17, 0.04)}
+
+
+def _layer_lambda(layer):
+    try:
+        v = float(str(layer.get("lambda")).strip())
+        if v > 0:
+            return v
+    except (TypeError, ValueError):
+        pass
+    mat = (layer.get("material") or "").lower()
+    for kw, val in _MATERIAL_LAMBDA.items():
+        if kw in mat:
+            return val
+    return None
+
+
+def _compute_u_value(m):
+    """U-value (W/m2K) from the build-up layers with standard surface resistances; None if not derivable."""
+    bu = m.get("buildup") or []
+    if not bu:
+        return None
+    code = (m.get("code") or "").upper()
+    elem = "roof" if code in ("LOFT", "RIR") else "floor" if code in ("UFI", "FLOOR") else "wall"
+    rsi, rse = _RSI_RSE[elem]
+    r, used = rsi + rse, 0
+    for l in bu:
+        try:
+            t = float(str(l.get("thickness")).strip()) / 1000.0
+        except (TypeError, ValueError):
+            continue
+        lam = _layer_lambda(l)
+        if t > 0 and lam:
+            r += t / lam
+            used += 1
+    if used == 0 or r <= 0:
+        return None
+    return round(1.0 / r, 2)
+
+
+def _recompute_measure_u(m):
+    u = _compute_u_value(m)
+    if u is not None:
+        m["calculatedU"] = u
+        if not m.get("unit"):
+            m["unit"] = "W/m\u00b2K"
+    return u
+
+
 @api_router.post("/projects/{project_id}/measures/{mi}/autofill-buildup")
 async def autofill_measure_buildup(project_id: str, mi: int):
     """Draft the construction build-up (layers) for a fabric measure from the assessment."""
@@ -1986,8 +2043,49 @@ async def autofill_measure_buildup(project_id: str, mi: int):
     if not bu:
         raise HTTPException(status_code=422, detail="Build-up auto-fill applies to fabric measures only (external / internal wall, loft, room-in-roof or floor insulation).")
     m["buildup"] = bu
+    u = _recompute_measure_u(m)
     await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
-    return {"buildup": bu}
+    return {"buildup": bu, "calculatedU": u}
+
+
+@api_router.post("/projects/{project_id}/measures/autofill-buildups-all")
+async def autofill_all_buildups(project_id: str, force: bool = Query(False)):
+    """One-click: draft build-ups for every fabric measure that doesn't already have one."""
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    measures = proj.get("measures") or []
+    filled = []
+    for m in measures:
+        if (m.get("buildup") or []) and not force:
+            continue
+        bu = _autofill_buildup(m, proj.get("property"))
+        if bu:
+            m["buildup"] = bu
+            _recompute_measure_u(m)
+            filled.append(m.get("code"))
+    if filled:
+        await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return {"filled": filled, "count": len(filled)}
+
+
+class CoverPhotoIn(BaseModel):
+    url: Optional[str] = None
+
+
+@api_router.put("/projects/{project_id}/cover-photo")
+async def set_cover_photo(project_id: str, payload: CoverPhotoIn):
+    """Set (or clear) the survey photo used as the pack front-cover hero."""
+    proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    url = (payload.url or "").strip() or None
+    photos = (proj.get("designPack") or {}).get("photos") or []
+    for ph in photos:
+        ph["isMain"] = False  # explicit cover choice wins over any curated "main" flag
+    await db.projects.update_one({"id": project_id}, {"$set": {
+        "coverPhotoUrl": url, "designPack.photos": photos, "packHash": ""}})
+    return {"coverPhotoUrl": url}
 
 
 @api_router.post("/projects/{project_id}/floorplan/classify-photos")
@@ -2599,6 +2697,16 @@ async def update_project_field(project_id: str, payload: FieldUpdate):
     if not doc:
         raise HTTPException(status_code=404, detail="Project not found")
     await db.projects.update_one({"id": project_id}, {"$set": {path: payload.value}})
+    _mm = re.match(r"^measures\.(\d+)\.", path)
+    if _mm and "buildup" in path:
+        _mi = int(_mm.group(1))
+        _doc = await db.projects.find_one({"id": project_id})
+        _ms = (_doc or {}).get("measures") or []
+        if 0 <= _mi < len(_ms):
+            _recompute_measure_u(_ms[_mi])
+            await db.projects.update_one({"id": project_id}, {"$set": {
+                f"measures.{_mi}.calculatedU": _ms[_mi].get("calculatedU"),
+                f"measures.{_mi}.unit": _ms[_mi].get("unit")}})
     updated = await db.projects.find_one({"id": project_id}, {"_id": 0})
     return updated
 

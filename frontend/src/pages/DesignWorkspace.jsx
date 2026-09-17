@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, updateField, updatePhotos, mediaUrl, applyClientLibrary, setReference, addDocuments, parseDatasheets } from "@/lib/api";
+import { getProject, updateField, updatePhotos, mediaUrl, thumbUrl, getAllPhotos, setCoverPhoto, autofillAllBuildups, applyClientLibrary, setReference, addDocuments, parseDatasheets } from "@/lib/api";
 import { ChevronUp, ChevronDown, Star, Upload } from "lucide-react";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
@@ -8,7 +8,7 @@ import { toast } from "sonner";
 import {
   LayoutGrid, Home, Ruler, Camera, Layers, Wind, DoorClosed, FileText, GitBranch,
   Calculator, ShieldAlert, PenTool, FolderCheck, ClipboardList, CheckCircle2, AlertTriangle,
-  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Users, Map, Satellite, FileEdit, Landmark, Clock,
+  Circle, ChevronRight, Maximize2, Minimize2, ArrowRight, Save, Target, Info, Plus, Trash2, AlertOctagon, Eye, Loader2, Sparkles, Wand2, Users, Map, Satellite, FileEdit, Landmark, Clock,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DocumentsList } from "@/components/DocumentsList";
@@ -106,6 +106,10 @@ export default function DesignWorkspace() {
 
   const setSection = (s) => navigate(`/project/${id}/design/${s}`);
 
+  const [coverOpen, setCoverOpen] = useState(false);
+  const [allPhotos, setAllPhotos] = useState([]);
+  const [coverBusy, setCoverBusy] = useState(false);
+
   const activeMeasure = useMemo(() => {
     if (!p) return null;
     if (section.startsWith("measure-")) return p.measures.find((m) => m.code === section.replace("measure-", ""));
@@ -127,13 +131,18 @@ export default function DesignWorkspace() {
   };
 
   const saveField = async (path, value, silent = false) => {
-    await updateField(id, { path, value });
+    const updated = await updateField(id, { path, value });
     setP((prev) => {
       const n = structuredClone(prev);
       const parts = path.split(".");
       let o = n;
       for (let k = 0; k < parts.length - 1; k++) o = o[parts[k]];
       o[parts[parts.length - 1]] = value;
+      const mm = path.match(/^measures\.(\d+)\./);
+      if (mm && path.includes("buildup") && updated?.measures?.[+mm[1]]) {
+        n.measures[+mm[1]].calculatedU = updated.measures[+mm[1]].calculatedU;
+        n.measures[+mm[1]].unit = updated.measures[+mm[1]].unit;
+      }
       return n;
     });
     if (!silent) toast.success("Saved", { description: "Design value updated." });
@@ -148,6 +157,28 @@ export default function DesignWorkspace() {
     await setReference(id, val);
     setP((prev) => ({ ...prev, ref: val }));
     toast.success("Reference updated", { description: "PasHub reference saved." });
+  };
+
+  const openCoverPicker = async () => {
+    setCoverOpen(true);
+    try { const r = await getAllPhotos(id); setAllPhotos(r.photos || r || []); } catch { setAllPhotos([]); }
+  };
+  const chooseCover = async (url) => {
+    setCoverBusy(true);
+    try {
+      await setCoverPhoto(id, url);
+      setP((prev) => { const n = structuredClone(prev); n.coverPhotoUrl = url; if (n.designPack?.photos) n.designPack.photos.forEach((x) => { x.isMain = false; }); return n; });
+      toast.success(url ? "Cover photo set — it'll be used on the pack cover" : "Cover reset — the front elevation will be chosen automatically");
+      setCoverOpen(false);
+    } catch { toast.error("Could not set the cover photo"); }
+    finally { setCoverBusy(false); }
+  };
+  const autofillAll = async () => {
+    try {
+      const r = await autofillAllBuildups(id);
+      await load();
+      toast.success(r.count ? `Drafted build-ups for ${r.count} measure(s) — review each layer` : "All fabric measures already have a build-up");
+    } catch (e) { toast.error("Could not auto-fill build-ups", { description: e?.response?.data?.detail }); }
   };
 
   const ewi = p.measures.find((m) => m.code === "EWI");
@@ -227,8 +258,22 @@ export default function DesignWorkspace() {
           savePhotos(n);
         };
         const incCount = photos.filter((x) => x.included !== false).length;
+        const coverThumb = p.coverPhotoUrl ? mediaUrl(p.coverPhotoUrl) : (photos.find((x) => x.isMain) ? mediaUrl(photos.find((x) => x.isMain).url) : null);
         return (
           <div className="anim-in">
+            <div className="border border-border rounded-sm bg-card p-3 mb-4 flex items-center gap-4" data-testid="cover-photo-card">
+              <div className="h-20 w-28 rounded-sm overflow-hidden bg-neutral-100 shrink-0 flex items-center justify-center">
+                {coverThumb ? <img src={coverThumb} alt="cover" className="w-full h-full object-cover" /> : <span className="text-[9px] text-muted-foreground tracking-wide text-center px-1 leading-tight">AUTO — AI PICKS FRONT ELEVATION</span>}
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Front-cover photo</div>
+                <div className="text-[12px] text-muted-foreground mt-1">{p.coverPhotoUrl ? "A specific photo is set as the pack cover." : "The front elevation is chosen automatically — pick a photo to override it, so it's never the van or a clutter shot."}</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={openCoverPicker} data-testid="choose-cover-photo" className="flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm bg-[var(--c-action)] text-white hover:opacity-90 transition-opacity"><Camera className="h-3.5 w-3.5" strokeWidth={1.75} /> Choose cover photo</button>
+                {p.coverPhotoUrl && <button onClick={() => chooseCover(null)} data-testid="reset-cover-photo" className="text-[12px] px-3 h-8 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Auto</button>}
+              </div>
+            </div>
             <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">
               <div className="text-[12px] text-muted-foreground" data-testid="photo-curation-summary">{incCount} of {photos.length} photos included in the Design Pack — drag to reorder, toggle to include/exclude. The photo marked <span className="text-foreground font-medium">Main</span> is used on the pack cover.</div>
               <div className="flex items-center gap-2">
@@ -279,17 +324,48 @@ export default function DesignWorkspace() {
                 );
               })}
             </div>
+            {coverOpen && (
+              <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" onClick={() => setCoverOpen(false)} data-testid="cover-photo-picker">
+                <div className="flex items-center justify-between max-w-5xl w-full mx-auto mb-3" onClick={(e) => e.stopPropagation()}>
+                  <div className="text-[13px] font-medium">Choose the front-cover photo</div>
+                  <button onClick={() => setCoverOpen(false)} className="text-[12px] px-3 h-8 rounded-sm border border-border hover:bg-secondary">Close</button>
+                </div>
+                <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()}>
+                  {(allPhotos || []).map((ph, i) => (
+                    <button key={ph.url || i} onClick={() => chooseCover(ph.url)} disabled={coverBusy} data-testid={`cover-option-${i}`} className={cn("border rounded-sm overflow-hidden text-left bg-card hover:border-foreground/50 transition-colors", p.coverPhotoUrl === ph.url ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border")}>
+                      <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
+                      <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.caption || "Survey photo"}</div>
+                    </button>
+                  ))}
+                  {(!allPhotos || allPhotos.length === 0) && <div className="col-span-full text-center text-[12px] text-muted-foreground py-10">Loading photos…</div>}
+                </div>
+              </div>
+            )}
           </div>
         );
       }
-      case "specifications":
+      case "specifications": {
+        const fabricCodes = ["EWI", "IWI", "SWI", "LOFT", "RIR", "UFI", "FLOOR"];
+        const hasFabric = p.measures.some((m) => fabricCodes.includes((m.code || "").toUpperCase()));
+        const withBu = p.measures.filter((m) => m.buildup?.length);
         return (
           <div className="anim-in space-y-4">
-            {p.measures.filter((m) => m.buildup?.length).map((m) => (
+            {hasFabric && (
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <div className="text-[12px] text-muted-foreground">Construction build-ups per fabric measure. Auto-fill drafts them from the assessment; editing a layer recalculates the U-value automatically.</div>
+                <button onClick={autofillAll} data-testid="autofill-all-buildups" className="flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm bg-[var(--c-action)] text-white hover:opacity-90 transition-opacity">
+                  <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Auto-fill all build-ups
+                </button>
+              </div>
+            )}
+            {withBu.map((m) => (
               <div key={m.code} className="border border-border rounded-sm bg-card">
-                <div className="px-4 py-3 border-b border-border">
-                  <div className="font-display text-sm">{m.name}</div>
-                  {m.system && <div className="font-mono text-[11px] text-muted-foreground mt-1 leading-snug">{m.system}</div>}
+                <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-display text-sm">{m.name}</div>
+                    {m.system && <div className="font-mono text-[11px] text-muted-foreground mt-1 leading-snug">{m.system}</div>}
+                  </div>
+                  {m.calculatedU != null && <div className="shrink-0 text-right font-mono text-[11px]" data-testid={`spec-uvalue-${m.code}`}><span className="text-muted-foreground">U </span><span className={cn(m.targetU != null && m.calculatedU <= m.targetU ? "text-[var(--c-ok)]" : "text-foreground")}>{m.calculatedU}</span>{m.targetU != null && <span className="text-muted-foreground"> / {m.targetU}</span>} <span className="text-muted-foreground">W/m²K</span></div>}
                 </div>
                 <table className="w-full text-[12.5px]"><tbody className="font-mono-tech">
                   {m.buildup.map((l) => { const th = l.thickness == null ? "" : String(l.thickness); const bareNum = /^\s*[\d.]+\s*$/.test(th); return (
@@ -298,8 +374,12 @@ export default function DesignWorkspace() {
                 </tbody></table>
               </div>
             ))}
+            {withBu.length === 0 && (
+              <div className="text-[13px] text-muted-foreground border border-dashed border-border rounded-sm p-6 text-center">No build-ups yet — click “Auto-fill all build-ups” to draft them from the assessment, then review each layer.</div>
+            )}
           </div>
         );
+      }
       case "junctions":
         return ewi ? <MeasureDetail m={ewi} mi={p.measures.indexOf(ewi)} projectId={id} onJunctionSave={onJunctionSave} onSaveField={saveField} /> : null;
       case "calculations":
