@@ -1630,6 +1630,9 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
                         m["system"] = (_label + " \u2014 " + sys.split(" \u2014 ", 1)[1]) if " \u2014 " in sys else (_label + ". " + sys)
                     # Sweep the remaining spec / scope-of-works / thermal-detail text for competitor brands
                     _supersede_measure_brand(m, _label, _man, _dyn_brands)
+                    # Collapse any accidental "Label. Label" / "Label Label" duplication from prepending
+                    _dup = re.escape(_label)
+                    m["system"] = re.sub(rf'(?i)({_dup})(?:[.\s\u2014-]+\1)+', r'\1', m.get("system") or "")
             matched.add(c)
     leftover = []
     for code, recs in by_code.items():
