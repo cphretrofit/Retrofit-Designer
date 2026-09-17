@@ -25,6 +25,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Fixed — Jun 16 2026 (fork) — Photo picker "thin slices" (P0, recurring)
+- **Root cause (finally nailed):** the photo-picker grid (Site Conditions + Measure Evidence "Attach an evidence photo") had `grid` with no defined row height. With ~350 mined photos, the browser distributed the fixed container height across all ~118 implicit rows, collapsing each tile/button to ~2px; `overflow-hidden` on the button then clipped each photo into a horizontal sliver. NOT caching and NOT the backend — thumbnails were always valid 440-wide JPEGs.
+- **Fix:** picker grid now uses inline `style={{ gridAutoRows: "210px" }}` so every row is a fixed height regardless of item count; image tile is a fixed-height `relative` container (`height:180`) with an absolutely-filled `object-cover` img (immune to intrinsic-aspect collapse). Applied in `SiteConditionsPanel.jsx` (~line 203/210) and `MeasureEvidence.jsx` (~line 161/170).
+- Verified live in a fresh browser: picker button box = 210px, real photos render as full thumbnails.
+
 ## Implemented — Jun 2026 (this session)
 - **Floor-plan overlap fix** + **C5 template label** (earlier).
 - **PDF pack speed & size**: `_merge_appendix` now runs `rewrite_images(dpi_threshold=150, dpi_target=110, q=62)`.
