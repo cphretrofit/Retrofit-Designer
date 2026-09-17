@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 import { StatusChip } from "@/components/StatusChip";
 import { MeasureEvidence } from "@/components/MeasureEvidence";
-import { CheckCircle2, AlertTriangle, Circle, ArrowRight, Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, AlertTriangle, Circle, ArrowRight, Plus, Trash2, Wand2, Loader2 } from "lucide-react";
+import { autofillMeasureBuildup } from "@/lib/api";
 import { EditableCell } from "./EditableCell";
 import { MARK_ICON, MARK_COLOR } from "./constants";
 
@@ -36,6 +38,20 @@ export function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField })
   const renum = (arr) => arr.map((l, i) => ({ ...l, no: String(i + 1).padStart(2, "0") }));
   const addLayer = () => onSaveField(fp("buildup"), renum([...buildup, { material: "New layer", thickness: 0, lambda: null }]));
   const removeLayer = (li) => onSaveField(fp("buildup"), renum(buildup.filter((_, i) => i !== li)));
+  const [buBusy, setBuBusy] = useState(false);
+  const _code = (m.code || "").toUpperCase();
+  const buLabel = ["LOFT", "RIR"].includes(_code) ? "Loft Build-up" : ["UFI", "FLOOR"].includes(_code) ? "Floor Build-up" : "Wall Build-up";
+  const canAutofillBu = ["EWI", "IWI", "SWI", "LOFT", "RIR", "UFI", "FLOOR"].includes(_code);
+  const autofillBuildup = async () => {
+    setBuBusy(true);
+    try {
+      const r = await autofillMeasureBuildup(projectId, mi);
+      onSaveField(fp("buildup"), r.buildup);
+      toast.success("Build-up drafted from the assessment — review and edit each layer as needed");
+    } catch (e) {
+      toast.error("Could not auto-fill the build-up", { description: e?.response?.data?.detail });
+    } finally { setBuBusy(false); }
+  };
   const [sel, setSel] = useState(m.junctions?.[0]?.name || null);
   const junction = m.junctions?.find((j) => j.name === sel);
   const pass = m.calculatedU != null && m.targetU != null && m.calculatedU <= m.targetU;
@@ -105,10 +121,18 @@ export function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField })
         {(buildup.length > 0 || m.targetU != null) && (
           <section className="border border-border rounded-sm bg-card">
             <div className="px-4 h-10 flex items-center justify-between border-b border-border">
-              <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Wall Build-up</span>
-              <button onClick={addLayer} data-testid="buildup-add-layer" className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
-                <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add layer
-              </button>
+              <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{buLabel}</span>
+              <div className="flex items-center gap-2">
+                {canAutofillBu && (
+                  <button onClick={autofillBuildup} disabled={buBusy} data-testid="buildup-autofill" title="Draft the layers from the assessment"
+                    className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-[var(--c-action)] text-[var(--c-action)] hover:bg-[var(--c-action)]/5 transition-colors disabled:opacity-50">
+                    {buBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />} Auto-fill
+                  </button>
+                )}
+                <button onClick={addLayer} data-testid="buildup-add-layer" className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+                  <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add layer
+                </button>
+              </div>
             </div>
             <table className="w-full text-[12.5px]">
               <thead>
@@ -133,7 +157,15 @@ export function MeasureDetail({ m, mi, projectId, onJunctionSave, onSaveField })
                   </tr>
                 ))}
                 {buildup.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-muted-foreground font-sans">No build-up layers yet — add the first layer to begin.</td></tr>
+                  <tr><td colSpan={5} className="px-4 py-7 text-center font-sans">
+                    <div className="text-[12px] text-muted-foreground">No build-up layers yet.</div>
+                    {canAutofillBu && (
+                      <button onClick={autofillBuildup} disabled={buBusy} data-testid="buildup-autofill-empty"
+                        className="mt-2 inline-flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm bg-[var(--c-action)] text-white hover:opacity-90 transition-opacity disabled:opacity-50">
+                        {buBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" strokeWidth={1.75} />} Auto-fill from assessment
+                      </button>
+                    )}
+                  </td></tr>
                 )}
               </tbody>
             </table>

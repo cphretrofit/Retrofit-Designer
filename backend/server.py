@@ -1914,6 +1914,82 @@ async def autofill_measure_compliance(project_id: str, mi: int, force: bool = Qu
             "evidencePhotos": m.get("evidencePhotos") or []}
 
 
+def _bu_num(s):
+    mt = re.search(r"(\d+(?:\.\d+)?)", str(s or ""))
+    return mt.group(1) if mt else ""
+
+
+def _parse_insulation(system):
+    """Pull an insulation thickness (mm) and lambda (W/mK) out of the measure's system text."""
+    s = str(system or "")
+    mt = re.search(r"(\d{2,3})\s*mm", s)
+    ml = re.search(r"0\.0\d{1,3}", s)
+    return (mt.group(1) if mt else ""), (ml.group(0) if ml else "")
+
+
+def _autofill_buildup(m, prop):
+    """Draft a construction build-up (layers) for a fabric measure from the assessment's existing
+    construction + the measure's proposed system / target U. Deterministic, PAS 2035 defaults where
+    the assessment is silent; the user edits any row afterwards."""
+    code = (m.get("code") or "").upper()
+    ec = (prop or {}).get("existingConstruction") or {}
+    sc = (prop or {}).get("siteConditions") or {}
+    ins_thk, ins_lam = _parse_insulation(m.get("system"))
+    wall = (ec.get("Wall Construction") or "").strip()
+    wall_thk = _bu_num(ec.get("Existing Thickness"))
+
+    def L(no, material, thickness, lam="—"):
+        return {"no": f"{no:02d}", "material": material, "thickness": str(thickness or ""), "lambda": str(lam or "—")}
+
+    if code in ("EWI", "SWI"):
+        return [L(1, wall or "Existing masonry wall", wall_thk or "300"),
+                L(2, "Adhesive / basecoat", "10"),
+                L(3, "Mineral wool insulation board", ins_thk or "120", ins_lam or "0.032"),
+                L(4, "Reinforcement mesh + basecoat", "6"),
+                L(5, "Silicone render finish", "3")]
+    if code == "IWI":
+        return [L(1, wall or "Existing masonry wall", wall_thk or "225"),
+                L(2, "Insulated board / wood-fibre insulation", ins_thk or "80", ins_lam or "0.038"),
+                L(3, "Skim / lime plaster finish", "12")]
+    if code in ("LOFT", "RIR"):
+        existing = _bu_num(sc.get("loft_depth_mm")) or _bu_num(m.get("existingDepth")) or "100"
+        mt = re.search(r"(\d{2,3})\s*mm", str(m.get("system") or ""))
+        total = mt.group(1) if mt else "300"
+        try:
+            new = max(0, int(float(total)) - int(float(existing)))
+        except Exception:
+            new = 200
+        rows = [L(1, "Plasterboard ceiling", "12.5"),
+                L(2, "Existing mineral wool quilt (between joists)", existing, "0.044")]
+        if new > 0:
+            rows.append(L(3, "New mineral wool quilt (cross-laid over joists)", str(new), ins_lam or "0.040"))
+        return rows
+    if code in ("UFI", "FLOOR"):
+        floor = (ec.get("Floor Construction") or "").strip()
+        return [L(1, "Floor finish / deck", "18"),
+                L(2, "Insulation between / under joists", ins_thk or "100", ins_lam or "0.022"),
+                L(3, floor or "Existing floor structure", "")]
+    return []
+
+
+@api_router.post("/projects/{project_id}/measures/{mi}/autofill-buildup")
+async def autofill_measure_buildup(project_id: str, mi: int):
+    """Draft the construction build-up (layers) for a fabric measure from the assessment."""
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    measures = proj.get("measures") or []
+    if mi < 0 or mi >= len(measures):
+        raise HTTPException(status_code=404, detail="Measure not found")
+    m = measures[mi]
+    bu = _autofill_buildup(m, proj.get("property"))
+    if not bu:
+        raise HTTPException(status_code=422, detail="Build-up auto-fill applies to fabric measures only (external / internal wall, loft, room-in-roof or floor insulation).")
+    m["buildup"] = bu
+    await db.projects.update_one({"id": project_id}, {"$set": {"measures": measures}})
+    return {"buildup": bu}
+
+
 @api_router.post("/projects/{project_id}/floorplan/classify-photos")
 async def classify_walkthrough_photos(project_id: str):
     from ai_extractor import classify_room_photos

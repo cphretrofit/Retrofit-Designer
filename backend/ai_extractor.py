@@ -1720,7 +1720,7 @@ JN_BY_CODE = {
     "UFI": ["Perimeter", "Service penetrations"],
     "WIN": WIN_JN, "DOORS": ["Threshold", "Head", "Reveal"],
 }
-BUILD_BY_CODE = {"EWI": EWI_BUILD, "IWI": IWI_BUILD, "SWI": EWI_BUILD, "LOFT": LOFT_BUILD}
+BUILD_BY_CODE = {"EWI": EWI_BUILD, "IWI": IWI_BUILD, "SWI": EWI_BUILD, "LOFT": LOFT_BUILD, "RIR": LOFT_BUILD}
 
 
 def ai_to_measure(m: dict) -> dict:
