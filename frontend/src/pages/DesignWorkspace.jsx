@@ -261,17 +261,20 @@ export default function DesignWorkspace() {
         const coverThumb = p.coverPhotoUrl ? mediaUrl(p.coverPhotoUrl) : (photos.find((x) => x.isMain) ? mediaUrl(photos.find((x) => x.isMain).url) : null);
         return (
           <div className="anim-in">
-            <div className="border border-border rounded-sm bg-card p-3 mb-4 flex items-center gap-4" data-testid="cover-photo-card">
-              <div className="h-20 w-28 rounded-sm overflow-hidden bg-neutral-100 shrink-0 flex items-center justify-center">
-                {coverThumb ? <img src={coverThumb} alt="cover" className="w-full h-full object-cover" /> : <span className="text-[9px] text-muted-foreground tracking-wide text-center px-1 leading-tight">AUTO — AI PICKS FRONT ELEVATION</span>}
+            <div className="border border-border rounded-sm bg-card p-3 mb-4" data-testid="cover-photo-card">
+              <div className="flex items-center gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Front-cover photo</div>
+                  <div className="text-[12px] text-muted-foreground mt-1">{p.coverPhotoUrl ? "A specific photo is set — the banner preview below shows how it crops onto the pack cover." : "The front elevation is chosen automatically. Pick a photo to override it — you'll see a live banner preview before generating, so it's never the van or a clutter shot."}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={openCoverPicker} data-testid="choose-cover-photo" className="flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm bg-[var(--c-action)] text-white hover:opacity-90 transition-opacity"><Camera className="h-3.5 w-3.5" strokeWidth={1.75} /> Choose cover photo</button>
+                  {p.coverPhotoUrl && <button onClick={() => chooseCover(null)} data-testid="reset-cover-photo" className="text-[12px] px-3 h-8 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Auto</button>}
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Front-cover photo</div>
-                <div className="text-[12px] text-muted-foreground mt-1">{p.coverPhotoUrl ? "A specific photo is set as the pack cover." : "The front elevation is chosen automatically — pick a photo to override it, so it's never the van or a clutter shot."}</div>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button onClick={openCoverPicker} data-testid="choose-cover-photo" className="flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm bg-[var(--c-action)] text-white hover:opacity-90 transition-opacity"><Camera className="h-3.5 w-3.5" strokeWidth={1.75} /> Choose cover photo</button>
-                {p.coverPhotoUrl && <button onClick={() => chooseCover(null)} data-testid="reset-cover-photo" className="text-[12px] px-3 h-8 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">Auto</button>}
+              <div className="mt-3 rounded-sm overflow-hidden bg-neutral-900 relative" style={{ aspectRatio: "21 / 9" }} data-testid="cover-preview">
+                {coverThumb ? <img src={coverThumb} alt="cover preview" className="w-full h-full object-cover" style={{ objectPosition: "center 42%" }} /> : <div className="w-full h-full flex items-center justify-center text-[10px] text-neutral-400 tracking-[0.24em] text-center px-4">AUTO — THE AI PICKS THE FRONT ELEVATION</div>}
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2"><span className="text-white/90 text-[9px] tracking-[0.22em] uppercase">Pack cover banner preview</span></div>
               </div>
             </div>
             <div className="flex items-center justify-between gap-4 mb-4 flex-wrap">

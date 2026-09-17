@@ -172,6 +172,11 @@ PHOTO_NEG = {
     "LOFT": ["cavity insulation", "filled cavity", "cavity wall", "external wall", "wall insulation", "elevation", "render"],
 }
 
+# Typical PAS 2035 design target U-values (W/m2K) used when a measure has no explicit target,
+# so the calculated value can still be shown pass/fail on the pack spec page.
+_DEFAULT_TARGET_U = {"EWI": 0.30, "IWI": 0.30, "SWI": 0.30, "LOFT": 0.16, "RIR": 0.18,
+                     "UFI": 0.25, "FLOOR": 0.25, "WIN": 1.40, "DOORS": 1.40}
+
 
 def _photo_excluded(fam_or_code, text):
     neg = PHOTO_NEG.get((fam_or_code or "").upper(), [])
@@ -3638,15 +3643,23 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                        f'{_buildup_svg(bu)}</div>')
         cu, tu, eu = m.get("calculatedU"), m.get("targetU"), m.get("existingU")
         u_html = ""
-        if cu is not None and tu is not None:
-            pass_ = cu <= tu
-            bc = "#16A34A" if pass_ else "#B45309"
+        if cu is not None:
+            _famU = _mfam(m.get("code"), m.get("name"))
+            tu_eff = tu if tu is not None else _DEFAULT_TARGET_U.get(_famU)
             ex_s = f"{eu:.2f} &#8594; " if eu is not None else ""
+            unit_s = _esc(m.get("unit") or "W/m\u00b2K")
+            if tu_eff is not None:
+                pass_ = cu <= tu_eff
+                bc = "#16A34A" if pass_ else "#B45309"
+                tgt_lbl = f"Target {tu_eff:.2f}" + ("" if tu is not None else " (standard)")
+                right = (f'<div style="text-align:right;"><div class="faint upper" style="font-size:9.5px;">{tgt_lbl}</div>'
+                         f'<div class="mono" style="display:inline-block; margin-top:8px; padding:5px 11px; border:1px solid {bc}; color:{bc}; font-size:12px;">{"&#10003; PASS" if pass_ else "&#9888; REVIEW"}</div></div>')
+            else:
+                right = '<div style="text-align:right;"><div class="faint upper" style="font-size:9.5px;">No target set</div></div>'
             u_html = ('<div class="rule" style="margin-top:20px; padding-top:16px; display:flex; justify-content:space-between; align-items:flex-end;">'
                       f'<div><div class="faint upper" style="font-size:9.5px;">Calculated U-value</div>'
-                      f'<div style="margin-top:4px;"><span class="mono faint" style="font-size:14px;">{ex_s}</span><span class="disp" style="font-size:40px; line-height:1;">{cu:.2f}</span> <span class="mono muted" style="font-size:12px;">{_esc(m.get("unit"))}</span></div></div>'
-                      f'<div style="text-align:right;"><div class="faint upper" style="font-size:9.5px;">Target {tu:.2f}</div>'
-                      f'<div class="mono" style="display:inline-block; margin-top:8px; padding:5px 11px; border:1px solid {bc}; color:{bc}; font-size:12px;">{"&#10003; PASS" if pass_ else "&#9888; REVIEW"}</div></div></div>')
+                      f'<div style="margin-top:4px;"><span class="mono faint" style="font-size:14px;">{ex_s}</span><span class="disp" style="font-size:40px; line-height:1;">{cu:.2f}</span> <span class="mono muted" style="font-size:12px;">{unit_s}</span></div></div>'
+                      f'{right}</div>')
         if bu_html or u_html:
             spec_pages.append(_head("Construction & Thermal Detail") + bu_html + u_html)
 
@@ -4149,6 +4162,21 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             _c = next((ph for ph in _real if ph.get("url") == _cov and ph.get("data")), None)
             if _c:
                 hero_uri = _c["data"]
+    # 1b2) client default cover rule — a saved caption keyword (e.g. "front elevation")
+    if not hero_uri:
+        try:
+            _cname = (p.get("client") or "").strip()
+            if _cname:
+                _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}}, {"coverCaptionKeyword": 1})
+                _kw = ((_cl or {}).get("coverCaptionKeyword") or "").strip().lower()
+                if _kw:
+                    for kw in [k.strip() for k in _kw.split(",") if k.strip()]:
+                        _mkw = next((ph for ph in _real if kw in _cap(ph) and ph.get("data")), None)
+                        if _mkw:
+                            hero_uri = _mkw["data"]
+                            break
+        except Exception:
+            pass
     # 1c) VISION — positively identify the external front elevation. The front elevation is
     #      frequently NOT in the first pages (site notes order wet-room/vent/interior shots
     #      first and the external elevations last), so build candidates from the FULL photo set,

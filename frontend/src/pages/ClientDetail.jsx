@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { getClient, uploadClientDatasheets, deleteClientDatasheet } from "@/lib/api";
+import { getClient, uploadClientDatasheets, deleteClientDatasheet, updateClient } from "@/lib/api";
 import { TopBar } from "@/components/Shell";
 import { toast } from "sonner";
 import { Upload, Loader2, Trash2, FileText, Package } from "lucide-react";
@@ -72,6 +72,16 @@ export default function ClientDetail() {
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" strokeWidth={1.75} />} Upload datasheets
             </label>
           </div>
+        </div>
+
+        <div className="border border-border rounded-sm bg-card mb-6 p-4 flex items-center gap-4 flex-wrap" data-testid="cover-rule-card">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Default cover photo rule</div>
+            <p className="text-[12.5px] text-muted-foreground mt-1 max-w-xl">New {client?.name} jobs auto-pick the front-cover photo whose caption contains this keyword (comma-separate alternatives). Leave blank to let the AI choose.</p>
+          </div>
+          <input defaultValue={client?.coverCaptionKeyword || ""} key={client?.coverCaptionKeyword || ""} placeholder="e.g. front elevation" data-testid="cover-keyword-input"
+            onBlur={async (e) => { try { const d = await updateClient(id, { coverCaptionKeyword: e.target.value }); setClient(d); toast.success("Cover rule saved"); } catch { toast.error("Could not save cover rule"); } }}
+            className="h-9 w-64 px-3 rounded-sm border border-border bg-background text-[13px]" />
         </div>
 
         {/* Product catalogue */}

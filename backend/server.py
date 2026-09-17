@@ -1186,6 +1186,7 @@ class ClientIn(BaseModel):
 class ClientPatch(BaseModel):
     name: Optional[str] = None
     status: Optional[str] = None
+    coverCaptionKeyword: Optional[str] = None
 
 
 @api_router.get("/clients")
@@ -1237,6 +1238,8 @@ async def update_client(client_id: str, payload: ClientPatch):
             raise HTTPException(status_code=422, detail="Invalid status")
         upd["status"] = payload.status
         upd["archivedAt"] = datetime.now(timezone.utc).isoformat() if payload.status == "archived" else None
+    if payload.coverCaptionKeyword is not None:
+        upd["coverCaptionKeyword"] = payload.coverCaptionKeyword.strip()
     if not upd:
         raise HTTPException(status_code=422, detail="Nothing to update")
     r = await db.clients.update_one({"id": client_id}, {"$set": upd})
