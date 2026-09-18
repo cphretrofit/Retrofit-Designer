@@ -25,6 +25,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Fixed/Added — Jun 16 2026 (fork) — Actions filter, Esc close, selected badge
+- **Actions Required still showing datasheet/spec items (e.g. "dMEV datasheet not uploaded", Knauf specification):** the UI listed every `itemsBeforeIssue`; it now mirrors backend `_is_handover_item` via a JS `isHandoverItem()` and filters out commissioning/datasheet/specification "to be confirmed/uploaded/required" items — matching the PDF. Pure display filter, so it fixes existing/deployed projects without re-import. `ActionItems.jsx`.
+- **Esc closes picker & lightbox:** keydown listeners in SiteConditionsPanel (lightbox then picker), MeasureEvidence (picker), DesignWorkspace (cover picker). Verified Esc closes.
+- **Selected tick badge:** the photo currently attached to a condition (Site Conditions) / measure (Measure Evidence) shows an accent ring + tick badge in the picker. Verified 1 badge on the attached photo.
+
 ## Fixed — Jun 16 2026 (fork) — Photo picker UX tweaks
 - **Flicker (images vanish after ~1s):** root cause was the `opacity-0` + `onLoad classList.remove` fade — when `getAllPhotos` updated state and React re-rendered, `opacity-0` was re-applied and `onLoad` never re-fired for cached images. Removed the fade trick from all three pickers (SiteConditionsPanel, MeasureEvidence, DesignWorkspace cover). Verified 9/9 tiles stay visible through re-render.
 - **Auto-save on select (Site Conditions):** selecting a photo now persists via `saveSiteConditions` immediately and closes the picker (new `attachAndSave`), no manual Save. MeasureEvidence already auto-saved.

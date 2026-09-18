@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { detectSiteConditions, saveSiteConditions, mediaUrl, thumbUrl, getAllPhotos } from "@/lib/api";
 import { toast } from "sonner";
-import { Sparkles, Loader2, Save, Maximize2, ImagePlus, X } from "lucide-react";
+import { Sparkles, Loader2, Save, Maximize2, ImagePlus, X, Check } from "lucide-react";
 
 const VERDICT = [
   { v: "true", l: "Present / Yes" },
@@ -33,6 +33,11 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
   useEffect(() => {
     getAllPhotos(projectId).then((r) => { if (r?.photos) setAllPhotos(r.photos); }).catch(() => {});
   }, [projectId]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") { if (zoom) setZoom(null); else if (pick !== null) setPick(null); } };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoom, pick]);
 
   const detect = async () => {
     if (evidence.length > 0 && !window.confirm("Re-detect will overwrite the current answers (including any manual edits). Continue?")) return;
@@ -222,14 +227,20 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
           <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(ev) => ev.stopPropagation()}>
             {photos.length === 0 ? (
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
-            ) : photos.map((ph, pi) => (
+            ) : photos.map((ph, pi) => {
+              const selected = pick !== null && (sc.evidence?.[pick]?.url) === ph.url;
+              return (
               <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
                 onClick={() => attachAndSave(pick, ph)}
-                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left bg-card">
-                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" /></div>
+                className={`rounded-sm overflow-hidden transition-colors text-left bg-card border ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
+                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
+                  <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                  {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`site-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
+                </div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

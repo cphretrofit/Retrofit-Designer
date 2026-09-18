@@ -116,6 +116,12 @@ export default function DesignWorkspace() {
     return null;
   }, [p, section]);
 
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && coverOpen) setCoverOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [coverOpen]);
+
   if (!p) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: "Loading…" }]} /></div>;
   if (!p.property || !p.measures) return <div className="min-h-screen bg-background"><TopBar crumbs={[{ label: p.name || "Project" }]} /><div className="max-w-md mx-auto py-24 text-center text-sm text-muted-foreground">Design data is being prepared for this project.</div></div>;
 

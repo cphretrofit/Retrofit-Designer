@@ -27,6 +27,20 @@ function fmtTime(iso) {
   catch { return iso; }
 }
 
+// Commissioning/handover artefacts and datasheet/specification "to be confirmed" items are NOT
+// outstanding DESIGN actions (datasheets are read at design time, commissioning happens at install).
+// Mirrors backend _is_handover_item so the UI hides them just like the PDF does.
+function isHandoverItem(text) {
+  const t = (text || "").toLowerCase();
+  if (t.includes("commission") && !t.includes("decommission")) return true;
+  if (t.includes("product specification")) return true;
+  const kw = (words) => words.some((k) => t.includes(k));
+  if (t.includes("datasheet") && kw(["not confirmed", "to be confirmed", "must be provided", "not provided", "confirm", "required", "supply", "upload"])) return true;
+  if (t.includes("manufacturer") && kw(["datasheet", "not confirmed", "to be confirmed", "confirm"])) return true;
+  if (t.includes("specification") && kw(["not confirmed", "to be confirmed", "not provided", "must be provided"])) return true;
+  return false;
+}
+
 function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
   const a = act;
   const [open, setOpen] = useState(false);
@@ -177,7 +191,7 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
   const all = (p.itemsBeforeIssue || []).map((a, idx) => {
     const o = typeof a === "string" ? { text: a, severity: "info_required" } : a;
     return { ...o, _i: idx };
-  });
+  }).filter((a) => !isHandoverItem(a.text));
   const scoped = measure ? all.filter((a) => a.measure === measure.code) : all;
   const acts = scoped.filter((a) => !a.dismissed);
   const dismissedActs = scoped.filter((a) => a.dismissed);

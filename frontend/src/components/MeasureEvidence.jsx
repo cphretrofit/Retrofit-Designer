@@ -1,7 +1,7 @@
 import { useRef, useState, useEffect } from "react";
 import { uploadMeasureEvidence, deleteMeasureEvidence, autofillMeasureCompliance, getAllPhotos, addMeasureEvidencePhotoUrl, mediaUrl, thumbUrl } from "@/lib/api";
 import { toast } from "sonner";
-import { Trash2, Loader2, ImagePlus, Wand2, X, ShieldCheck } from "lucide-react";
+import { Trash2, Loader2, ImagePlus, Wand2, X, ShieldCheck, Check } from "lucide-react";
 
 export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
   const photos = m.evidencePhotos || [];
@@ -14,6 +14,12 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
   const [pick, setPick] = useState(false);
   const [pool, setPool] = useState(null);
   const [attaching, setAttaching] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && pick) setPick(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pick]);
 
   const openPicker = async () => {
     setPick(true);
@@ -163,14 +169,20 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10 flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading the photopack…</div>
             ) : pool.length === 0 ? (
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available yet — import survey photos first, or upload from your device.</div>
-            ) : pool.map((ph, pi) => (
+            ) : pool.map((ph, pi) => {
+              const selected = photos.some((x) => x.url === ph.url);
+              return (
               <button key={ph.url || pi} data-testid={`evidence-photo-option-${pi}`} disabled={attaching}
                 onClick={() => attachFromUrl(ph)}
-                className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left disabled:opacity-50 bg-card">
-                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" /></div>
+                className={`rounded-sm overflow-hidden transition-colors text-left disabled:opacity-50 bg-card border ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
+                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
+                  <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                  {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`evidence-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
+                </div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
