@@ -25,6 +25,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Fixed — Jun 16 2026 (fork) — Photo picker UX tweaks
+- **Flicker (images vanish after ~1s):** root cause was the `opacity-0` + `onLoad classList.remove` fade — when `getAllPhotos` updated state and React re-rendered, `opacity-0` was re-applied and `onLoad` never re-fired for cached images. Removed the fade trick from all three pickers (SiteConditionsPanel, MeasureEvidence, DesignWorkspace cover). Verified 9/9 tiles stay visible through re-render.
+- **Auto-save on select (Site Conditions):** selecting a photo now persists via `saveSiteConditions` immediately and closes the picker (new `attachAndSave`), no manual Save. MeasureEvidence already auto-saved.
+- **Click-off to close (lightbox):** the zoom lightbox container no longer stops propagation (only the `<img>` does), so clicking the dark area closes it.
+
 ## Added — Jun 16 2026 (fork) — U-value in pack, cover crop preview, bulk cover rule
 - **U-value + pass/fail on pack spec page:** the Construction & Thermal Detail page already rendered Calculated U-value + PASS/REVIEW, but only when `targetU` was set. Added `_DEFAULT_TARGET_U` (PAS 2035 typical targets per family) so the U-value and pass/fail always surface — using the measure's own target when present, otherwise the standard target (labelled "(standard)"), or "No target set" when neither. `pdf_builder.py` ~line 177 + ~3640.
 - **Cover crop preview:** the Photos "Front-cover photo" card now shows a 21:9 banner preview (object-cover, object-position centre 42%) matching how the chosen photo crops onto the pack cover, updating live when you pick/reset. `DesignWorkspace.jsx` cover card. Verified `cover-preview` renders.

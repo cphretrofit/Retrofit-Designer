@@ -336,7 +336,7 @@ export default function DesignWorkspace() {
                 <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()}>
                   {(allPhotos || []).map((ph, i) => (
                     <button key={ph.url || i} onClick={() => chooseCover(ph.url)} disabled={coverBusy} data-testid={`cover-option-${i}`} className={cn("border rounded-sm overflow-hidden text-left bg-card hover:border-foreground/50 transition-colors", p.coverPhotoUrl === ph.url ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border")}>
-                      <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
+                      <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" /></div>
                       <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.caption || "Survey photo"}</div>
                     </button>
                   ))}

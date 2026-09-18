@@ -75,6 +75,25 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
     catch { toast.error("Could not save"); } finally { setSaving(false); }
   };
 
+  const attachAndSave = async (i, ph) => {
+    const ev = structuredClone(sc.evidence || []);
+    ev[i] = { ...ev[i], url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" };
+    const next = { ...sc, evidence: ev };
+    const e = ev[i];
+    if (e.key === "floor_type") next.floor_type = e.value; else next[e.key] = e.present;
+    setSc(next); setPick(null);
+    try {
+      const merged = { ...next };
+      LOFT_CHECKS.forEach((c) => {
+        const b = merged[c.key];
+        const v = typeof b === "boolean" ? b : ((merged.evidence || []).find((x) => x.key === c.key)?.present ?? null);
+        if (v !== null) merged[c.key] = v;
+      });
+      const data = await saveSiteConditions(projectId, merged); setSc(data); onChange?.(data);
+      toast.success("Photo attached & saved");
+    } catch { toast.error("Attached but could not save — click Save"); }
+  };
+
   return (
     <div className="anim-in space-y-4 max-w-3xl">
       <div className="flex items-center justify-between gap-4">
@@ -196,7 +215,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
           <div className="max-w-4xl w-full mx-auto flex items-center justify-between mb-4" onClick={(ev) => ev.stopPropagation()}>
             <div>
               <div className="text-[14px] font-medium">Attach an evidence photo</div>
-              <div className="text-[11.5px] text-muted-foreground mt-0.5">Pick the survey photo that best evidences this condition. Remember to Save after attaching.</div>
+              <div className="text-[11.5px] text-muted-foreground mt-0.5">Pick the survey photo that best evidences this condition — it saves automatically.</div>
             </div>
             <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0"><X className="h-4 w-4" /> Close</button>
           </div>
@@ -205,9 +224,9 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
             ) : photos.map((ph, pi) => (
               <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
-                onClick={() => { updateEv(pick, { url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" }); setPick(null); toast.success("Photo attached — click Save to persist"); }}
+                onClick={() => attachAndSave(pick, ph)}
                 className="border border-border rounded-sm overflow-hidden hover:border-foreground/50 transition-colors text-left bg-card">
-                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} /></div>
+                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" /></div>
                 <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
               </button>
             ))}
@@ -217,8 +236,8 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
 
       {zoom && (
         <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-lightbox" onClick={() => setZoom(null)}>
-          <div className="flex-1 min-h-0 flex items-center justify-center" onClick={(ev) => ev.stopPropagation()}>
-            <img src={mediaUrl(zoom.url)} alt={zoom.label} className="max-h-[74vh] max-w-[82vw] object-contain rounded-sm border border-border" data-testid="site-lightbox-image" />
+          <div className="flex-1 min-h-0 flex items-center justify-center">
+            <img src={mediaUrl(zoom.url)} alt={zoom.label} onClick={(ev) => ev.stopPropagation()} className="max-h-[74vh] max-w-[82vw] object-contain rounded-sm border border-border cursor-default" data-testid="site-lightbox-image" />
           </div>
           <div className="shrink-0 max-w-2xl w-full mx-auto mt-4 flex items-center gap-3" onClick={(ev) => ev.stopPropagation()}>
             <span className="text-[13px] font-medium">{zoom.label}</span>
