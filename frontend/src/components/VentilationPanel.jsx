@@ -21,6 +21,10 @@ export function VentilationPanel({ projectId, initial, onChange }) {
   const setRoom = (i, k, val) => set("rooms", rooms.map((r, j) => (j === i ? { ...r, [k]: val } : r)));
   const addRoom = () => set("rooms", [...rooms, { room: "", system: "", rate: "", note: "" }]);
   const removeRoom = (i) => set("rooms", rooms.filter((_, j) => j !== i));
+  const undercuts = v.undercuts || [];
+  const setUC = (i, k, val) => set("undercuts", undercuts.map((u, j) => (j === i ? { ...u, [k]: val } : u)));
+  const addUC = () => set("undercuts", [...undercuts, { room: "", required: true }]);
+  const removeUC = (i) => set("undercuts", undercuts.filter((_, j) => j !== i));
 
   const loadAdf1 = useCallback(() => {
     if (!projectId) return;
@@ -64,9 +68,10 @@ export function VentilationPanel({ projectId, initial, onChange }) {
     setBusy(true);
     try {
       const cleanRooms = (v.rooms || []).filter((r) => [r.room, r.system, r.rate, r.note].some((x) => (x || "").trim()));
+      const cleanUndercuts = (v.undercuts || []).filter((u) => (u.room || "").trim());
       const beds = v.bedrooms === "" || v.bedrooms == null ? undefined : Number(v.bedrooms);
       const payload = {
-        ...v, rooms: cleanRooms, bedrooms: beds,
+        ...v, rooms: cleanRooms, undercuts: cleanUndercuts, bedrooms: beds,
         notes: (v.notes || []).filter((n) => (n || "").trim()),
         adf1Overrides: { ...(v.adf1Overrides || {}), ...dirty },
       };
@@ -163,6 +168,43 @@ export function VentilationPanel({ projectId, initial, onChange }) {
             ))}
             {rooms.length === 0 && (
               <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-muted-foreground">No wet rooms yet — add each kitchen / bathroom / WC / utility and its extract rate.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="border border-border rounded-sm bg-card" data-testid="undercut-schedule">
+        <div className="px-4 h-10 flex items-center justify-between border-b border-border">
+          <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Internal Door Undercuts</span>
+          <button onClick={addUC} data-testid="undercut-add-room"
+            className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add room
+          </button>
+        </div>
+        <div className="px-4 py-3 flex items-center gap-3 border-b border-border/60">
+          <label className="text-[11px] text-muted-foreground whitespace-nowrap">Default undercut size</label>
+          <input value={v.undercutSize || ""} onChange={(e) => set("undercutSize", e.target.value)} data-testid="undercut-size"
+            className="h-8 w-28 px-2.5 bg-background border border-border rounded-sm text-[12.5px] font-mono-tech outline-none focus:border-foreground/30" placeholder="10 mm" />
+          <span className="text-[11px] text-muted-foreground">above finished floor (ADF1 para 1.25)</span>
+        </div>
+        <table className="w-full text-[12.5px]">
+          <thead>
+            <tr className="text-[10px] uppercase tracking-[0.08em] text-muted-foreground border-b border-border">
+              <th className="text-left font-normal px-4 py-2">Room</th>
+              <th className="text-left font-normal py-2 w-44">Door undercut required</th>
+              <th className="w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {undercuts.map((u, i) => (
+              <tr key={i} className="border-b border-border/60 last:border-0 group/uc">
+                <td className="py-1.5 px-2"><input value={u.room || ""} onChange={(e) => setUC(i, "room", e.target.value)} data-testid={`uc-room-${i}`} className="w-full bg-transparent px-1.5 py-1 outline-none focus:bg-secondary/70 rounded-sm" placeholder="Bedroom 1" /></td>
+                <td className="py-1.5"><select value={u.required ? "yes" : "no"} onChange={(e) => setUC(i, "required", e.target.value === "yes")} data-testid={`uc-req-${i}`} className="h-8 px-2 border border-border rounded-sm text-[12px] bg-background outline-none focus:border-foreground/30"><option value="yes">Yes — required</option><option value="no">No</option></select></td>
+                <td className="pr-3 py-1.5 text-right"><button onClick={() => removeUC(i)} data-testid={`uc-remove-${i}`} className="opacity-0 group-hover/uc:opacity-100 focus:opacity-100 text-muted-foreground hover:text-[var(--c-critical)] transition-opacity"><Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /></button></td>
+              </tr>
+            ))}
+            {undercuts.length === 0 && (
+              <tr><td colSpan={3} className="px-4 py-6 text-center text-[12px] text-muted-foreground">No rooms yet — add each habitable room whose door needs an undercut for air transfer to the extract rooms.</td></tr>
             )}
           </tbody>
         </table>

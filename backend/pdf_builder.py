@@ -2380,9 +2380,24 @@ def _wet_rt(name):
     return None
 
 
+def _undercut_size(p):
+    s = ((p.get("ventilation") or {}).get("undercutSize") or "").strip()
+    return s if s else "10\u00a0mm"
+
+
 def _undercut_rooms(p):
-    """Named internal rooms whose doors need an ADF1 para 1.25 undercut (habitable + wet rooms,
-    excluding circulation), derived from the floor plan."""
+    """Named internal rooms whose doors need an ADF1 para 1.25 undercut. Uses the designer's
+    explicit selections (ventilation.undercuts) when set, else derives from the floor plan."""
+    ucs = (p.get("ventilation") or {}).get("undercuts") or []
+    sel, seen = [], set()
+    for u in ucs:
+        if u.get("required") and (u.get("room") or "").strip():
+            t = _tidy_room(u.get("room")) or (u.get("room") or "").strip()
+            if t and t.lower() not in seen:
+                seen.add(t.lower())
+                sel.append(t)
+    if sel:
+        return _oxford(sel)
     skip = ("hall", "landing", "corridor", "lobby", "stair", "porch", "entrance")
     tidy, seen = [], set()
     for nm in _plan_rooms(p):
@@ -2396,7 +2411,7 @@ def _undercut_rooms(p):
 
 
 def _undercut_provision(p):
-    return (f"10\u00a0mm undercut above the finished floor (20\u00a0mm above an unfinished floor) to the "
+    return (f"{_undercut_size(p)} undercut above the finished floor (20\u00a0mm above an unfinished floor) to the "
             f"internal doors serving {_undercut_rooms(p)}, giving a clear air-transfer path to the "
             f"extract rooms. Re-check and adjust after new floor finishes (carpet / LVT) are laid.")
 
@@ -2714,7 +2729,7 @@ def _adf1_ventilation_pages(p, measures):
     ref_rows = [
         ("Background ventilators (Table 1.7)", "Minimum 8,000 mm² equivalent area per habitable room (minimum 4,000 mm²). Fans and background ventilators at least 0.5 m apart."),
         ("Purge ventilation (Table 1.4)", "Openable area at least 1/20 (5%) of the room floor area (hinged/pivot windows opening 30° or more)."),
-        ("Internal door air transfer (para 1.25)", "10 mm undercut above the floor finish (20 mm above the floor surface), or equivalent transfer grille."),
+        ("Internal door air transfer (para 1.25)", f"{_undercut_size(p)} undercut above the floor finish (20 mm above the floor surface), or equivalent transfer grille. Door undercut required to internal doors serving: {_undercut_rooms(p)}."),
     ]
     ref_tbl = _kv_table(ref_rows)
 

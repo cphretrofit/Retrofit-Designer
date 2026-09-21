@@ -25,6 +25,13 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #7 — Ventilation door undercuts (the "must")
+- **VentilationPanel**: new "Internal Door Undercuts" card — a default undercut-size field (`ventilation.undercutSize`, e.g. "10 mm") + an editable room list (`ventilation.undercuts` = [{room, required}]) with a per-room "Door undercut required" Yes/No dropdown, add/remove. Persists via the open-dict `VentilationIn`.
+- **PDF**: `_undercut_rooms(p)` now uses the designer's explicit selections when set (else derives from the plan); new `_undercut_size(p)`; `_undercut_provision` and the ADF1 ventilation reference row now read "Door undercut required to internal doors serving: <rooms>" with the chosen size. Verified (UI screenshot + isolated logic render).
+
+STILL OPEN — **Floor-plan geometry editor (drag + typed resize)**: user wants to (a) drag external wall edges and (b) type overall/segment external dimensions to rescale the plan, for footprint + segments. NOT STARTED — substantial canvas build, scheduled as the next dedicated task.
+
+
 ## Added — Jun 21 2026 (fork) #6 — Export QA batch (remaining items)
 Verified by rendering the full 13 Mill View pack (92pp) + page screenshots:
 - **Auto-N/A evidence tiles**: site-condition tiles with no usable photo now show a clean "N/A · no photograph on file" tile (also when `na` is set) instead of a blank/wrong image.
