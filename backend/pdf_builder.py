@@ -722,7 +722,7 @@ def _default_junctions(fam):
 
 PACK_CSS = """
 @page { size: A4; margin: 0 0 12mm 0; @bottom-left { content: element(docfoot); padding-left: 18mm; border-top: 1px solid #e5e5e5; } @bottom-right { content: counter(page) " / " counter(pages); padding-right: 18mm; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
-@page :first { @bottom-left { content: none; border-top: none; } @bottom-right { content: none; border-top: none; } }
+@page :first { margin: 0; @bottom-left { content: none; border-top: none; } @bottom-right { content: none; border-top: none; } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
 .page { position: relative; width: 210mm; min-height: 285mm; padding: 18mm 18mm 12mm; page-break-after: always; }
@@ -730,6 +730,8 @@ body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #1
 .screen-foot { display: none; }
 @media screen { .screen-foot { display: flex; justify-content: space-between; align-items: center; position: absolute; left: 18mm; right: 18mm; bottom: 4mm; padding-top: 4px; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
 .page:last-child { page-break-after: auto; }
+.page.cover-bleed { padding: 0; width: 210mm; min-height: 297mm; height: 297mm; overflow: hidden; }
+.page.cover-bleed img { width: 210mm; height: 297mm; object-fit: cover; object-position: center; display: block; }
 .mono { font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; }
 .muted { color: #737373; } .faint { color: #a3a3a3; }
 .disp { font-weight: 300; letter-spacing: -0.02em; }
@@ -2772,6 +2774,28 @@ def _cph_logo_uri():
     return _LOGO_URI
 
 
+_BRAND_COVER_URI = None
+
+
+def _brand_cover_uri():
+    global _BRAND_COVER_URI
+    if _BRAND_COVER_URI is None:
+        try:
+            from pathlib import Path as _P
+            _BRAND_COVER_URI = "data:image/png;base64," + base64.b64encode(
+                (_P(__file__).resolve().parent / "assets" / "brand_cover.png").read_bytes()).decode()
+        except Exception:
+            _BRAND_COVER_URI = ""
+    return _BRAND_COVER_URI
+
+
+def _brand_cover_html(p, issued_date):
+    uri = _brand_cover_uri()
+    if not uri:
+        return ""
+    return f'<img src="{uri}" alt="CPH Retrofit \u2014 Sustainable Retrofit for a Brighter Tomorrow">'
+
+
 def _premium_cover_html(p, hero_uri, issued_date):
     import re as _re
     name = _esc(p.get("name") or "Design Document")
@@ -4093,9 +4117,10 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     summary_page = _design_summary_html(p, measures)
     solar_page = _solar_html(p)
     compliance_pages = _compliance_html(p, measures)
+    brand_cover = _brand_cover_html(p, issued_date)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
     signoff_page = _signoff_html(p, issued_date)
-    pages = [premium_cover, summary_page, contents_page, foreword_page, *directory_pages,
+    pages = [*([brand_cover] if brand_cover else []), premium_cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
              ventilation_page, *([] if p.get("_uploadedAdf1") else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),
@@ -4112,10 +4137,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     total = len(pages)
     foot = f"{_esc(p.get('address') or name)}  ·  Ref {ref}  ·  Rev {rev}"
     page_divs = []
+    _cover_bleed = bool(brand_cover)
     for i, inner in enumerate(pages):
         # Mirror the PDF's @page footer on screen (the cover page carries none, matching @page :first).
         sf = "" if i == 0 else f'<div class="screen-foot"><span>{foot}</span><span>{i + 1} / {total}</span></div>'
-        page_divs.append(f'<div class="page">{inner}{sf}</div>')
+        cls = "page cover-bleed" if (i == 0 and _cover_bleed) else "page"
+        page_divs.append(f'<div class="{cls}">{inner}{sf}</div>')
     body = f'<div class="docref">{foot}</div>' + "".join(page_divs)
     return f'<!doctype html><html><head><meta charset="utf-8"><style>{PACK_CSS}</style></head><body>{body}</body></html>'
 

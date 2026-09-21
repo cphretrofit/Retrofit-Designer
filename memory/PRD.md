@@ -25,6 +25,12 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #3 — Branded magazine front cover (page 1)
+- **New page-1 brand cover:** the agreed green/gold "CPH RETROFIT — Sustainable Retrofit for a Brighter Tomorrow" magazine cover is now the first page of every design pack, full-bleed to all four edges. Stored at `backend/assets/brand_cover.png` (1055×1491, ~A4), embedded via `_brand_cover_uri()` / `_brand_cover_html()` in pdf_builder.py.
+- **White "Design Document" cover moved to page 2:** the existing `_premium_cover_html` (property photo + info tiles) now follows the brand cover. Page assembly: `[brand_cover, premium_cover, summary_page, …]`.
+- **Full-bleed plumbing:** `@page :first { margin: 0 }` + `.page.cover-bleed { padding:0; height:297mm }` with `img { width:210mm; height:297mm; object-fit:cover }`; first page div gets `page cover-bleed` and no footer. Verified by rendering the cover through WeasyPrint (correct, no clipping). NOTE: the on-screen pack.html preview is heavy (~18MB) and can be slow to paint in-browser; the PDF export is the source of truth.
+
+
 ## Added — Jun 21 2026 (fork) #2 — QA which-items, Issue Gate, Photo N/A
 - **QA which-items on readiness rows:** `_compute_readiness` QA bar now carries a `missing` list (open item-before-issue texts + "Coordinator sign-off"). ProjectOverview Design Readiness card and the workspace sidebar readiness both render the specific blocking items under each incomplete bar (cap 5 / 3 with "+N more"), so coordinators see exactly what to clear.
 - **Issue Gate:** `POST /projects/{id}/pack/generate` now calls `_compute_full_readiness()` (mirrors get_project) and returns 422 "Design not ready to issue — complete: …" unless every readiness bar is 100% AND signed off. DesignPack.jsx disables Export (shows "Locked" + a warning banner listing blockers with a Resolve → link); preview/print still work. Not-ready = any bar < 100 or no coordinator sign-off.
