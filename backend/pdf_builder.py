@@ -2790,10 +2790,27 @@ def _brand_cover_uri():
 
 
 def _brand_cover_html(p, issued_date):
+    import re as _re
     uri = _brand_cover_uri()
     if not uri:
         return ""
-    return f'<img src="{uri}" alt="CPH Retrofit \u2014 Sustainable Retrofit for a Brighter Tomorrow">'
+    name = _esc(p.get("name") or "")
+    addr = (p.get("address") or "")
+    mm = _re.search(r"[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}", addr.upper())
+    postcode = _esc(mm.group(0) if mm else (p.get("town") or ""))
+    gold = "#e8c47a"
+    shadow = "text-shadow:0 1px 12px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.7);"
+    overlay = ""
+    if name or postcode:
+        overlay = (
+            '<div style="position:absolute; right:0; bottom:0; width:120mm; height:66mm; z-index:2;'
+            ' background:linear-gradient(315deg, rgba(8,12,18,0.82) 0%, rgba(8,12,18,0.45) 32%, rgba(8,12,18,0) 62%);"></div>'
+            '<div style="position:absolute; right:15mm; bottom:18mm; text-align:right; z-index:3;">'
+            f'<div style="width:34px; height:2px; background:{gold}; margin-left:auto; margin-bottom:9px; opacity:0.98;"></div>'
+            + (f'<div style="font-size:15px; letter-spacing:0.16em; font-weight:600; color:{gold}; {shadow}">{name.upper()}</div>' if name else "")
+            + (f'<div style="font-size:11px; letter-spacing:0.24em; color:#f6f1e7; margin-top:5px; {shadow}">{postcode}</div>' if postcode else "")
+            + '</div>')
+    return f'<img src="{uri}" alt="CPH Retrofit \u2014 Sustainable Retrofit for a Brighter Tomorrow">{overlay}'
 
 
 def _premium_cover_html(p, hero_uri, issued_date):

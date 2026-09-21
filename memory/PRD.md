@@ -25,6 +25,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #4 — Property name/postcode on brand cover
+- The page-1 brand cover now overlays the property **name + postcode** bottom-right (gold `#e8c47a`, letter-spaced, with a matching gold tick), over a subtle diagonal corner vignette (`linear-gradient(315deg …)`) so it reads cleanly on the bright photo while staying understated. Built in `_brand_cover_html`; postcode parsed from `address` (fallback `town`). Verified via WeasyPrint render.
+
+
 ## Added — Jun 21 2026 (fork) #3 — Branded magazine front cover (page 1)
 - **New page-1 brand cover:** the agreed green/gold "CPH RETROFIT — Sustainable Retrofit for a Brighter Tomorrow" magazine cover is now the first page of every design pack, full-bleed to all four edges. Stored at `backend/assets/brand_cover.png` (1055×1491, ~A4), embedded via `_brand_cover_uri()` / `_brand_cover_html()` in pdf_builder.py.
 - **White "Design Document" cover moved to page 2:** the existing `_premium_cover_html` (property photo + info tiles) now follows the brand cover. Page assembly: `[brand_cover, premium_cover, summary_page, …]`.
