@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getProject, updateField, updatePhotos, mediaUrl, thumbUrl, getAllPhotos, setCoverPhoto, autofillAllBuildups, applyClientLibrary, setReference, addDocuments, parseDatasheets } from "@/lib/api";
+import { getProject, updateField, updatePhotos, mediaUrl, thumbUrl, getAllPhotos, setCoverPhoto, autofillAllBuildups, applyClientLibrary, setReference, addDocuments, parseDatasheets, signoffDesign } from "@/lib/api";
 import { ChevronUp, ChevronDown, Star, Upload } from "lucide-react";
 import { TopBar, Meter } from "@/components/Shell";
 import { StatusChip, Field, TONE } from "@/components/StatusChip";
@@ -109,6 +109,7 @@ export default function DesignWorkspace() {
   const [coverOpen, setCoverOpen] = useState(false);
   const [allPhotos, setAllPhotos] = useState([]);
   const [coverBusy, setCoverBusy] = useState(false);
+  const [signBusy, setSignBusy] = useState(false);
 
   const activeMeasure = useMemo(() => {
     if (!p) return null;
@@ -157,6 +158,15 @@ export default function DesignWorkspace() {
   const savePhotos = async (next) => {
     setP((prev) => { const n = structuredClone(prev); n.designPack.photos = next; return n; });
     try { await updatePhotos(id, next); } catch { toast.error("Could not save photos"); }
+  };
+  const signoff = async (signed) => {
+    setSignBusy(true);
+    try {
+      await signoffDesign(id, { signed });
+      await load();
+      toast.success(signed ? "Design signed off by coordinator" : "Sign-off withdrawn");
+    } catch (e) { toast.error("Could not update sign-off", { description: e?.response?.data?.detail }); }
+    finally { setSignBusy(false); }
   };
   const saveRef = async (v) => {
     const val = (v || "").trim();
@@ -501,9 +511,51 @@ export default function DesignWorkspace() {
           </div>
         );
       case "outstanding":
-      case "design-review":
+      case "design-review": {
+        const _active = (p.itemsBeforeIssue || []).filter((it) => !it.dismissed);
+        const openCount = _active.filter((it) => !it.resolved && !it.confirmedBy).length;
+        const signed = !!p.coordinatorSignoff || p.status === "approved";
+        const hasCoordinator = !!(p.coordinator && p.coordinator.trim() && p.coordinator !== "—");
+        const coordName = (p.coordinator || "").split(" (")[0];
         return (
           <div className="anim-in space-y-4">
+            <div className="border rounded-sm bg-card p-5" data-testid="coordinator-signoff-card"
+              style={{ borderColor: signed ? "var(--c-pass)" : "var(--border)" }}>
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Coordinator Sign-off</div>
+                  {signed ? (
+                    <div className="text-[13px] flex items-center gap-2" style={{ color: "var(--c-pass)" }} data-testid="signoff-status">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" strokeWidth={2} />
+                      Signed off by {p.coordinatorSignoff?.by || p.coordinator}{p.coordinatorSignoff?.at ? ` · ${new Date(p.coordinatorSignoff.at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                    </div>
+                  ) : (
+                    <div className="text-[13px] text-muted-foreground" data-testid="signoff-status">
+                      {openCount > 0
+                        ? `${openCount} item${openCount === 1 ? "" : "s"} before issue still need clearing before sign-off`
+                        : hasCoordinator
+                          ? `Ready for ${coordName} to sign off — this completes the QA readiness bar`
+                          : "Assign a Retrofit Coordinator in Project Details before sign-off"}
+                    </div>
+                  )}
+                </div>
+                {signed ? (
+                  <button onClick={() => signoff(false)} disabled={signBusy} data-testid="signoff-undo"
+                    className="text-[12px] px-3 h-8 border border-border rounded-sm hover:bg-secondary transition-colors shrink-0">Withdraw</button>
+                ) : (
+                  <button onClick={() => signoff(true)} disabled={signBusy || openCount > 0 || !hasCoordinator} data-testid="signoff-btn"
+                    className="flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm text-primary-foreground bg-primary hover:opacity-90 transition-opacity disabled:opacity-40 shrink-0">
+                    {signBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={2} />} Sign off design
+                  </button>
+                )}
+              </div>
+              {!hasCoordinator && (
+                <button onClick={() => setSection("details")} data-testid="signoff-goto-coordinator"
+                  className="mt-3 flex items-center gap-1.5 text-[11.5px] text-[var(--c-action)] hover:underline">
+                  Go to Project Details <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
+                </button>
+              )}
+            </div>
             <div className="border border-border rounded-sm bg-card p-5">
               <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-3">{p.itemsBeforeIssue.length} Items Before Issue</div>
               <ol className="space-y-3">
@@ -544,6 +596,7 @@ export default function DesignWorkspace() {
             </div>
           </div>
         );
+      }
       case "design-pack":
         return (
           <SimpleSection title="Design Pack">

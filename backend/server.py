@@ -778,26 +778,22 @@ def _compute_readiness(p, ds_fams=None):
             e_pass += 1
         else:
             e_missing.append(f"{m.get('name') or m.get('code')} datasheet")
-    for c in cons:
-        e_total += 1
-        if c.get("evidence_fig") or c.get("fig") or c.get("photo") or c.get("evidenceUrl") or c.get("citation"):
-            e_pass += 1
-        else:
-            e_missing.append(c.get("topic") or c.get("title") or "consideration")
+    # Design considerations are narrative sections, not verifiable claims — they do not require a
+    # photo/citation and are intentionally excluded from the Evidence score.
     bars.append(_rd_frac_bar("Evidence", "evidence", e_pass, e_total, e_missing, "unbacked claim"))
 
     # QA — items before issue cleared, plus coordinator sign-off (dismissed/N/A items excluded)
     _active = [it for it in items if not (isinstance(it, dict) and it.get("dismissed"))]
     resolved = sum(1 for it in _active if isinstance(it, dict) and (it.get("resolved") or it.get("confirmedBy")))
     open_items = len(_active) - resolved
-    signed = p.get("status") in ("approved",)
+    signed = bool(p.get("coordinatorSignoff")) or p.get("status") in ("approved",)
     qa_pass = resolved + (1 if signed else 0)
     qa_total = len(_active) + 1
     qa_val = _rd_pct(qa_pass, qa_total)
     if open_items > 0:
         qa_detail = f"{open_items} item{'s' if open_items != 1 else ''} before issue still open"
     elif not signed:
-        qa_detail = "Awaiting coordinator sign-off"
+        qa_detail = "Ready for coordinator sign-off \u2014 sign off in Outstanding Items"
     else:
         qa_detail = "Complete"
     bars.append({"label": "QA", "section": "outstanding", "value": qa_val, "detail": qa_detail, "done": qa_val >= 100})
@@ -3340,6 +3336,31 @@ async def extract_photos_endpoint(project_id: str, file: Optional[UploadFile] = 
 
 class PhotosUpdate(BaseModel):
     photos: list = []
+
+
+class SignoffIn(BaseModel):
+    signed: bool = True
+    by: Optional[str] = None
+
+
+@api_router.post("/projects/{project_id}/signoff")
+async def signoff_design(project_id: str, payload: SignoffIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if payload.signed:
+        items = [it for it in (proj.get("itemsBeforeIssue") or []) if not (isinstance(it, dict) and it.get("dismissed"))]
+        open_items = [it for it in items if isinstance(it, dict) and not (it.get("resolved") or it.get("confirmedBy"))]
+        if open_items:
+            raise HTTPException(status_code=422, detail=f"{len(open_items)} item(s) before issue still open — clear them before sign-off")
+        who = (payload.by or proj.get("coordinator") or "").strip()
+        if not who or who == "—":
+            raise HTTPException(status_code=422, detail="Assign a Retrofit Coordinator before sign-off")
+        so = {"by": who, "at": datetime.now(timezone.utc).isoformat()}
+        await db.projects.update_one({"id": project_id}, {"$set": {"coordinatorSignoff": so, "status": "approved"}})
+        return {"coordinatorSignoff": so, "status": "approved"}
+    await db.projects.update_one({"id": project_id}, {"$set": {"status": "ready_for_qa"}, "$unset": {"coordinatorSignoff": ""}})
+    return {"coordinatorSignoff": None, "status": "ready_for_qa"}
 
 
 @api_router.post("/projects/{project_id}/items/confirm-all")

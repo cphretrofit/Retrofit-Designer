@@ -24,6 +24,9 @@ export const changePassword = (payload) =>
 export const confirmAllItems = (id) =>
   api.post(`/projects/${id}/items/confirm-all`, { confirmed: true }).then((r) => r.data);
 
+export const signoffDesign = (id, payload) =>
+  api.post(`/projects/${id}/signoff`, payload).then((r) => r.data);
+
 export const updateActionItem = (id, index, payload) =>
   api.put(`/projects/${id}/items/${index}`, payload).then((r) => r.data);
 export const addActionItem = (id, payload) =>
