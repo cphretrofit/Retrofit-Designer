@@ -380,6 +380,31 @@ def _shared_wall_mid(a, b, tol=0.2):
     return None
 
 
+def _room_doorway(room, rooms, tol=0.2):
+    """Likely internal doorway of `room`: (x_m, y_m, 'v'|'h', span_m) at the midpoint of the wall it
+    shares with a circulation space (preferred) or, failing that, its widest shared internal wall.
+    Orientation 'v' = opening runs vertically (door on a left/right wall), 'h' = horizontal."""
+    ax, ay, aw, ah = _rect(room)
+    circ = [r for r in rooms if r is not room and _room_kind(r.get("name")) == "circ"]
+    best = None  # (overlap, x, y, orient, span)
+    for pool in (circ, [r for r in rooms if r is not room]):
+        for b in pool:
+            bx, by, bw, bh = _rect(b)
+            for wx in (ax, ax + aw):
+                if abs(wx - bx) <= tol or abs(wx - (bx + bw)) <= tol:
+                    y0, y1 = max(ay, by), min(ay + ah, by + bh)
+                    if y1 - y0 > 0.5 and (best is None or (y1 - y0) > best[0]):
+                        best = (y1 - y0, wx, (y0 + y1) / 2, "v", min(y1 - y0, 0.85))
+            for wy in (ay, ay + ah):
+                if abs(wy - by) <= tol or abs(wy - (by + bh)) <= tol:
+                    x0, x1 = max(ax, bx), min(ax + aw, bx + bw)
+                    if x1 - x0 > 0.5 and (best is None or (x1 - x0) > best[0]):
+                        best = (x1 - x0, (x0 + x1) / 2, wy, "h", min(x1 - x0, 0.85))
+        if best:
+            return best[1], best[2], best[3], best[4]
+    return None
+
+
 def _sanitise_doors(rooms, doors):
     """Drop / relocate physically-impossible internal doors. A family bathroom or WC is entered
     from circulation (hall/landing), NEVER straight from a bedroom — only an en-suite opens off a
@@ -568,8 +593,8 @@ def _render_single(d: dict):
         rr = 26
         parts.append(f'<path d="M{x:.1f},{y:.1f} l{rr},0 a{rr},{rr} 0 0 1 -{rr},{rr}" fill="none" stroke="#111" stroke-width="1.2"/>')
 
-    # internal door undercut markers — a teal "UC" tag at the door threshold of each room
-    # the designer flagged as requiring an ADF1 para 1.25 undercut (reads at a glance)
+    # internal door undercut markers — a thin dashed teal air-gap line drawn ACROSS the doorway of
+    # each room the designer flagged as requiring an ADF1 para 1.25 undercut (with end ticks + UC tag)
     uc_names = {str(n).strip().lower() for n in (d.get("undercutRooms") or []) if str(n).strip()}
     uc_drawn = False
     if uc_names:
@@ -578,16 +603,37 @@ def _render_single(d: dict):
             if not nm or not any(u == nm or u in nm or nm in u for u in uc_names):
                 continue
             rx, ryv, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
-            cxp, cyp = mx(rx + rw / 2), my(ryv + rh) - 15
-            parts.append(
-                f'<g font-family="{FF}">'
-                f'<rect x="{cxp-21:.1f}" y="{cyp-11:.1f}" width="42" height="19" rx="9.5" fill="#0D9488"/>'
-                f'<path d="M{cxp-6:.1f},{cyp-3.5:.1f} h12 M{cxp:.1f},{cyp-3.5:.1f} v6 M{cxp-3:.1f},{cyp+0.5:.1f} l3,3 l3,-3" stroke="#fff" stroke-width="1.1" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(-9,0)"/>'
-                f'<text x="{cxp+4:.1f}" y="{cyp+3.5:.1f}" font-size="10.5" font-weight="700" text-anchor="middle" fill="#fff">UC</text>'
-                f'</g>')
+            dw = _room_doorway(r, rooms)
+            if dw:
+                dxm, dym, orient, span = dw
+                half = max(10.0, (span * S) / 2)
+                TEAL = "#0D9488"
+                if orient == "v":
+                    dirn = 1 if abs(dxm - rx) < 1e-3 else -1
+                    lx = mx(dxm) + dirn * 7
+                    y1p, y2p = my(dym) - half, my(dym) + half
+                    parts.append(f'<line x1="{lx:.1f}" y1="{y1p:.1f}" x2="{lx:.1f}" y2="{y2p:.1f}" stroke="{TEAL}" stroke-width="2.4" stroke-dasharray="4 3" stroke-linecap="round"/>')
+                    parts.append(f'<line x1="{lx-4:.1f}" y1="{y1p:.1f}" x2="{lx+4:.1f}" y2="{y1p:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<line x1="{lx-4:.1f}" y1="{y2p:.1f}" x2="{lx+4:.1f}" y2="{y2p:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<text x="{lx+dirn*11:.1f}" y="{my(dym)+3:.1f}" font-size="10" font-weight="700" fill="{TEAL}" text-anchor="{"start" if dirn>0 else "end"}" font-family="{FF}">UC</text>')
+                else:
+                    dirn = 1 if abs(dym - ryv) < 1e-3 else -1
+                    ly = my(dym) + dirn * 7
+                    x1p, x2p = mx(dxm) - half, mx(dxm) + half
+                    parts.append(f'<line x1="{x1p:.1f}" y1="{ly:.1f}" x2="{x2p:.1f}" y2="{ly:.1f}" stroke="{TEAL}" stroke-width="2.4" stroke-dasharray="4 3" stroke-linecap="round"/>')
+                    parts.append(f'<line x1="{x1p:.1f}" y1="{ly-4:.1f}" x2="{x1p:.1f}" y2="{ly+4:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<line x1="{x2p:.1f}" y1="{ly-4:.1f}" x2="{x2p:.1f}" y2="{ly+4:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<text x="{mx(dxm):.1f}" y="{ly+(14 if dirn>0 else -8):.1f}" font-size="10" font-weight="700" fill="{TEAL}" text-anchor="middle" font-family="{FF}">UC</text>')
+            else:
+                cxp, cyp = mx(rx + rw / 2), my(ryv + rh) - 15
+                parts.append(
+                    f'<g font-family="{FF}">'
+                    f'<rect x="{cxp-21:.1f}" y="{cyp-11:.1f}" width="42" height="19" rx="9.5" fill="#0D9488"/>'
+                    f'<text x="{cxp:.1f}" y="{cyp+3.5:.1f}" font-size="10.5" font-weight="700" text-anchor="middle" fill="#fff">UC</text>'
+                    f'</g>')
             uc_drawn = True
     if uc_drawn:
-        legend.append("UC = internal door undercut (ADF1 para 1.25)")
+        legend.append("UC = internal door undercut \u2014 dashed line marks the air gap under the door leaf (ADF1 para 1.25)")
 
     # symbols — nudged clear of each room's name/area label zone
     def _nudge_sym_y(sx, syy):
