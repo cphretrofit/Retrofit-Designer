@@ -568,6 +568,27 @@ def _render_single(d: dict):
         rr = 26
         parts.append(f'<path d="M{x:.1f},{y:.1f} l{rr},0 a{rr},{rr} 0 0 1 -{rr},{rr}" fill="none" stroke="#111" stroke-width="1.2"/>')
 
+    # internal door undercut markers — a teal "UC" tag at the door threshold of each room
+    # the designer flagged as requiring an ADF1 para 1.25 undercut (reads at a glance)
+    uc_names = {str(n).strip().lower() for n in (d.get("undercutRooms") or []) if str(n).strip()}
+    uc_drawn = False
+    if uc_names:
+        for r in rooms:
+            nm = (r.get("name") or "").strip().lower()
+            if not nm or not any(u == nm or u in nm or nm in u for u in uc_names):
+                continue
+            rx, ryv, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            cxp, cyp = mx(rx + rw / 2), my(ryv + rh) - 15
+            parts.append(
+                f'<g font-family="{FF}">'
+                f'<rect x="{cxp-21:.1f}" y="{cyp-11:.1f}" width="42" height="19" rx="9.5" fill="#0D9488"/>'
+                f'<path d="M{cxp-6:.1f},{cyp-3.5:.1f} h12 M{cxp:.1f},{cyp-3.5:.1f} v6 M{cxp-3:.1f},{cyp+0.5:.1f} l3,3 l3,-3" stroke="#fff" stroke-width="1.1" fill="none" stroke-linecap="round" stroke-linejoin="round" transform="translate(-9,0)"/>'
+                f'<text x="{cxp+4:.1f}" y="{cyp+3.5:.1f}" font-size="10.5" font-weight="700" text-anchor="middle" fill="#fff">UC</text>'
+                f'</g>')
+            uc_drawn = True
+    if uc_drawn:
+        legend.append("UC = internal door undercut (ADF1 para 1.25)")
+
     # symbols — nudged clear of each room's name/area label zone
     def _nudge_sym_y(sx, syy):
         for r in rooms:
@@ -748,7 +769,7 @@ def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
     VB_W = 1040
     floors = d.get("floors")
     if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
-        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey", "orientationDeg", "manualEdit") if d.get(k)}
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey", "orientationDeg", "manualEdit", "undercutRooms") if d.get(k)}
         # Loft insulation covers the ceilings beneath the roof — draw it on the TOP floor only,
         # from any available signal (top-level loftCoverage or a per-floor value).
         loft_signal = d.get("loftCoverage") or next((f.get("loftCoverage") for f in floors if f.get("loftCoverage")), None)

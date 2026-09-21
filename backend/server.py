@@ -1415,13 +1415,37 @@ async def upload_ventilation_workbook(project_id: str, file: UploadFile = File(.
     return {"ventilation": merged, "meta": parsed.get("meta")}
 
 
+def _undercut_room_names(vent):
+    """Room names whose internal doors require an ADF1 para 1.25 undercut (status 'required')."""
+    out = []
+    for u in ((vent or {}).get("undercuts") or []):
+        st = u.get("status") or ("required" if u.get("required", True) else "compliant")
+        if st == "required" and (u.get("room") or "").strip():
+            out.append(u["room"].strip())
+    return out
+
+
 @api_router.put("/projects/{project_id}/ventilation")
 async def update_ventilation(project_id: str, payload: VentilationIn):
     p = await db.projects.find_one({"id": project_id})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
-    await db.projects.update_one({"id": project_id}, {"$set": {"ventilation": payload.ventilation}})
-    return {"ventilation": payload.ventilation}
+    vent = payload.ventilation
+    update = {"ventilation": vent}
+    fp = p.get("floorPlan") or {}
+    cd = fp.get("cadData")
+    if cd:
+        cd = {**cd, "undercutRooms": _undercut_room_names(vent)}
+        from cad_floorplan import build_cad_floorplan_svg
+        try:
+            cad_svg, anchors = build_cad_floorplan_svg(cd, with_anchors=True)
+            fp["cadSvg"], fp["cadData"], fp["anchors"] = cad_svg, cd, anchors
+            update["floorPlan"] = fp
+            update["packHash"] = ""
+        except Exception:
+            logger.exception("undercut marker re-render failed")
+    await db.projects.update_one({"id": project_id}, {"$set": update})
+    return {"ventilation": vent, "floorPlan": update.get("floorPlan", fp)}
 
 
 @api_router.get("/projects/{project_id}/adf1-checklist")
@@ -2573,7 +2597,7 @@ async def update_floorplan(project_id: str, payload: FloorPlanIn):
         fp["markers"] = payload.markers
     if payload.cadData is not None:
         from cad_floorplan import build_cad_floorplan_svg, _floorplan_quality
-        geo = payload.cadData
+        geo = {**payload.cadData, "undercutRooms": _undercut_room_names(p.get("ventilation"))}
         try:
             cad_svg, anchors = build_cad_floorplan_svg(geo, with_anchors=True)
         except Exception as e:

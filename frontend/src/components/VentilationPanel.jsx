@@ -17,6 +17,13 @@ const UC_OPTS = [
 
 const CIRC = ["hall", "landing", "corridor", "lobby", "stair", "porch", "entrance"];
 const WET = ["kitchen", "bath", "wc", "toilet", "en-suite", "ensuite", "utility", "shower", "cloak", "laundry"];
+const wetRate = (n) => {
+  const l = n.toLowerCase();
+  if (l.includes("kitchen")) return "30 l/s";
+  if (l.includes("utility") || l.includes("laundry")) return "30 l/s";
+  if (l.includes("wc") || l.includes("toilet") || l.includes("cloak")) return "6 l/s";
+  return "15 l/s";
+};
 const ucStatus = (u) => u.status || (u.required === false ? "compliant" : "required");
 const uniqCI = (arr) => {
   const seen = new Set(), out = [];
@@ -58,7 +65,7 @@ export function VentilationPanel({ projectId, initial, onChange, floorPlan }) {
   const populateWetRooms = () => {
     const have = new Set(rooms.map((r) => (r.room || "").toLowerCase()));
     const add = planNames.filter((n) => WET.some((w) => n.toLowerCase().includes(w)) && !have.has(n.toLowerCase()));
-    set("rooms", [...rooms, ...add.map((room) => ({ room, system: "", rate: "", note: "" }))]);
+    set("rooms", [...rooms, ...add.map((room) => ({ room, system: "dMEV", rate: wetRate(room), note: "ADF1 Table 1.1 minimum" }))]);
     toast.success(add.length ? `Added ${add.length} wet room(s) from the floor plan` : "No new wet rooms found on the plan");
   };
   useEffect(() => {
