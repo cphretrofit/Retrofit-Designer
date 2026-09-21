@@ -1,5 +1,5 @@
 import { Meter } from "@/components/Shell";
-import { Circle } from "lucide-react";
+import { Circle, CheckCircle2 } from "lucide-react";
 import { MARK_ICON, MARK_COLOR } from "./constants";
 import { ActionItems } from "./ActionItems";
 
