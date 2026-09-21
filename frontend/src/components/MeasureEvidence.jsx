@@ -18,6 +18,7 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && pick) setPick(false); };
     window.addEventListener("keydown", onKey);
+    if (pick) { setTimeout(() => document.querySelector('[data-testid="evidence-photo-option-0"]')?.focus(), 60); }
     return () => window.removeEventListener("keydown", onKey);
   }, [pick]);
 
@@ -164,7 +165,7 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
                 className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1"><X className="h-4 w-4" /> Close</button>
             </div>
           </div>
-          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()}>
+          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="evidence-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
             {pool == null ? (
               <div className="col-span-full text-center text-[13px] text-muted-foreground py-10 flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading the photopack…</div>
             ) : pool.length === 0 ? (
@@ -174,7 +175,7 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
               return (
               <button key={ph.url || pi} data-testid={`evidence-photo-option-${pi}`} disabled={attaching}
                 onClick={() => attachFromUrl(ph)}
-                className={`rounded-sm overflow-hidden transition-colors text-left disabled:opacity-50 bg-card border ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
+                className={`rounded-sm overflow-hidden transition-colors text-left disabled:opacity-50 bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
                 <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
                   <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
                   {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`evidence-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}

@@ -119,6 +119,7 @@ export default function DesignWorkspace() {
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && coverOpen) setCoverOpen(false); };
     window.addEventListener("keydown", onKey);
+    if (coverOpen) { setTimeout(() => document.querySelector('[data-testid="cover-option-0"]')?.focus(), 60); }
     return () => window.removeEventListener("keydown", onKey);
   }, [coverOpen]);
 
@@ -339,9 +340,9 @@ export default function DesignWorkspace() {
                   <div className="text-[13px] font-medium">Choose the front-cover photo</div>
                   <button onClick={() => setCoverOpen(false)} className="text-[12px] px-3 h-8 rounded-sm border border-border hover:bg-secondary">Close</button>
                 </div>
-                <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()}>
+                <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="cover-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
                   {(allPhotos || []).map((ph, i) => (
-                    <button key={ph.url || i} onClick={() => chooseCover(ph.url)} disabled={coverBusy} data-testid={`cover-option-${i}`} className={cn("border rounded-sm overflow-hidden text-left bg-card hover:border-foreground/50 transition-colors", p.coverPhotoUrl === ph.url ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border")}>
+                    <button key={ph.url || i} onClick={() => chooseCover(ph.url)} disabled={coverBusy} data-testid={`cover-option-${i}`} className={cn("border rounded-sm overflow-hidden text-left bg-card hover:border-foreground/50 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--c-action)]", p.coverPhotoUrl === ph.url ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border")}>
                       <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}><img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" /></div>
                       <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.caption || "Survey photo"}</div>
                     </button>

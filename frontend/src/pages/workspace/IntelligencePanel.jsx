@@ -10,12 +10,16 @@ export function IntelligencePanel({ p, measure, onOpen, onItemsChange }) {
     for (const m of src) {
       for (const c of (m.checks || [])) {
         if (/commissioning evidence/i.test(c.label || "")) continue;
+        if (/datasheet/i.test(c.label || "")) continue;
         if (/target u-value/i.test(c.label || "")) {
           raw.push({ label: m.targetU != null ? `Target U-value ${m.targetU.toFixed(2)} W/m\u00b2K` : "Target U-value \u2014 to confirm", status: "info" });
         } else {
           raw.push({ label: c.label, status: c.status });
         }
       }
+      const dsOk = (m.products?.length || 0) > 0;
+      const dsName = dsOk ? (m.products[0]?.manufacturer || m.products[0]?.product || "") : "";
+      raw.push({ label: dsOk ? `Datasheet recognised${dsName ? ` \u2014 ${dsName}` : ""}` : "Datasheet \u2014 not attached", status: dsOk ? "pass" : "info" });
     }
     const seen = new Set();
     const out = [];

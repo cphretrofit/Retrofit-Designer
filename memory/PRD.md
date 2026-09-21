@@ -25,6 +25,11 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 16 2026 (fork) — Datasheet chip + keyboard nav; readiness explained
+- **Why a project won't hit 100% (answer):** `_compute_readiness` averages KPIs — Measures, Specifications, Calculations, Junctions, Evidence, QA. Common blockers: each measure needs a recognised datasheet (products on the measure, or its family in the client datasheet library) → drives Specifications & Evidence; each fabric/window measure needs `targetU` AND `calculatedU` → Calculations; every consideration/evidence claim must be backed; and QA needs coordinator sign-off (`status == "approved"`, the "+1"). So 100% requires: datasheets attached per measure, U-values with targets, all claims evidenced, and sign-off.
+- **Datasheet status chip:** IntelligencePanel Design Checks now shows per measure "Datasheet recognised — <manufacturer>" (pass) or "Datasheet — not attached" (info), based on `m.products`. Makes the datasheet gate visible.
+- **Keyboard nav in pickers:** all three photo pickers auto-focus the first tile on open; Arrow keys move focus (Left/Right ±1, Up/Down ±cols), Enter attaches (native), Esc closes. Focus ring added. Verified Arrow + Enter + Esc.
+
 ## Fixed/Added — Jun 16 2026 (fork) — Actions filter, Esc close, selected badge
 - **Actions Required still showing datasheet/spec items (e.g. "dMEV datasheet not uploaded", Knauf specification):** the UI listed every `itemsBeforeIssue`; it now mirrors backend `_is_handover_item` via a JS `isHandoverItem()` and filters out commissioning/datasheet/specification "to be confirmed/uploaded/required" items — matching the PDF. Pure display filter, so it fixes existing/deployed projects without re-import. `ActionItems.jsx`.
 - **Esc closes picker & lightbox:** keydown listeners in SiteConditionsPanel (lightbox then picker), MeasureEvidence (picker), DesignWorkspace (cover picker). Verified Esc closes.
