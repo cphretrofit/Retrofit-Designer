@@ -25,6 +25,10 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #8 — Floor-plan external-wall drag resize
+- **FloorPlanGeometryEditor / FloorCanvas**: the external walls (footprint) are now draggable — blue handles on the right edge (width), bottom edge (height), and bottom-right corner (both). Live dimension labels render along the top (width) and left (height) edges and update as you drag; snaps to 5 cm. New `onOverall`/`patchOverall` wiring updates `overall.w/h`. A safety clamp prevents shrinking the footprint below the rooms it contains (use the Rooms-tab typed Overall fields to shrink further). Typed w/h resize already existed (Rooms tab). Verified live: right-drag 6.50→7.40 m, corner-drag →8.15×5.05 m; Save & re-render persists via `saveFloorplanCad` → PUT /projects/{id}/floorplan.
+
+
 ## Added — Jun 21 2026 (fork) #7 — Ventilation door undercuts (the "must")
 - **VentilationPanel**: new "Internal Door Undercuts" card — a default undercut-size field (`ventilation.undercutSize`, e.g. "10 mm") + an editable room list (`ventilation.undercuts` = [{room, required}]) with a per-room "Door undercut required" Yes/No dropdown, add/remove. Persists via the open-dict `VentilationIn`.
 - **PDF**: `_undercut_rooms(p)` now uses the designer's explicit selections when set (else derives from the plan); new `_undercut_size(p)`; `_undercut_provision` and the ADF1 ventilation reference row now read "Door undercut required to internal doors serving: <rooms>" with the chosen size. Verified (UI screenshot + isolated logic render).

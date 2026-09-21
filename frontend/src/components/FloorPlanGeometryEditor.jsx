@@ -18,28 +18,40 @@ const snap = (v) => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v) => (typeof v === "number" ? v : Number(v) || 0);
 
-function FloorCanvas({ floor, onPatch }) {
-  const svgRef = useRef(null);
+function FloorCanvas({ floor, onPatch, onOverall }) {
   const drag = useRef(null);
   const rooms = floor.rooms || [];
-  const ow = num(floor.overall?.w) || Math.max(1, ...rooms.map((r) => num(r.x) + num(r.w)));
-  const oh = num(floor.overall?.h) || Math.max(1, ...rooms.map((r) => num(r.y) + num(r.h)));
+  const roomMaxW = Math.max(1, ...rooms.map((r) => num(r.x) + num(r.w)));
+  const roomMaxH = Math.max(1, ...rooms.map((r) => num(r.y) + num(r.h)));
+  const ow = num(floor.overall?.w) || roomMaxW;
+  const oh = num(floor.overall?.h) || roomMaxH;
+  const PAD = 30;
   const scale = CW / ow;
   const CH = oh * scale;
+  const VW = CW + PAD * 2, VH = CH + PAD * 2;
 
-  const start = (ri, mode) => (e) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const startRoom = (ri, mode) => (e) => {
+    e.preventDefault(); e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const r = rooms[ri];
-    drag.current = { ri, mode, sx: e.clientX, sy: e.clientY, ox: num(r.x), oy: num(r.y), ow: num(r.w), oh: num(r.h) };
+    drag.current = { kind: "room", ri, mode, sx: e.clientX, sy: e.clientY, scale, ox: num(r.x), oy: num(r.y), ow: num(r.w), oh: num(r.h) };
+  };
+  const startWall = (mode) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    drag.current = { kind: "wall", mode, sx: e.clientX, sy: e.clientY, scale, ovw: ow, ovh: oh };
   };
   const move = (e) => {
     const d = drag.current;
     if (!d) return;
-    const dxm = (e.clientX - d.sx) / scale;
-    const dym = (e.clientY - d.sy) / scale;
-    if (d.mode === "move") {
+    const dxm = (e.clientX - d.sx) / d.scale;
+    const dym = (e.clientY - d.sy) / d.scale;
+    if (d.kind === "wall") {
+      const patch = {};
+      if (d.mode.includes("w")) patch.w = Number(clamp(snap(d.ovw + dxm), roomMaxW, 60).toFixed(2));
+      if (d.mode.includes("h")) patch.h = Number(clamp(snap(d.ovh + dym), roomMaxH, 60).toFixed(2));
+      onOverall(patch);
+    } else if (d.mode === "move") {
       onPatch(d.ri, {
         x: clamp(snap(d.ox + dxm), 0, Math.max(0, ow - d.ow)),
         y: clamp(snap(d.oy + dym), 0, Math.max(0, oh - d.oh)),
@@ -54,25 +66,34 @@ function FloorCanvas({ floor, onPatch }) {
   const end = () => { drag.current = null; };
 
   return (
-    <svg ref={svgRef} width="100%" viewBox={`0 0 ${CW} ${CH}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
-      className="border border-border rounded-sm bg-white touch-none select-none" data-testid="fp-visual-canvas"
-      style={{ maxHeight: 460 }}>
-      <rect x="0" y="0" width={CW} height={CH} fill="none" stroke="#171717" strokeWidth="2" />
+    <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
+      className="border border-border rounded-sm bg-white touch-none select-none" data-testid="fp-visual-canvas" style={{ maxHeight: 520 }}>
+      <line x1={PAD} y1={PAD - 14} x2={PAD + CW} y2={PAD - 14} stroke="#94a3b8" strokeWidth="0.75" />
+      <line x1={PAD} y1={PAD - 17} x2={PAD} y2={PAD - 11} stroke="#94a3b8" strokeWidth="0.75" />
+      <line x1={PAD + CW} y1={PAD - 17} x2={PAD + CW} y2={PAD - 11} stroke="#94a3b8" strokeWidth="0.75" />
+      <rect x={PAD + CW / 2 - 28} y={PAD - 24} width="56" height="15" fill="#fff" />
+      <text x={PAD + CW / 2} y={PAD - 13} textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a" data-testid="fp-dim-width">{ow.toFixed(2)} m</text>
+      <line x1={PAD - 14} y1={PAD} x2={PAD - 14} y2={PAD + CH} stroke="#94a3b8" strokeWidth="0.75" />
+      <g transform={`translate(${PAD - 16},${PAD + CH / 2}) rotate(-90)`}>
+        <rect x="-28" y="-8" width="56" height="15" fill="#fff" />
+        <text x="0" y="3" textAnchor="middle" fontSize="11" fontWeight="600" fill="#0f172a" data-testid="fp-dim-height">{oh.toFixed(2)} m</text>
+      </g>
+      <rect x={PAD} y={PAD} width={CW} height={CH} fill="none" stroke="#171717" strokeWidth="2.5" />
       {rooms.map((r, ri) => {
-        const x = num(r.x) * scale, y = num(r.y) * scale, w = num(r.w) * scale, h = num(r.h) * scale;
+        const x = PAD + num(r.x) * scale, y = PAD + num(r.y) * scale, w = num(r.w) * scale, h = num(r.h) * scale;
         return (
           <g key={ri} data-testid={`fp-visual-room-${ri}`}>
             <rect x={x} y={y} width={w} height={h} fill={PALETTE[ri % PALETTE.length]} stroke="#334155" strokeWidth="1.2"
-              onPointerDown={start(ri, "move")} style={{ cursor: "grab" }} />
-            <text x={x + w / 2} y={y + h / 2 - 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#0f172a"
-              style={{ pointerEvents: "none" }}>{r.name || "Room"}</text>
-            <text x={x + w / 2} y={y + h / 2 + 11} textAnchor="middle" fontSize="10" fill="#475569"
-              style={{ pointerEvents: "none" }}>{num(r.w).toFixed(2)}×{num(r.h).toFixed(2)}m</text>
-            <rect x={x + w - 12} y={y + h - 12} width="12" height="12" fill="#334155"
-              onPointerDown={start(ri, "resize")} style={{ cursor: "nwse-resize" }} data-testid={`fp-visual-resize-${ri}`} />
+              onPointerDown={startRoom(ri, "move")} style={{ cursor: "grab" }} />
+            <text x={x + w / 2} y={y + h / 2 - 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#0f172a" style={{ pointerEvents: "none" }}>{r.name || "Room"}</text>
+            <text x={x + w / 2} y={y + h / 2 + 11} textAnchor="middle" fontSize="10" fill="#475569" style={{ pointerEvents: "none" }}>{num(r.w).toFixed(2)}×{num(r.h).toFixed(2)}m</text>
+            <rect x={x + w - 12} y={y + h - 12} width="12" height="12" fill="#334155" onPointerDown={startRoom(ri, "resize")} style={{ cursor: "nwse-resize" }} data-testid={`fp-visual-resize-${ri}`} />
           </g>
         );
       })}
+      <rect x={PAD + CW - 3} y={PAD} width="6" height={CH} fill="#0055FF" opacity="0.5" onPointerDown={startWall("w")} style={{ cursor: "ew-resize" }} data-testid="fp-wall-right" />
+      <rect x={PAD} y={PAD + CH - 3} width={CW} height="6" fill="#0055FF" opacity="0.5" onPointerDown={startWall("h")} style={{ cursor: "ns-resize" }} data-testid="fp-wall-bottom" />
+      <rect x={PAD + CW - 7} y={PAD + CH - 7} width="14" height="14" fill="#0055FF" onPointerDown={startWall("wh")} style={{ cursor: "nwse-resize" }} data-testid="fp-wall-corner" />
     </svg>
   );
 }
@@ -91,6 +112,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
   const setOverall = (fi, key, val) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, overall: { ...(f.overall || {}), [key]: val === "" ? "" : Number(val) } })));
   const addRoom = (fi) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: [...(f.rooms || []), { name: "Room", x: 0, y: 0, w: 2, h: 2 }] })));
   const delRoom = (fi, ri) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: (f.rooms || []).filter((_, j) => j !== ri) })));
+  const patchOverall = (fi, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, overall: { ...(f.overall || {}), ...patch } })));
 
   const buildCad = () => {
     if (mode === "json") return JSON.parse(json);
@@ -133,12 +155,12 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
       {mode === "visual" && (
         <div className="space-y-4">
           <div className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-            <Move className="h-3.5 w-3.5" /> Drag a room to move it, or drag its bottom-right handle to resize. Snaps to 5&thinsp;cm. Save to re-render.
+            <Move className="h-3.5 w-3.5" /> Drag the <strong>blue external walls</strong> to set the overall size, drag a room to move it, or its corner handle to resize. Dimensions update live &middot; snaps to 5&thinsp;cm.
           </div>
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
               {floors.length > 1 && <div className="text-[12px] font-medium mb-1.5">{f.title || `Floor ${fi + 1}`}</div>}
-              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} />
+              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} />
             </div>
           ))}
         </div>
