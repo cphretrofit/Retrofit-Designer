@@ -2391,7 +2391,8 @@ def _undercut_rooms(p):
     ucs = (p.get("ventilation") or {}).get("undercuts") or []
     sel, seen = [], set()
     for u in ucs:
-        if u.get("required") and (u.get("room") or "").strip():
+        st = u.get("status") or ("required" if u.get("required", True) else "compliant")
+        if st == "required" and (u.get("room") or "").strip():
             t = _tidy_room(u.get("room")) or (u.get("room") or "").strip()
             if t and t.lower() not in seen:
                 seen.add(t.lower())

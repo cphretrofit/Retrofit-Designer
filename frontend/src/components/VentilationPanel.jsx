@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { updateVentilation, uploadVentilationWorkbook, getAdf1Checklist } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, Loader2, Upload } from "lucide-react";
+import { Plus, Trash2, Save, Loader2, Upload, ClipboardList } from "lucide-react";
 
 const STATUS_OPTS = [
   { v: "ok", label: "Compliant" },
@@ -9,7 +9,29 @@ const STATUS_OPTS = [
   { v: "na", label: "N/A" },
 ];
 
-export function VentilationPanel({ projectId, initial, onChange }) {
+const UC_OPTS = [
+  { v: "required", label: "Yes — required" },
+  { v: "compliant", label: "Compliant" },
+  { v: "none", label: "No door installed" },
+];
+
+const CIRC = ["hall", "landing", "corridor", "lobby", "stair", "porch", "entrance"];
+const WET = ["kitchen", "bath", "wc", "toilet", "en-suite", "ensuite", "utility", "shower", "cloak", "laundry"];
+const ucStatus = (u) => u.status || (u.required === false ? "compliant" : "required");
+const uniqCI = (arr) => {
+  const seen = new Set(), out = [];
+  for (const n of arr) { const k = n.toLowerCase(); if (!seen.has(k)) { seen.add(k); out.push(n); } }
+  return out;
+};
+const planRoomNames = (fp) => {
+  const cd = fp?.cadData || {};
+  const fs = Array.isArray(cd.floors) && cd.floors.length ? cd.floors : [cd];
+  const names = [];
+  fs.forEach((f) => (f.rooms || []).forEach((r) => { const n = (r.name || "").trim(); if (n) names.push(n); }));
+  return uniqCI(names);
+};
+
+export function VentilationPanel({ projectId, initial, onChange, floorPlan }) {
   const [v, setV] = useState(initial || { strategy: "", wholeDwelling: "", background: "", rooms: [], notes: [] });
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -23,8 +45,29 @@ export function VentilationPanel({ projectId, initial, onChange }) {
   const removeRoom = (i) => set("rooms", rooms.filter((_, j) => j !== i));
   const undercuts = v.undercuts || [];
   const setUC = (i, k, val) => set("undercuts", undercuts.map((u, j) => (j === i ? { ...u, [k]: val } : u)));
-  const addUC = () => set("undercuts", [...undercuts, { room: "", required: true }]);
+  const addUC = () => set("undercuts", [...undercuts, { room: "", status: "required" }]);
   const removeUC = (i) => set("undercuts", undercuts.filter((_, j) => j !== i));
+
+  const planNames = planRoomNames(floorPlan);
+  const populateUndercuts = () => {
+    const have = new Set(undercuts.map((u) => (u.room || "").toLowerCase()));
+    const add = planNames.filter((n) => !CIRC.some((w) => n.toLowerCase().includes(w)) && !have.has(n.toLowerCase()));
+    set("undercuts", [...undercuts, ...add.map((room) => ({ room, status: "required" }))]);
+    toast.success(add.length ? `Added ${add.length} room(s) from the floor plan` : "No new rooms found on the plan");
+  };
+  const populateWetRooms = () => {
+    const have = new Set(rooms.map((r) => (r.room || "").toLowerCase()));
+    const add = planNames.filter((n) => WET.some((w) => n.toLowerCase().includes(w)) && !have.has(n.toLowerCase()));
+    set("rooms", [...rooms, ...add.map((room) => ({ room, system: "", rate: "", note: "" }))]);
+    toast.success(add.length ? `Added ${add.length} wet room(s) from the floor plan` : "No new wet rooms found on the plan");
+  };
+  useEffect(() => {
+    if ((v.undercuts || []).length === 0 && planNames.length) {
+      const add = planNames.filter((n) => !CIRC.some((w) => n.toLowerCase().includes(w)));
+      if (add.length) set("undercuts", add.map((room) => ({ room, status: "required" })));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [floorPlan]);
 
   const loadAdf1 = useCallback(() => {
     if (!projectId) return;
@@ -68,7 +111,7 @@ export function VentilationPanel({ projectId, initial, onChange }) {
     setBusy(true);
     try {
       const cleanRooms = (v.rooms || []).filter((r) => [r.room, r.system, r.rate, r.note].some((x) => (x || "").trim()));
-      const cleanUndercuts = (v.undercuts || []).filter((u) => (u.room || "").trim());
+      const cleanUndercuts = (v.undercuts || []).filter((u) => (u.room || "").trim()).map((u) => ({ room: u.room, status: ucStatus(u), required: ucStatus(u) === "required" }));
       const beds = v.bedrooms === "" || v.bedrooms == null ? undefined : Number(v.bedrooms);
       const payload = {
         ...v, rooms: cleanRooms, undercuts: cleanUndercuts, bedrooms: beds,
@@ -139,10 +182,18 @@ export function VentilationPanel({ projectId, initial, onChange }) {
       <div className="border border-border rounded-sm bg-card">
         <div className="px-4 h-10 flex items-center justify-between border-b border-border">
           <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Wet-Room Extract Schedule</span>
-          <button onClick={addRoom} data-testid="ventilation-add-room"
-            className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add room
-          </button>
+          <div className="flex items-center gap-2">
+            {planNames.length > 0 && (
+              <button onClick={populateWetRooms} data-testid="ventilation-populate-plan"
+                className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+                <ClipboardList className="h-3.5 w-3.5" strokeWidth={1.75} /> Populate from plan
+              </button>
+            )}
+            <button onClick={addRoom} data-testid="ventilation-add-room"
+              className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add room
+            </button>
+          </div>
         </div>
         <table className="w-full text-[12.5px]">
           <thead>
@@ -176,10 +227,18 @@ export function VentilationPanel({ projectId, initial, onChange }) {
       <div className="border border-border rounded-sm bg-card" data-testid="undercut-schedule">
         <div className="px-4 h-10 flex items-center justify-between border-b border-border">
           <span className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Internal Door Undercuts</span>
-          <button onClick={addUC} data-testid="undercut-add-room"
-            className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
-            <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add room
-          </button>
+          <div className="flex items-center gap-2">
+            {planNames.length > 0 && (
+              <button onClick={populateUndercuts} data-testid="undercut-populate-plan"
+                className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+                <ClipboardList className="h-3.5 w-3.5" strokeWidth={1.75} /> Populate from plan
+              </button>
+            )}
+            <button onClick={addUC} data-testid="undercut-add-room"
+              className="flex items-center gap-1.5 text-[11px] px-2 h-7 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors">
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add room
+            </button>
+          </div>
         </div>
         <div className="px-4 py-3 flex items-center gap-3 border-b border-border/60">
           <label className="text-[11px] text-muted-foreground whitespace-nowrap">Default undercut size</label>
@@ -199,7 +258,7 @@ export function VentilationPanel({ projectId, initial, onChange }) {
             {undercuts.map((u, i) => (
               <tr key={i} className="border-b border-border/60 last:border-0 group/uc">
                 <td className="py-1.5 px-2"><input value={u.room || ""} onChange={(e) => setUC(i, "room", e.target.value)} data-testid={`uc-room-${i}`} className="w-full bg-transparent px-1.5 py-1 outline-none focus:bg-secondary/70 rounded-sm" placeholder="Bedroom 1" /></td>
-                <td className="py-1.5"><select value={u.required ? "yes" : "no"} onChange={(e) => setUC(i, "required", e.target.value === "yes")} data-testid={`uc-req-${i}`} className="h-8 px-2 border border-border rounded-sm text-[12px] bg-background outline-none focus:border-foreground/30"><option value="yes">Yes — required</option><option value="no">No</option></select></td>
+                <td className="py-1.5"><select value={ucStatus(u)} onChange={(e) => setUC(i, "status", e.target.value)} data-testid={`uc-req-${i}`} className="h-8 px-2 border border-border rounded-sm text-[12px] bg-background outline-none focus:border-foreground/30">{UC_OPTS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}</select></td>
                 <td className="pr-3 py-1.5 text-right"><button onClick={() => removeUC(i)} data-testid={`uc-remove-${i}`} className="opacity-0 group-hover/uc:opacity-100 focus:opacity-100 text-muted-foreground hover:text-[var(--c-critical)] transition-opacity"><Trash2 className="h-3.5 w-3.5" strokeWidth={1.75} /></button></td>
               </tr>
             ))}

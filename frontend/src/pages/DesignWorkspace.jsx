@@ -487,7 +487,7 @@ export default function DesignWorkspace() {
           </SimpleSection>
         );
       case "ventilation":
-        return <VentilationPanel projectId={id} initial={p.ventilation} onChange={(v) => setP((prev) => ({ ...prev, ventilation: v }))} />;
+        return <VentilationPanel projectId={id} initial={p.ventilation} floorPlan={p.floorPlan} onChange={(v) => setP((prev) => ({ ...prev, ventilation: v }))} />;
       case "floorplan":
         return <FloorPlanPanel projectId={id} initial={p.floorPlan} project={p} onChange={(fp) => setP((prev) => ({ ...prev, floorPlan: fp }))} />;
       case "solar":
