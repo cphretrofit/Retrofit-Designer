@@ -409,11 +409,19 @@ def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
     H = _num(ov.get("h"), 6.0) or 6.0
-    rooms, W, H = _normalize_geometry(d.get("rooms") or [], W, H)
+    # When the designer has hand-shaped the geometry in the visual editor, trust it
+    # verbatim — skip the auto-tidy that squares off funky / L-shaped outlines and
+    # skip auto-carving a hall, so bespoke layouts survive the save & re-render.
+    _manual = bool(d.get("manualEdit"))
+    if _manual:
+        rooms = [dict(r) for r in (d.get("rooms") or [])]
+    else:
+        rooms, W, H = _normalize_geometry(d.get("rooms") or [], W, H)
     _title_l = (d.get("title") or "").lower()
     _upper = any(k in _title_l for k in ("first", "second", "third", "upper", "1st", "2nd", " f.", "landing"))
     _label_unnamed(rooms, _upper)
-    _carve_hall(rooms, W, H, _upper)
+    if not _manual:
+        _carve_hall(rooms, W, H, _upper)
     _fd = d.get("frontDoor") or {}
     _fdp = _front_door_placement(rooms, _fd if _fd else None, W, H, _upper)
     _doors = _sanitise_doors(rooms, d.get("doors"))
@@ -740,7 +748,7 @@ def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
     VB_W = 1040
     floors = d.get("floors")
     if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
-        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey", "orientationDeg") if d.get(k)}
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey", "orientationDeg", "manualEdit") if d.get(k)}
         # Loft insulation covers the ceilings beneath the roof — draw it on the TOP floor only,
         # from any available signal (top-level loftCoverage or a per-floor value).
         loft_signal = d.get("loftCoverage") or next((f.get("loftCoverage") for f in floors if f.get("loftCoverage")), None)

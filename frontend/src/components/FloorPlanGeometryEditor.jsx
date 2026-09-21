@@ -41,6 +41,23 @@ function FloorCanvas({ floor, onPatch, onOverall }) {
     e.currentTarget.setPointerCapture?.(e.pointerId);
     drag.current = { kind: "wall", mode, sx: e.clientX, sy: e.clientY, scale, ovw: ow, ovh: oh };
   };
+  const resizeRoom = (mode, d, dxm, dym) => {
+    const MIN = 0.3;
+    let x = d.ox, y = d.oy, w = d.ow, h = d.oh;
+    if (mode.includes("e")) w = d.ow + dxm;
+    if (mode.includes("s")) h = d.oh + dym;
+    if (mode.includes("w")) { x = d.ox + dxm; w = d.ow - dxm; }
+    if (mode.includes("n")) { y = d.oy + dym; h = d.oh - dym; }
+    x = snap(x); y = snap(y); w = snap(w); h = snap(h);
+    if (w < MIN) { if (mode.includes("w")) x = d.ox + d.ow - MIN; w = MIN; }
+    if (h < MIN) { if (mode.includes("n")) y = d.oy + d.oh - MIN; h = MIN; }
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > ow) w = ow - x;
+    if (y + h > oh) h = oh - y;
+    return { x: Number(x.toFixed(2)), y: Number(y.toFixed(2)), w: Number(w.toFixed(2)), h: Number(h.toFixed(2)) };
+  };
+
   const move = (e) => {
     const d = drag.current;
     if (!d) return;
@@ -57,10 +74,7 @@ function FloorCanvas({ floor, onPatch, onOverall }) {
         y: clamp(snap(d.oy + dym), 0, Math.max(0, oh - d.oh)),
       });
     } else {
-      onPatch(d.ri, {
-        w: clamp(snap(d.ow + dxm), 0.5, ow - d.ox),
-        h: clamp(snap(d.oh + dym), 0.5, oh - d.oy),
-      });
+      onPatch(d.ri, resizeRoom(d.mode, d, dxm, dym));
     }
   };
   const end = () => { drag.current = null; };
@@ -81,13 +95,29 @@ function FloorCanvas({ floor, onPatch, onOverall }) {
       <rect x={PAD} y={PAD} width={CW} height={CH} fill="none" stroke="#171717" strokeWidth="2.5" />
       {rooms.map((r, ri) => {
         const x = PAD + num(r.x) * scale, y = PAD + num(r.y) * scale, w = num(r.w) * scale, h = num(r.h) * scale;
+        const HS = 5.5;
+        const handles = [
+          ["nw", x, y, "nwse-resize"],
+          ["ne", x + w, y, "nesw-resize"],
+          ["sw", x, y + h, "nesw-resize"],
+          ["se", x + w, y + h, "nwse-resize"],
+          ["n", x + w / 2, y, "ns-resize"],
+          ["s", x + w / 2, y + h, "ns-resize"],
+          ["w", x, y + h / 2, "ew-resize"],
+          ["e", x + w, y + h / 2, "ew-resize"],
+        ];
         return (
           <g key={ri} data-testid={`fp-visual-room-${ri}`}>
             <rect x={x} y={y} width={w} height={h} fill={PALETTE[ri % PALETTE.length]} stroke="#334155" strokeWidth="1.2"
               onPointerDown={startRoom(ri, "move")} style={{ cursor: "grab" }} />
             <text x={x + w / 2} y={y + h / 2 - 4} textAnchor="middle" fontSize="12" fontWeight="600" fill="#0f172a" style={{ pointerEvents: "none" }}>{r.name || "Room"}</text>
             <text x={x + w / 2} y={y + h / 2 + 11} textAnchor="middle" fontSize="10" fill="#475569" style={{ pointerEvents: "none" }}>{num(r.w).toFixed(2)}×{num(r.h).toFixed(2)}m</text>
-            <rect x={x + w - 12} y={y + h - 12} width="12" height="12" fill="#334155" onPointerDown={startRoom(ri, "resize")} style={{ cursor: "nwse-resize" }} data-testid={`fp-visual-resize-${ri}`} />
+            {handles.map(([m, hx, hy, cur]) => (
+              <rect key={m} x={hx - HS} y={hy - HS} width={HS * 2} height={HS * 2} rx="1.5"
+                fill="#fff" stroke="#0055FF" strokeWidth="1.4"
+                onPointerDown={startRoom(ri, m)} style={{ cursor: cur }}
+                data-testid={m === "se" ? `fp-visual-resize-${ri}` : `fp-room-${ri}-${m}`} />
+            ))}
           </g>
         );
       })}
@@ -116,8 +146,8 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
 
   const buildCad = () => {
     if (mode === "json") return JSON.parse(json);
-    if (multi) return { ...cadData, floors };
-    return { ...cadData, ...floors[0] };
+    if (multi) return { ...cadData, floors, manualEdit: true };
+    return { ...cadData, ...floors[0], manualEdit: true };
   };
 
   const save = async () => {
@@ -155,7 +185,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
       {mode === "visual" && (
         <div className="space-y-4">
           <div className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-            <Move className="h-3.5 w-3.5" /> Drag the <strong>blue external walls</strong> to set the overall size, drag a room to move it, or its corner handle to resize. Dimensions update live &middot; snaps to 5&thinsp;cm.
+            <Move className="h-3.5 w-3.5" /> Drag any <strong>room wall or corner</strong> (blue handles) to reshape it — walls can be pulled independently for L-shaped / non-box layouts. Drag a room body to move it, or the outer blue walls to set the overall size. Dimensions update live &middot; snaps to 5&thinsp;cm.
           </div>
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
@@ -213,6 +243,6 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
 }
 
 const buildCadSafe = (cadData, floors, multi) => {
-  if (multi) return { ...cadData, floors };
-  return { ...cadData, ...floors[0] };
+  if (multi) return { ...cadData, floors, manualEdit: true };
+  return { ...cadData, ...floors[0], manualEdit: true };
 };

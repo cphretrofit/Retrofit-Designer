@@ -464,3 +464,8 @@ All in `pdf_builder.py`:
 ## AUDIT vs legacy pack (Jun 2026)
 - Compared our generated pack against the user's old-style PDF (Saffron Solar PV, 39pp). Ours is materially more rigorous/evidence-defensible (site-specific drawings, per-measure photos, U-value calcs, PSI/fRsi, evidenced checklist, auto datasheets/BBA, QA register). Old pack's only edge = brevity (39pp vs our 584pp).
 - Strict gaps to be issue-ready: (1) clear unbacked claims (Evidence 50%) + missing calculatedU (Calculations 50%); (2) Pack Slimming (photo cap + datasheet trim) to cut 584pp bloat; (3) ADF1 extract-table crowding; (4) add radon note; (5) prominent designer/client sign-off panel.
+
+## Floor plan — full external-wall editing (Jun 2026)
+- FloorPlanGeometryEditor visual canvas now gives every room 8 drag handles (4 corners nw/ne/sw/se + 4 edge mids n/s/e/w) plus move, so ALL external walls (not just the bottom-right corner) are editable. Generic `resizeRoom(mode,...)` keeps opposite edge fixed, snaps to 5cm, clamps within envelope. Applies to every floor.
+- Save sets `cad.manualEdit=true`. Backend `cad_floorplan._render_single` skips `_normalize_geometry` (edge-snap + 30% boundary-grow) AND `_carve_hall` when manualEdit is set — so bespoke/L-shaped/non-box layouts survive save & re-render instead of being squared off. `manualEdit` propagated to per-floor via `shared` keys in build_cad_floorplan_svg.
+- Verified: unit test shows L-shape notch preserved (manual svg differs from auto which carves a hall into the dead space). Screenshot confirms all room handles render on project 15cc2d8a.
