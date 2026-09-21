@@ -25,6 +25,16 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #5 — Export QA batch (partial)
+Done & verified (isolated WeasyPrint renders / rasterise checks):
+- **Interaction matrix redesigned** (`_interaction_matrix_html`): rounded cells in a soft card, numbered axes, colour-coded measure dots, pill status badges, cleaner pairwise table.
+- **Photo cross-contamination guards** (`PHOTO_NEG`): SOLAR now excludes window/glazing/sill/reveal/door(way) shots; LOFT excludes window/glazing/door-undercut — substring-safe (won't catch "outdoor"). Fixes Solar-showing-windows and Loft-insulation-showing-a-door.
+- **Floor plan source** (`_use_original`): the design-workspace CAD plan is now used whenever `cadData` exists (assessor's original only when there is no CAD). 13 Mill View had stale `useOriginal:true` — now overridden.
+- **Solar survey in-section embedding**: `_solarSurveyMissing` detector widened (recognises "Technical Survey" / "PV tech" / "easy pv" etc.); new `_pdf_to_page_uris()` rasterises the MCS PV survey PDF (first 8 pages @120dpi JPEG) into `p["_solarSurveyPages"]`, rendered as "Solar PV Technical Survey" pages inside the Solar measure section. Verified against 13 Mill View "PV tech survey.pdf" → 8 pages.
+
+Still OPEN (need the user's project to reproduce / deferred): stored-items-in-loft into PDF, Loft-hatch & Ventilation wrong-image + auto-N/A placeholder on evidence tiles, page-spacing tidy-up. NOTE: full 96-page pack not re-rendered end-to-end here (too heavy for the tool); each change verified in isolation.
+
+
 ## Added — Jun 21 2026 (fork) #4 — Property name/postcode on brand cover
 - The page-1 brand cover now overlays the property **name + postcode** bottom-right (gold `#e8c47a`, letter-spaced, with a matching gold tick), over a subtle diagonal corner vignette (`linear-gradient(315deg …)`) so it reads cleanly on the bright photo while staying understated. Built in `_brand_cover_html`; postcode parsed from `address` (fallback `town`). Verified via WeasyPrint render.
 

@@ -165,11 +165,15 @@ PHOTO_KW = {
 # that measure even if it matched a positive keyword (e.g. a "roof — loft insulation" photo
 # must never be pulled into the Solar PV section just because it says "roof").
 PHOTO_NEG = {
-    "SOLAR": ["loft", "insulation", "attic", "joist", "rafter", "eaves", "ceiling", "cavity", "internal"],
+    "SOLAR": ["loft", "insulation", "attic", "joist", "rafter", "eaves", "ceiling", "cavity", "internal",
+              "window", "glazing", "sill", "cill", "reveal", "doorway", "front door", "external door",
+              "internal door", "porch door", "trickle"],
     "RIR": ["loft insulation", "attic"],
     "ASHP": ["loft", "solar", "pv panel"],
     "VENT": ["solar", "pv panel"],
-    "LOFT": ["cavity insulation", "filled cavity", "cavity wall", "external wall", "wall insulation", "elevation", "render"],
+    "LOFT": ["cavity insulation", "filled cavity", "cavity wall", "external wall", "wall insulation",
+             "elevation", "render", "window", "glazing", "door undercut", "undercut", "doorway",
+             "front door", "external door", "internal door"],
 }
 
 # Typical PAS 2035 design target U-values (W/m2K) used when a measure has no explicit target,
@@ -1405,37 +1409,46 @@ def _interaction_matrix_html(measures):
                    _para("A single measure is proposed; a full measures interaction matrix is not applicable. Interactions with the existing fabric and services are addressed within the measure specification.") + key)
     n = len(ms)
     names = [m.get("name") or "" for m in ms]
-    cell = 30
-    header = ('<td style="border:0; width:56mm;"></td>'
-              + "".join(f'<td style="border:0; text-align:center; width:{cell}px;">'
-                        f'<span class="mono" style="font-size:9px; color:#0055FF;">{j + 1}</span></td>' for j in range(n)))
+    fams = [_mfam(m.get("code"), m.get("name")) for m in ms]
+    cell = 34
+    header = ('<td style="border:0; width:52mm;"></td>'
+              + "".join(f'<td style="border:0; text-align:center; width:{cell}px; padding-bottom:7px;">'
+                        f'<span class="mono" style="font-size:9px; color:#0055FF; font-weight:600;">{j + 1}</span></td>' for j in range(n)))
     rows = ""
     for i in range(n):
-        fam_i = _mfam(ms[i].get("code"), ms[i].get("name"))
-        cells = (f'<td style="border:0; font-size:10px; color:#262626; padding:0 12px 0 0; text-align:right; white-space:nowrap;">'
-                 f'<span style="display:inline-block; width:8px; height:8px; background:{MEASURE_COLORS[fam_i]}; margin-right:7px; border-radius:2px;"></span>'
-                 f'<span class="mono" style="color:#0055FF;">{i + 1}</span> <span class="faint">{_esc(names[i][:26])}</span></td>')
+        cells = (f'<td style="border:0; font-size:10px; color:#262626; padding:0 14px 0 0; text-align:right; white-space:nowrap; height:{cell}px;">'
+                 f'<span style="display:inline-block; width:9px; height:9px; background:{MEASURE_COLORS[fams[i]]}; margin-right:8px; border-radius:2px; vertical-align:middle;"></span>'
+                 f'<span class="mono" style="color:#0055FF; font-weight:600;">{i + 1}</span>&nbsp;<span style="color:#404040;">{_esc(names[i][:26])}</span></td>')
         for j in range(n):
             if j > i:
-                cells += f'<td style="border:0; width:{cell}px; height:{cell}px;"></td>'
+                cells += f'<td style="padding:2px;"><div style="width:{cell - 4}px; height:{cell - 4}px;"></div></td>'
             elif j == i:
-                cells += f'<td style="border:2px solid #fff; background:#e5e5e5; width:{cell}px; height:{cell}px;"></td>'
+                cells += (f'<td style="padding:2px;"><div style="width:{cell - 4}px; height:{cell - 4}px; border-radius:5px; '
+                          'background:repeating-linear-gradient(45deg,#f2f2f2,#f2f2f2 4px,#e8e8e8 4px,#e8e8e8 8px);"></div></td>')
             else:
-                c = IC[_interaction(ms[i].get("code"), ms[j].get("code"))]
-                cells += f'<td style="border:2px solid #fff; background:{c}; width:{cell}px; height:{cell}px;"></td>'
+                c = _interaction(ms[i].get("code"), ms[j].get("code"))
+                cells += (f'<td style="padding:2px;"><div style="width:{cell - 4}px; height:{cell - 4}px; border-radius:5px; '
+                          f'background:{IC[c]}; box-shadow:inset 0 0 0 1px rgba(0,0,0,0.07);"></div></td>')
         rows += f'<tr>{cells}</tr>'
-    grid = f'<table style="border-collapse:separate; border-spacing:0; margin-top:16px; width:auto;"><tbody><tr>{header}</tr>{rows}</tbody></table>'
+    grid = ('<div style="border:1px solid #ececec; border-radius:8px; padding:18px 20px; margin-top:16px; background:#fcfcfc;">'
+            f'<table style="border-collapse:separate; border-spacing:0; width:auto;"><tbody><tr>{header}</tr>{rows}</tbody></table></div>')
     det = ""
     for i in range(n):
         for j in range(i):
             c = _interaction(ms[i].get("code"), ms[j].get("code"))
-            det += (f'<tr><td style="width:34%; color:#262626;">{_esc(names[i])} <span class="mono faint">&times;</span> {_esc(names[j])}</td>'
-                    f'<td style="width:22%;"><span style="display:inline-block; width:10px; height:10px; background:{IC[c]}; border-radius:2px; margin-right:7px; vertical-align:middle;"></span>'
-                    f'<span style="font-size:10px; color:{IC[c]};">{ICL[c]}</span></td>'
-                    f'<td class="muted" style="font-size:10.5px; line-height:1.5;">{_esc(_interaction_note(ms[i], ms[j], c))}</td></tr>')
-    det_tbl = ('<div class="faint upper" style="font-size:9.5px; margin-top:28px; margin-bottom:6px;">Pairwise Interactions &amp; Management</div>'
-               '<table><thead><tr><th>Measure pair</th><th>Interaction</th><th>How it is managed in this design</th></tr></thead>'
-               f'<tbody>{det}</tbody></table>') if det else ""
+            det += (f'<tr><td style="width:32%; color:#262626; padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:top;">'
+                    f'{_esc(names[i])} <span class="mono faint">&times;</span> {_esc(names[j])}</td>'
+                    f'<td style="width:26%; padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:top;">'
+                    f'<span style="display:inline-block; background:{IC[c]}1a; border:1px solid {IC[c]}; border-radius:999px; padding:2px 10px;">'
+                    f'<span style="display:inline-block; width:8px; height:8px; background:{IC[c]}; border-radius:2px; margin-right:7px; vertical-align:middle;"></span>'
+                    f'<span style="font-size:9.5px; color:{IC[c]}; font-weight:600; vertical-align:middle;">{ICL[c]}</span></span></td>'
+                    f'<td class="muted" style="font-size:10.5px; line-height:1.5; padding:9px 10px; border-bottom:1px solid #f0f0f0; vertical-align:top;">{_esc(_interaction_note(ms[i], ms[j], c))}</td></tr>')
+    det_tbl = ('<div class="faint upper" style="font-size:9.5px; margin-top:26px; margin-bottom:8px;">Pairwise Interactions &amp; Management</div>'
+               '<table style="border-collapse:collapse; width:100%;"><thead><tr>'
+               '<th style="text-align:left; padding:0 10px 8px; border-bottom:1.5px solid #171717; font-size:9px; letter-spacing:0.08em;">MEASURE PAIR</th>'
+               '<th style="text-align:left; padding:0 10px 8px; border-bottom:1.5px solid #171717; font-size:9px; letter-spacing:0.08em;">INTERACTION</th>'
+               '<th style="text-align:left; padding:0 10px 8px; border-bottom:1.5px solid #171717; font-size:9px; letter-spacing:0.08em;">HOW IT IS MANAGED IN THIS DESIGN</th>'
+               f'</tr></thead><tbody>{det}</tbody></table>') if det else ""
     inner = (_para("Interactions between the proposed measures have been assessed to PAS 2035:2023 Annex D (Figure D.1). "
                    "The half-matrix reads measure against measure using the key below; the table beneath sets out how each interaction is managed.")
              + key + grid + det_tbl)
@@ -3784,6 +3797,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         _det_sub = {"LOFT": "loft_details", "WIN": "glazing_details", "SOLAR": "solar_details", "ASHP": "ashp_details"}.get(fam_j)
         if _det_sub and _det_sub in _std_present:
             spec_pages.extend(_standard_detail_pages(_det_sub, _DETAIL_SETS[_det_sub][1], _std_excl.get(_det_sub)))
+        if fam_j == "SOLAR" and p.get("_solarSurveyPages"):
+            _sp = p["_solarSurveyPages"]
+            for _pi, _su in enumerate(_sp):
+                _hdr = (_head("Solar PV Technical Survey")
+                        + '<div class="muted" style="font-size:11px; margin-top:6px;">MCS solar PV technical / structural survey for this dwelling, bound within the Solar section.</div>') if _pi == 0 else ""
+                spec_pages.append(_hdr
+                                  + f'<div style="margin-top:10px; border:1px solid #e5e5e5;"><img src="{_su}" style="width:100%; display:block;"></div>'
+                                  + f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Solar technical survey &middot; page {_pi + 1} of {len(_sp)}</div>')
 
     # ---- Defects & remedial actions ----
     defects = list(p.get("defects") or [])
@@ -4006,7 +4027,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     # Honour the assessor's-original choice only when the original image is actually available
     # (it is fetched into _data before this runs); otherwise fall back to the CAD redraw so the
     # plan page is never blank/broken.
-    _use_original = bool(fp.get("useOriginal")) and bool(fp_uri)
+    # Prefer the design-workspace CAD plan whenever one exists — it is the authored deliverable.
+    # The assessor's original image is used only when there is no CAD design plan to draw.
+    _use_original = bool(fp.get("useOriginal")) and bool(fp_uri) and not fp.get("cadData")
     # Always redraw the CAD plan from the stored geometry so the loft coverage and the address/
     # postcode label are correct (older saved SVGs pre-date these). Skipped when the designer has
     # chosen to use the assessor's original plan instead.
@@ -4389,10 +4412,26 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                                "type": x.get("doc_type") or "Supporting document"}
                               for x in _alldocs if (x.get("doc_type") or "") in _APX_B]
         _has_solar = any(_mfam(mm.get("code"), mm.get("name")) == "SOLAR" for mm in (p.get("measures") or []))
+        p["_solarSurveyPages"] = []
         if _has_solar:
+            _SOLKW = ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech",
+                      "roof survey", "structural survey", "solar pv design", "pv tech", "pv technical",
+                      "technical survey", "easy pv", "easypv", "pv report")
             _sblob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs
-                              if (x.get("doc_type") or "") not in ("Datasheet", "Survey Photo", "Floor Plan", "Defect Photo")).lower()
-            p["_solarSurveyMissing"] = not any(k in _sblob for k in ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech", "roof survey", "structural survey", "solar pv design"))
+                              if (x.get("doc_type") or "") not in ("Survey Photo", "Floor Plan", "Defect Photo")).lower()
+            p["_solarSurveyMissing"] = not any(k in _sblob for k in _SOLKW)
+            try:
+                _srv = await db.documents.find({"project_id": project_id, "is_deleted": False,
+                        "doc_type": {"$in": ["Technical Survey", "ASHP Survey", "Solar"]}}, {"_id": 0}).to_list(20)
+                _pick = next((_d for _d in _srv if _d.get("storage_path")
+                              and (_d.get("original_filename") or "").lower().endswith(".pdf")
+                              and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _SOLKW)), None)
+                if _pick:
+                    p["_solarSurveyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _pick["storage_path"], 8)
+                    if p["_solarSurveyPages"]:
+                        p["_solarSurveyMissing"] = False
+            except Exception as _e:
+                logger.warning("solar survey rasterise failed: %s", _e)
         else:
             p["_solarSurveyMissing"] = False
     except Exception:
@@ -4400,6 +4439,33 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         p["_solarSurveyMissing"] = False
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued, hero_is_property)
     return p, html
+
+
+def _pdf_to_page_uris(storage_path, max_pages=8):
+    """Rasterise the first pages of a stored PDF to JPEG data URIs (for in-section embedding)."""
+    try:
+        import fitz as _fz
+    except Exception:
+        try:
+            import pymupdf as _fz
+        except Exception:
+            return []
+    try:
+        data, _ = get_object(storage_path)
+    except Exception:
+        return []
+    out = []
+    try:
+        doc = _fz.open(stream=data, filetype="pdf")
+        for i in range(min(max_pages, doc.page_count)):
+            try:
+                pix = doc[i].get_pixmap(dpi=120)
+                out.append("data:image/jpeg;base64," + base64.b64encode(pix.tobytes("jpeg")).decode())
+            except Exception:
+                continue
+    except Exception:
+        return out
+    return out
 
 
 async def _collect_source_docs(project_id: str):
