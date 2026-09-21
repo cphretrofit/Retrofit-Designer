@@ -25,6 +25,15 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #6 — Export QA batch (remaining items)
+Verified by rendering the full 13 Mill View pack (92pp) + page screenshots:
+- **Auto-N/A evidence tiles**: site-condition tiles with no usable photo now show a clean "N/A · no photograph on file" tile (also when `na` is set) instead of a blank/wrong image.
+- **Stored items in loft now embed**: `_doc_data_uri` now resolves `/api/documents/{id}/embedded/{n}` URLs (via `extract_sitenote_photo_labels`), and loft evidence photos sourced "Manually attached" are now trusted (three `_trust_photo` guards updated). The Stored-items tile renders its real photo.
+- **ASHP survey embedding**: mirrors solar — `p["_ashpSurveyPages"]` rasterised from an ASHP/heat-pump technical survey and rendered inside the ASHP section (keyword-guarded so it never grabs the PV survey).
+- **Survey image fit**: survey pages constrained to `max-height:232mm` so header+image sit on one page (fixed the blank-header overflow). Solar survey confirmed on pp.72–80 inside Section 05.3.
+Still subjective/deferred: fine page-spacing pass; and the loft "wrong image" cases are data-driven (crossflow & stored-items both manually attached to similar eaves shots) — swap in the workspace picker if needed.
+
+
 ## Added — Jun 21 2026 (fork) #5 — Export QA batch (partial)
 Done & verified (isolated WeasyPrint renders / rasterise checks):
 - **Interaction matrix redesigned** (`_interaction_matrix_html`): rounded cells in a soft card, numbered axes, colour-coded measure dots, pill status badges, cleaner pairwise table.

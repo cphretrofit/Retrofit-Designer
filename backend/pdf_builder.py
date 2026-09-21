@@ -489,6 +489,26 @@ def _derive_exposure_zone(postcode):
 
 
 async def _doc_data_uri(url: str):
+    me = re.search(r"/documents/([^/]+)/embedded/(\d+)", url or "")
+    if me:
+        rec = await db.documents.find_one({"id": me.group(1)})
+        if not rec or not rec.get("storage_path"):
+            return None
+        try:
+            data, _ = await asyncio.to_thread(get_object, rec["storage_path"])
+            from ai_extractor import extract_sitenote_photo_labels
+            imgs = await asyncio.to_thread(extract_sitenote_photo_labels, data, 250)
+            idx = int(me.group(2))
+            if idx < 0 or idx >= len(imgs):
+                return None
+            raw, ext = imgs[idx]["image"]
+            sd, sm = await asyncio.to_thread(_shrink_image, raw, 1400, 78)
+            if sm:
+                raw, ext = sd, "jpeg"
+            mime = "image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}"
+            return f"data:{mime};base64,{base64.b64encode(raw).decode()}"
+        except Exception:
+            return None
     m = re.search(r"/documents/([^/]+)/download", url or "")
     if not m:
         return None
@@ -3803,8 +3823,16 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 _hdr = (_head("Solar PV Technical Survey")
                         + '<div class="muted" style="font-size:11px; margin-top:6px;">MCS solar PV technical / structural survey for this dwelling, bound within the Solar section.</div>') if _pi == 0 else ""
                 spec_pages.append(_hdr
-                                  + f'<div style="margin-top:10px; border:1px solid #e5e5e5;"><img src="{_su}" style="width:100%; display:block;"></div>'
-                                  + f'<div class="mono faint" style="font-size:8px; margin-top:5px;">Solar technical survey &middot; page {_pi + 1} of {len(_sp)}</div>')
+                                  + f'<img src="{_su}" style="display:block; margin:12px auto 0; max-width:100%; max-height:232mm; width:auto; height:auto; border:1px solid #e5e5e5;">'
+                                  + f'<div class="mono faint" style="font-size:8px; margin-top:5px; text-align:center;">Solar technical survey &middot; page {_pi + 1} of {len(_sp)}</div>')
+        if fam_j == "ASHP" and p.get("_ashpSurveyPages"):
+            _ap = p["_ashpSurveyPages"]
+            for _pi, _au in enumerate(_ap):
+                _ahdr = (_head("ASHP Technical Survey")
+                         + '<div class="muted" style="font-size:11px; margin-top:6px;">MCS heat-pump technical / heat-loss survey for this dwelling, bound within the ASHP section.</div>') if _pi == 0 else ""
+                spec_pages.append(_ahdr
+                                  + f'<img src="{_au}" style="display:block; margin:12px auto 0; max-width:100%; max-height:232mm; width:auto; height:auto; border:1px solid #e5e5e5;">'
+                                  + f'<div class="mono faint" style="font-size:8px; margin-top:5px; text-align:center;">ASHP technical survey &middot; page {_pi + 1} of {len(_ap)}</div>')
 
     # ---- Defects & remedial actions ----
     defects = list(p.get("defects") or [])
@@ -3865,14 +3893,19 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
             flag = present is True and e.get("key") in ("electric_shower", "downlights", "loft_storage")
             vcol = "#DC2626" if flag else ("#16A34A" if present is False else "#262626")
             _loftkey = e.get("key") in ("loft_storage", "loft_crossflow")
-            _trust_photo = (not _loftkey) or str(e.get("source") or "").lower().startswith("site") or (e.get("confidence") or "").lower() == "high"
+            _src = str(e.get("source") or "").lower()
+            _trust_photo = (not _loftkey) or _src.startswith("site") or ("attach" in _src) or (e.get("confidence") or "").lower() == "high"
+            _na_tile = ('<div style="width:130px; height:92px; border:1px dashed #d4d4d4; background:#fafafa; flex-shrink:0; display:flex; align-items:center; justify-content:center; text-align:center;">'
+                        '<span class="faint upper" style="font-size:7.5px; letter-spacing:0.08em; line-height:1.5;">N/A &middot; no<br>photograph on file</span></div>')
             if e.get("_data") and _trust_photo:
                 img = f'<div style="width:130px; height:92px; border:1px solid #e5e5e5; overflow:hidden; flex-shrink:0;"><img src="{e["_data"]}" style="width:100%; height:100%; object-fit:cover;"></div>'
+            elif e.get("na"):
+                img = _na_tile
             elif e.get("source"):
                 img = ('<div style="width:130px; height:92px; border:1px solid #e5e5e5; background:#f7f8fa; flex-shrink:0; display:flex; align-items:center; justify-content:center; text-align:center;">'
                        '<span class="faint upper" style="font-size:8px; letter-spacing:0.1em; line-height:1.5;">Recorded in<br>assessment</span></div>')
             else:
-                img = '<div style="width:130px; height:92px; border:1px dashed #e5e5e5; flex-shrink:0;"></div>'
+                img = _na_tile
             conf = e.get("confidence") or ""
             fig = e.get("fig")
             meta = ""
@@ -3954,7 +3987,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     for _e in _sc_evidence:
         if not _e.get("_data"):
             continue
-        if _e.get("key") in ("loft_storage", "loft_crossflow") and not (str(_e.get("source") or "").lower().startswith("site") or (_e.get("confidence") or "").lower() == "high"):
+        if _e.get("key") in ("loft_storage", "loft_crossflow") and not (str(_e.get("source") or "").lower().startswith("site") or ("attach" in str(_e.get("source") or "").lower()) or (_e.get("confidence") or "").lower() == "high"):
             continue
         _ev_imgs.append((((_e.get("label") or "") + " " + (_e.get("key") or "")).lower(), _e["_data"]))
 
@@ -4434,6 +4467,20 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                 logger.warning("solar survey rasterise failed: %s", _e)
         else:
             p["_solarSurveyMissing"] = False
+        _has_ashp = any(_mfam(mm.get("code"), mm.get("name")) == "ASHP" for mm in (p.get("measures") or []))
+        p["_ashpSurveyPages"] = []
+        if _has_ashp:
+            _AKW = ("ashp", "heat pump", "heat-pump", "heating survey", "heat loss", "heatloss", "heat pump survey", "hp survey")
+            try:
+                _asrv = await db.documents.find({"project_id": project_id, "is_deleted": False,
+                        "doc_type": {"$in": ["ASHP Survey", "Heat Pump Report", "Technical Survey"]}}, {"_id": 0}).to_list(20)
+                _apick = next((_d for _d in _asrv if _d.get("storage_path")
+                               and (_d.get("original_filename") or "").lower().endswith(".pdf")
+                               and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _AKW)), None)
+                if _apick:
+                    p["_ashpSurveyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _apick["storage_path"], 8)
+            except Exception as _e:
+                logger.warning("ashp survey rasterise failed: %s", _e)
     except Exception:
         p["_uploadedAdf1"] = p["_uploadedAirtight"] = False
         p["_solarSurveyMissing"] = False
