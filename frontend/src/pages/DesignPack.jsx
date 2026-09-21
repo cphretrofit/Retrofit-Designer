@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { getProject, API, startPackJob, packJobStatus } from "@/lib/api";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { ArrowLeft, Download, Printer, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Printer, Loader2, Lock, ArrowRight } from "lucide-react";
 
 const THUMB_W = 128; // px
 const A4_PX_W = 793.7; // 210mm @ 96dpi
@@ -63,6 +63,12 @@ export default function DesignPack() {
 
   useEffect(() => { getProject(id).then(setP).catch(() => {}); }, [id]);
   if (!p) return null;
+
+  const signed = !!p.coordinatorSignoff || p.status === "approved";
+  const bars = p.readiness?.breakdown || [];
+  const incomplete = bars.filter((b) => b.value < 100);
+  const blockers = [...incomplete.map((b) => b.label), ...(signed ? [] : ["coordinator sign-off"])];
+  const notReady = blockers.length > 0;
 
   const previewUrl = `${API}/projects/${id}/pack.html?origin=${encodeURIComponent(window.location.origin)}`;
 
@@ -145,9 +151,21 @@ export default function DesignPack() {
         <div className="ml-auto flex items-center gap-2">
           <div className="text-[11px] font-mono text-muted-foreground mr-2 hidden sm:block">DESIGN PACK · {p.ref} · REV {p.revision}</div>
           <button onClick={printPack} className="flex items-center gap-2 h-8 px-3 border border-border rounded-sm text-[12.5px] hover:bg-secondary transition-colors" data-testid="pack-print"><Printer className="h-3.5 w-3.5" strokeWidth={1.5} /> Print</button>
-          <button onClick={exportPdf} disabled={dl} className="flex items-center gap-2 h-8 px-3.5 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 transition-opacity disabled:opacity-60" data-testid="pack-download">{dl ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : <Download className="h-3.5 w-3.5" strokeWidth={1.75} />} {dl ? "Exporting…" : "Export PDF"}</button>
+          <button onClick={exportPdf} disabled={dl || notReady} title={notReady ? `Not ready to issue — complete: ${blockers.join(", ")}` : "Export the issued PDF"} className="flex items-center gap-2 h-8 px-3.5 bg-primary text-primary-foreground rounded-sm text-[12.5px] font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed" data-testid="pack-download">{dl ? <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} /> : notReady ? <Lock className="h-3.5 w-3.5" strokeWidth={1.75} /> : <Download className="h-3.5 w-3.5" strokeWidth={1.75} />} {dl ? "Exporting…" : notReady ? "Locked" : "Export PDF"}</button>
         </div>
       </header>
+
+      {notReady && (
+        <div className="shrink-0 border-b flex items-center gap-3 px-5 py-2 text-[12px]" data-testid="pack-issue-gate"
+          style={{ borderColor: "var(--c-warning)", background: "color-mix(in srgb, var(--c-warning) 8%, transparent)" }}>
+          <Lock className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--c-warning)" }} strokeWidth={1.75} />
+          <span className="flex-1">Not ready to issue — this pack can be previewed but not exported until every readiness area is 100% and the design is signed off. Outstanding: <span className="font-medium">{blockers.join(", ")}</span>.</span>
+          <button onClick={() => navigate(`/project/${id}/design/outstanding`)} data-testid="pack-issue-gate-resolve"
+            className="flex items-center gap-1 text-[11.5px] px-2.5 h-7 border rounded-sm hover:bg-secondary transition-colors shrink-0" style={{ borderColor: "var(--c-warning)" }}>
+            Resolve <ArrowRight className="h-3 w-3" strokeWidth={1.75} />
+          </button>
+        </div>
+      )}
 
       {dl && (
         <div className="h-8 shrink-0 border-b border-border bg-background flex items-center gap-3 px-5" data-testid="pack-progress">

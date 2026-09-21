@@ -81,6 +81,23 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
     catch { toast.error("Could not save"); } finally { setSaving(false); }
   };
 
+  const markNa = async (i, val) => {
+    const ev = structuredClone(sc.evidence || []);
+    ev[i] = { ...ev[i], na: val };
+    const next = { ...sc, evidence: ev };
+    setSc(next);
+    try {
+      const merged = { ...next };
+      LOFT_CHECKS.forEach((c) => {
+        const b = merged[c.key];
+        const v = typeof b === "boolean" ? b : ((merged.evidence || []).find((x) => x.key === c.key)?.present ?? null);
+        if (v !== null) merged[c.key] = v;
+      });
+      const data = await saveSiteConditions(projectId, merged); setSc(data); onChange?.(data);
+      toast.success(val ? "Marked N/A — no photo required" : "N/A removed");
+    } catch { toast.error("Could not save"); }
+  };
+
   const attachAndSave = async (i, ph) => {
     const ev = structuredClone(sc.evidence || []);
     ev[i] = { ...ev[i], url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" };
@@ -161,6 +178,13 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
         </div>
       ) : (
         <div className="space-y-3">
+          {(() => { const unbacked = visibleEvidence.filter((e) => !e.url && !e.na); return unbacked.length > 0 ? (
+            <div className="border rounded-sm px-4 py-2.5 flex items-center gap-2 text-[12px]" data-testid="site-evidence-nudge"
+              style={{ borderColor: "var(--c-warning)", background: "color-mix(in srgb, var(--c-warning) 8%, transparent)" }}>
+              <ImagePlus className="h-4 w-4 shrink-0" style={{ color: "var(--c-warning)" }} strokeWidth={1.75} />
+              <span>{unbacked.length} condition{unbacked.length === 1 ? "" : "s"} still need an evidence photo — attach one, or mark N/A, to reach 100% Evidence.</span>
+            </div>
+          ) : null; })()}
           {evidence.map((e, i) => {
             if (!hasLoft && LOFT_KEYS.has(e.key)) return null;
             const pv = e.present === true ? "true" : e.present === false ? "false" : "null";
@@ -173,11 +197,21 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
                       <img src={mediaUrl(e.url)} alt={e.label} className="w-full h-full object-cover" />
                       <span className="absolute bottom-1 right-1 bg-background/80 rounded-sm p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"><Maximize2 className="h-3 w-3" strokeWidth={2} /></span>
                     </button>
+                  ) : e.na ? (
+                    <div className="w-32 h-24 border border-border rounded-sm flex flex-col items-center justify-center gap-0.5 text-[10px] text-muted-foreground bg-secondary/40" data-testid={`site-evidence-na-${e.key}`}>
+                      <span className="text-[12px] font-medium text-foreground">N/A</span>
+                      <span className="text-[9.5px]">no photo required</span>
+                      <button onClick={() => markNa(i, false)} data-testid={`site-evidence-na-undo-${e.key}`} className="text-[9.5px] underline underline-offset-2 hover:text-foreground mt-0.5">Undo</button>
+                    </div>
                   ) : (
-                    <button onClick={() => setPick(i)} data-testid={`site-evidence-pick-${e.key}`}
-                      className="w-32 h-24 border border-dashed border-border rounded-sm flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors px-2">
-                      <ImagePlus className="h-4 w-4" strokeWidth={1.5} /> Choose photo
-                    </button>
+                    <div className="flex flex-col gap-1">
+                      <button onClick={() => setPick(i)} data-testid={`site-evidence-pick-${e.key}`}
+                        className="w-32 h-24 border border-dashed border-border rounded-sm flex flex-col items-center justify-center gap-1 text-[10px] text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors px-2">
+                        <ImagePlus className="h-4 w-4" strokeWidth={1.5} /> Choose photo
+                      </button>
+                      <button onClick={() => markNa(i, true)} data-testid={`site-evidence-na-btn-${e.key}`}
+                        className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">No photo? Mark N/A</button>
+                    </div>
                   )}
                   {e.fig ? (
                     <div className="font-mono text-[10px] text-muted-foreground mt-1">FIG {e.fig}{e.confidence ? ` · ${e.confidence}` : ""}</div>

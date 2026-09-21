@@ -287,6 +287,17 @@ export default function ProjectOverview() {
                       {!done && hint && (
                         <div className="text-[10.5px] text-muted-foreground/80 mt-1 leading-snug">{hint}</div>
                       )}
+                      {!done && b.missing && b.missing.length > 0 && (
+                        <ul className="mt-1.5 space-y-1" data-testid={`readiness-missing-${section}`}>
+                          {b.missing.slice(0, 5).map((mt, mi) => (
+                            <li key={mi} className="flex items-start gap-1.5 text-[10.5px] text-muted-foreground/75 leading-snug">
+                              <span className="mt-[5px] h-1 w-1 rounded-full shrink-0" style={{ background: "var(--c-warning)" }} />
+                              <span>{mt}</span>
+                            </li>
+                          ))}
+                          {b.missing.length > 5 && <li className="text-[10.5px] text-muted-foreground/60 ml-2.5">+{b.missing.length - 5} more</li>}
+                        </ul>
+                      )}
                     </button>
                   );
                 })}

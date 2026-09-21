@@ -768,7 +768,7 @@ def _compute_readiness(p, ds_fams=None):
     e_pass, e_total, e_missing = 0, 0, []
     for e in ev:
         e_total += 1
-        if e.get("url") or e.get("photos") or e.get("_data"):
+        if e.get("url") or e.get("photos") or e.get("_data") or e.get("na"):
             e_pass += 1
         else:
             e_missing.append(e.get("label") or e.get("key"))
@@ -786,7 +786,13 @@ def _compute_readiness(p, ds_fams=None):
     _active = [it for it in items if not (isinstance(it, dict) and it.get("dismissed"))]
     resolved = sum(1 for it in _active if isinstance(it, dict) and (it.get("resolved") or it.get("confirmedBy")))
     open_items = len(_active) - resolved
+    open_texts = [(_norm_item(it).get("text") or "").strip() for it in _active
+                  if isinstance(it, dict) and not (it.get("resolved") or it.get("confirmedBy"))]
+    open_texts = [t for t in open_texts if t]
     signed = bool(p.get("coordinatorSignoff")) or p.get("status") in ("approved",)
+    qa_missing = list(open_texts)
+    if not signed:
+        qa_missing.append("Coordinator sign-off")
     qa_pass = resolved + (1 if signed else 0)
     qa_total = len(_active) + 1
     qa_val = _rd_pct(qa_pass, qa_total)
@@ -796,7 +802,8 @@ def _compute_readiness(p, ds_fams=None):
         qa_detail = "Ready for coordinator sign-off \u2014 sign off in Outstanding Items"
     else:
         qa_detail = "Complete"
-    bars.append({"label": "QA", "section": "outstanding", "value": qa_val, "detail": qa_detail, "done": qa_val >= 100})
+    bars.append({"label": "QA", "section": "outstanding", "value": qa_val, "detail": qa_detail,
+                 "done": qa_val >= 100, "missing": qa_missing[:12]})
 
     overall = round(sum(b["value"] for b in bars) / len(bars)) if bars else 0
     return {"overall": overall, "breakdown": bars}
@@ -3523,11 +3530,53 @@ async def _build_pack_job(project_id, origin, job_id):
         await db.pack_jobs.update_one({"id": job_id}, {"$set": {"status": "error", "error": str(e)[:300]}})
 
 
+async def _compute_full_readiness(project_id):
+    """Read-time readiness + sign-off state, mirroring get_project, for the issue gate."""
+    doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not doc:
+        return None, False
+    _ensure_uvalues(doc)
+    try:
+        _has_solar, _survey_missing = await _solar_survey_state(project_id, doc.get("measures"))
+        if _survey_missing:
+            _items = list(doc.get("itemsBeforeIssue") or [])
+            if not any(isinstance(it, dict) and it.get("id") == "auto-solar-survey" for it in _items):
+                _items.insert(0, {"id": "auto-solar-survey", "text": "Solar technical survey not yet received",
+                                  "measure": "Solar PV", "severity": "warning", "auto": True})
+            doc["itemsBeforeIssue"] = _items
+    except Exception:
+        pass
+    _ds_files = [(x.get("original_filename") or "").lower() for x in
+                 await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                         {"_id": 0, "original_filename": 1}).to_list(100)]
+    _cname = (doc.get("client") or "").strip()
+    if _cname:
+        _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}}, {"id": 1})
+        if _cl:
+            _ds_files += [(x.get("original_filename") or "").lower() for x in
+                          await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                                  {"_id": 0, "original_filename": 1}).to_list(200)]
+    _auto_resolve_datasheet_items(doc, _ds_files)
+    from pdf_builder import _is_handover_item
+    doc["itemsBeforeIssue"] = [it for it in (doc.get("itemsBeforeIssue") or [])
+                               if not _is_handover_item(it.get("text") if isinstance(it, dict) else it)]
+    _apply_measure_progress(doc)
+    readiness = _compute_readiness(doc, _datasheet_families(doc, _ds_files))
+    signed = bool(doc.get("coordinatorSignoff")) or doc.get("status") == "approved"
+    return readiness, signed
+
+
 @api_router.post("/projects/{project_id}/pack/generate")
 async def start_pack_job(project_id: str, origin: Optional[str] = Query(None)):
     p = await db.projects.find_one({"id": project_id}, {"_id": 0, "id": 1})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
+    readiness, signed = await _compute_full_readiness(project_id)
+    if readiness:
+        incomplete = [b["label"] for b in readiness.get("breakdown", []) if b.get("value", 0) < 100]
+        if incomplete or not signed:
+            parts = list(incomplete) + ([] if signed else ["coordinator sign-off"])
+            raise HTTPException(status_code=422, detail=f"Design not ready to issue — complete: {', '.join(parts)}")
     job_id = str(uuid.uuid4())
     await db.pack_jobs.insert_one({"id": job_id, "_id": job_id, "project_id": project_id,
         "status": "queued", "progress": 0, "stage": "Queued", "path": None, "filename": None,

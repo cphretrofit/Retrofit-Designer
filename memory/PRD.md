@@ -25,6 +25,12 @@ editable floor plans, ventilation strategies, Google Solar API, AI defect matchi
 - **B-code import (P1)**: `_normalise_measure_code`/`_REV_PAS` map PAS Annex B codes (B1..B10) on job card → internal codes; EXTRACT prompt updated.
 - **Red-line boundary (P2)**: indicative dashed red-line + label on aerial view (SolarPanel) and PDF Aerial page (`_subject_highlight`).
 
+## Added — Jun 21 2026 (fork) #2 — QA which-items, Issue Gate, Photo N/A
+- **QA which-items on readiness rows:** `_compute_readiness` QA bar now carries a `missing` list (open item-before-issue texts + "Coordinator sign-off"). ProjectOverview Design Readiness card and the workspace sidebar readiness both render the specific blocking items under each incomplete bar (cap 5 / 3 with "+N more"), so coordinators see exactly what to clear.
+- **Issue Gate:** `POST /projects/{id}/pack/generate` now calls `_compute_full_readiness()` (mirrors get_project) and returns 422 "Design not ready to issue — complete: …" unless every readiness bar is 100% AND signed off. DesignPack.jsx disables Export (shows "Locked" + a warning banner listing blockers with a Resolve → link); preview/print still work. Not-ready = any bar < 100 or no coordinator sign-off.
+- **Site-condition N/A:** evidence entries can be marked `na:true` (SiteConditionsPanel "No photo? Mark N/A" + Undo) which satisfies the Evidence readiness bar (`e.get("na")` counts as backed). A nudge banner shows how many conditions still need a photo or N/A to reach 100% Evidence. Verified: all site-conditions N/A → Evidence 100%.
+
+
 ## Added — Jun 21 2026 (fork) — Readiness transparency + coordinator sign-off
 - **Evidence bar no longer caps 100%:** `_compute_readiness` Evidence used to count every auto-generated *design consideration* as an "unbacked claim" needing a photo/citation, which pinned every project at ~40% Evidence. Considerations are narrative → removed from the Evidence score. Evidence now = site-condition photos + per-measure datasheets only (2 Trunch Hill 42%→73%, overall 71%→75%).
 - **Honest measure Design Checks:** IntelligencePanel now shows an explicit "Proposed U-value X W/m²K" row (pass when ≤ target, else amber "Proposed U-value not yet calculated") instead of only a passive Target-U info dot — so a fabric measure missing its calculated U reads as incomplete.
