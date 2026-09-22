@@ -763,20 +763,10 @@ def _render_single(d: dict):
                 parts.append(f'<text x="{RCX}" y="{ry}" font-size="13.5" font-family="Georgia,serif">{_esc(wl)}</text>')
                 ry += 20
 
-    # --- bottom title block: sits directly under the PLAN (left of the divider),
-    #     independent of the right-column height, to avoid a large empty band ---
-    by = Y0 + ph + 114
-    sig_bottom = by + 110
-    col_bottom = max(sig_bottom + 6, ry + 6)
+    # --- right-column divider runs the full height of the plan / right-hand content.
+    #     No assessor confirmation / signature block — this is a design drawing, not an RdSAP form. ---
+    col_bottom = max(ry + 6, Y0 + ph + 20)
     parts.append(f'<line x1="{col_x}" y1="24" x2="{col_x}" y2="{col_bottom:.0f}" stroke="#111" stroke-width="1"/>')
-    parts.append(f'<rect x="40" y="{by:.0f}" width="{col_x-70}" height="110" fill="none" stroke="#111" stroke-width="1"/>')
-    parts.append(f'<text x="58" y="{by+34:.0f}" font-size="14" font-family="Georgia,serif">I confirm that, to the best of my knowledge, the information provided on this form has been</text>')
-    parts.append(f'<text x="58" y="{by+56:.0f}" font-size="14" font-family="Georgia,serif">recorded on site and is accurate.</text>')
-    parts.append(f'<line x1="40" y1="{by+72:.0f}" x2="{col_x-30}" y2="{by+72:.0f}" stroke="#111" stroke-width="1"/>')
-    parts.append(f'<text x="58" y="{by+98:.0f}" font-size="14" font-family="Georgia,serif">Assessor/Operative signature:</text>')
-    dt = d.get("date") or ""
-    parts.append(f'<text x="{col_x-60}" y="{by+98:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">Date: {_esc(dt)}</text>')
-    parts.append(f'<text x="1010" y="{col_bottom-8:.0f}" font-size="14" text-anchor="end" font-family="Georgia,serif">7</text>')
 
     # measure-placement anchors (SVG coords here; caller converts to percent)
     room_anchors = []

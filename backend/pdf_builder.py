@@ -4695,9 +4695,10 @@ async def _collect_source_docs(project_id: str):
         return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
     try:
         proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1, "measures": 1})
-        # Project source docs to bind: datasheets + the uploaded ventilation / air-tightness strategy.
+        # Only product datasheets go in Appendix B. The uploaded Ventilation Strategy / ADF1 Table D1 /
+        # Air-Tightness documents are bound once, in-section (Ventilation) — don't duplicate them here.
         recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
-                "doc_type": {"$in": ["Datasheet", "Ventilation Strategy", "Air Tightness", "ADF1"]}}, {"_id": 0}).to_list(60)
+                "doc_type": {"$in": ["Datasheet"]}}, {"_id": 0}).to_list(60)
         # Distinctive tokens (manufacturer + model), generic words removed, from products specified on THIS job.
         _ptoks = set()
         for m in ((proj or {}).get("measures") or []):
