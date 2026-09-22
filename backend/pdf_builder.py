@@ -1118,8 +1118,25 @@ def _measure_ds_match(fam, dprods, dsd):
 
 
 def _measure_datasheet_block(m, fam, p):
-    prods, docs, has_pdf = _measure_ds_match(fam, p.get("datasheetProducts"), p.get("_datasheetDocs"))
-    prods = (m.get("products") or []) or prods
+    _ds_prods, docs, has_pdf = _measure_ds_match(fam, p.get("datasheetProducts"), p.get("_datasheetDocs"))
+    # Only show products that actually came from an uploaded datasheet (source == "datasheet") or the
+    # parsed datasheet-product table. Products the initial AI guessed (no source, e.g. a JA Solar panel
+    # that was never provided) are dropped once real datasheets exist — "go off what is uploaded".
+    _sourced = [x for x in (m.get("products") or []) if x.get("source") == "datasheet"] + list(_ds_prods or [])
+    if _sourced:
+        prods = _sourced
+    elif has_pdf:
+        prods = []
+    else:
+        prods = m.get("products") or []
+    _dseen, _dedup = set(), []
+    for x in prods:
+        k = ((x.get("manufacturer") or "").strip().lower(), (x.get("product") or x.get("name") or "").strip().lower())
+        if k in _dseen:
+            continue
+        _dseen.add(k)
+        _dedup.append(x)
+    prods = _dedup
     if prods:
         rows = "".join(
             f'<tr><td style="color:#262626;">{_esc(x.get("manufacturer") or "—")}</td><td>{_esc(x.get("product") or x.get("name") or "—")}</td>'
@@ -4165,6 +4182,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     # Appendix — product datasheets & certificates
     dsd = p.get("_datasheetDocs") or []
     dprods = p.get("datasheetProducts") or []
+    _pseen, _pdd = set(), []
+    for x in dprods:
+        k = ((x.get("manufacturer") or "").strip().lower(), (x.get("product") or "").strip().lower())
+        if not any(k) or k in _pseen:
+            continue
+        _pseen.add(k)
+        _pdd.append(x)
+    dprods = _pdd
     datasheet_page = None
     _cov_rows = "".join(
         f'<tr><td style="color:#262626;">{_esc(c["name"])}</td>'
