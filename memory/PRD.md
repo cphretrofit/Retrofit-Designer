@@ -13,6 +13,8 @@ Stack: React + FastAPI + MongoDB. PDF via WeasyPrint. AI/Vision via Claude Sonne
 - Universal "Add photo" picker exposing every image embedded across uploaded PDFs.
 
 ## Recent changes
+- 2026-06: Floor plan (`cad_floorplan.py`) — removed the RdSAP "I confirm… / Assessor-Operative signature / Date" confirmation block and stray page number from the generated plan; right-column divider + `VB_H` now re-flow to content (no empty band). No signatures in the design document.
+- 2026-06: Appendix (`_collect_source_docs`) now binds ONLY product datasheets — vent/air-tightness/ADF1 docs are bound once in-section (Ventilation), fixing the duplicate copy at the bottom of the pack.
 - 2026-06: PDF export fixes (mandatory docs + signatures + layout):
   - Removed the "Approval & Declaration" signature page from the design pack (no signatures in the design document). `pdf_builder.py` assembly.
   - In-section Ventilation now embeds EVERY matching uploaded doc (Ventilation Strategy / ADF1 Table D1 / Air-Tightness) exactly as provided — PDF, Excel, Word or image. Previously only PDFs embedded and Excel files were skipped (a generated D1 was substituted). `_bytes_to_page_uris` + reworked `_ventStrategyPages`.
