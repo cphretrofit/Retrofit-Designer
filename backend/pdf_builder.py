@@ -2275,6 +2275,8 @@ def _adf1_chip(status):
         return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#525252; background:#F5F5F5; border:1px solid #D4D4D4; padding:1px 7px; border-radius:10px;">N/A</span>'
     if status == "ok":
         return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#15803D; background:#DCFCE7; border:1px solid #86EFAC; padding:1px 7px; border-radius:10px;">COMPLIANT</span>'
+    if status == "fail":
+        return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#B91C1C; background:#FEE2E2; border:1px solid #FCA5A5; padding:1px 7px; border-radius:10px;">NON-COMPLIANT / REQUIRED</span>'
     return '<span style="display:inline-block; font-size:8.5px; font-weight:600; letter-spacing:0.04em; color:#B45309; background:#FEF3C7; border:1px solid #FCD34D; padding:1px 7px; border-radius:10px;">CONFIRM ON SITE</span>'
 
 
@@ -2795,7 +2797,14 @@ def _adf1_ventilation_pages(p, measures):
                  '<th style="text-align:center;">Status</th></tr></thead>'
                  f'<tbody>{crows}</tbody></table>')
     n_confirm = sum(1 for it in cl["items"] if it["status"] == "warn")
-    if n_confirm:
+    n_fail = sum(1 for it in cl["items"] if it["status"] == "fail")
+    if n_fail:
+        verdict = (f'<div style="margin-top:14px; padding:10px 12px; background:#FEE2E2; border:1px solid #FCA5A5; border-radius:3px; font-size:11px; color:#991B1B;">'
+                   f'<strong>{n_fail} item(s) non-compliant / required.</strong> The proposed strategy does not yet satisfy Approved Document F for the selected system type. '
+                   'Resolve the item(s) marked non-compliant / required above before sign-off'
+                   + (f'; a further {n_confirm} item(s) to confirm on site / at commissioning.' if n_confirm else '.')
+                   + '</div>')
+    elif n_confirm:
         verdict = (f'<div style="margin-top:14px; padding:10px 12px; background:#FEF3C7; border:1px solid #FCD34D; border-radius:3px; font-size:11px; color:#92400E;">'
                    f'<strong>{n_confirm} item(s) to confirm.</strong> The proposed strategy meets Approved Document F once the outstanding item(s) above are verified on site / at commissioning.</div>')
     else:

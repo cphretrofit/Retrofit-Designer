@@ -6,6 +6,7 @@ import { Plus, Trash2, Save, Loader2, Upload, ClipboardList } from "lucide-react
 const STATUS_OPTS = [
   { v: "ok", label: "Compliant" },
   { v: "warn", label: "Confirm on site" },
+  { v: "fail", label: "Non-compliant / required" },
   { v: "na", label: "N/A" },
 ];
 

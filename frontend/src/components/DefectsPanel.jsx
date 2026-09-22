@@ -1,7 +1,8 @@
-import { useRef, useState } from "react";
-import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl, thumbUrl } from "@/lib/api";
+import { useRef, useState, useEffect } from "react";
+import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl, thumbUrl, getAllPhotos } from "@/lib/api";
+import { buildPhotoGroups } from "@/lib/photoGroups";
 import { toast } from "sonner";
-import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images, ChevronLeft, ChevronRight, Maximize2 } from "lucide-react";
+import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images, ChevronLeft, ChevronRight, Maximize2, X } from "lucide-react";
 
 const SEV = {
   high: { c: "var(--c-critical)", l: "High" },
@@ -44,7 +45,13 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
   const [photoBusy, setPhotoBusy] = useState(null);
   const [matching, setMatching] = useState(false);
   const [picking, setPicking] = useState(null);
+  const [allPhotos, setAllPhotos] = useState(null);
   const fileRefs = useRef({});
+  const pool = allPhotos || photos;
+
+  useEffect(() => {
+    getAllPhotos(projectId).then((r) => { if (r?.photos) setAllPhotos(r.photos); }).catch(() => {});
+  }, [projectId]);
 
   const sync = (list) => { setDefects(list); onChange?.(list); };
 
@@ -191,7 +198,7 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
                       {photoBusy === d.id ? "Uploading" : "Attach photo"}
                     </button>
                   )}
-                  {photos.length > 0 && (
+                  {pool.length > 0 && (
                     <button onClick={() => setPicking(d.id)} data-testid={`defect-gallery-${d.id}`}
                       className="w-28 flex items-center justify-center gap-1 text-[10.5px] text-muted-foreground hover:text-foreground">
                       <Images className="h-3 w-3" strokeWidth={1.75} /> {d.photo ? "Change from survey" : "From survey"}
@@ -248,18 +255,29 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
 
       {picking && (
         <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-6" data-testid="defect-gallery-modal" onClick={() => setPicking(null)}>
-          <div className="bg-card border border-border rounded-md max-w-3xl w-full max-h-[80vh] overflow-auto p-5" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
+          <div className="bg-card border border-border rounded-md max-w-3xl w-full max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-[3] bg-card/95 backdrop-blur-sm flex items-center justify-between gap-3 px-5 py-3 border-b border-border">
               <span className="text-[13px] font-medium">Choose a survey photo to attach</span>
-              <button onClick={() => setPicking(null)} data-testid="gallery-close" className="text-muted-foreground hover:text-foreground text-[12px]">Close</button>
+              <button onClick={() => setPicking(null)} data-testid="gallery-close" className="shrink-0 h-8 px-3.5 text-[12px] font-medium rounded-full bg-background border border-border text-foreground hover:bg-secondary flex items-center gap-1.5"><X className="h-3.5 w-3.5" strokeWidth={2} /> Close</button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {photos.map((ph, i) => (
-                <button key={i} onClick={() => pickSurvey(picking, ph)} data-testid={`gallery-photo-${i}`}
-                  className="text-left border border-border rounded-sm overflow-hidden hover:border-foreground/40 transition-colors">
-                  <img src={thumbUrl(ph.url)} alt={ph.caption} className="w-full h-24 object-cover opacity-0 transition-opacity duration-300 bg-neutral-100" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} />
-                  <div className="px-2 py-1.5 text-[11px] leading-tight"><span className="font-mono text-muted-foreground mr-1">{ph.fig}</span>{ph.caption}</div>
-                </button>
+            <div className="p-5">
+              {pool.length === 0 ? (
+                <div className="text-center text-[12.5px] text-muted-foreground py-8">No survey photos available — import survey photos first.</div>
+              ) : buildPhotoGroups(pool).map((grp) => (
+                <div key={grp.key} className="mb-5" data-testid={`gallery-group-${grp.key}`}>
+                  <div className="sticky top-[49px] z-[1] bg-card/95 backdrop-blur-sm py-1.5 mb-2 flex items-center gap-2 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {grp.label}<span className="text-[9.5px] normal-case tracking-normal text-muted-foreground/70">({grp.items.length})</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    {grp.items.map(({ ph, pi }) => (
+                      <button key={ph.url || pi} onClick={() => pickSurvey(picking, ph)} data-testid={`gallery-photo-${pi}`}
+                        className="text-left border border-border rounded-sm overflow-hidden hover:border-foreground/40 transition-colors">
+                        <img src={thumbUrl(ph.url)} alt={ph.caption} className="w-full h-24 object-cover opacity-0 transition-opacity duration-300 bg-neutral-100" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} />
+                        <div className="px-2 py-1.5 text-[11px] leading-tight">{ph.fig ? <span className="font-mono text-muted-foreground mr-1">{ph.fig}</span> : null}{ph.caption}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
           </div>

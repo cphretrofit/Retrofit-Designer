@@ -844,7 +844,7 @@ async def list_projects():
             vent = p.get("ventilation") or {}
             if "VENT" in fams or vent.get("rooms") or vent.get("strategy"):
                 cl = _adf1_checklist_items(p)
-                warn = any(i.get("status") == "warn" for i in cl.get("items") or [])
+                warn = any(i.get("status") in ("warn", "fail") for i in cl.get("items") or [])
                 p["ventSummary"] = {"status": "confirm" if warn else "ok", "rate": cl.get("wholeDwellingRate")}
         except Exception:
             pass
