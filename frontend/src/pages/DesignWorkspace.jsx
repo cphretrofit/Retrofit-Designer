@@ -527,7 +527,7 @@ export default function DesignWorkspace() {
                   {signed ? (
                     <div className="text-[13px] flex items-center gap-2" style={{ color: "var(--c-pass)" }} data-testid="signoff-status">
                       <CheckCircle2 className="h-4 w-4 shrink-0" strokeWidth={2} />
-                      Signed off by {p.coordinatorSignoff?.by || p.coordinator}{p.coordinatorSignoff?.at ? ` · ${new Date(p.coordinatorSignoff.at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
+                      Design signed off{p.coordinatorSignoff?.at ? ` · ${new Date(p.coordinatorSignoff.at).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}` : ""}
                     </div>
                   ) : (
                     <div className="text-[13px] text-muted-foreground" data-testid="signoff-status">

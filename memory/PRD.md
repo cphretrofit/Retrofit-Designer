@@ -13,7 +13,9 @@ Stack: React + FastAPI + MongoDB. PDF via WeasyPrint. AI/Vision via Claude Sonne
 - Universal "Add photo" picker exposing every image embedded across uploaded PDFs.
 
 ## Recent changes
-- 2026-06: Defects now support MULTIPLE photos per defect (across all defects). Backend attach-survey-photo & upload append to `defects[].photos[]` (deduped) instead of overwriting; new `POST /defects/{id}/detach-photo` removes one and re-points primary. Survey picker is multi-select (tap to add/remove, stays open, sticky Done). Design pack renders up to 3 photos per defect. Files: `server.py`, `DefectsPanel.jsx`, `pdf_builder.py`.
+- 2026-06: Site Conditions now support MULTIPLE evidence photos per condition (mirrors defects). Evidence entries carry a `photos[]` array (primary = `url` for back-compat); multi-select picker (tap add/remove, sticky Done), removable thumbnail strip per condition. PDF card already renders the gallery (main + up to 9 thumbs). File: `SiteConditionsPanel.jsx` (no backend change — `save-site-conditions` stores verbatim, `_photos_data` already built).
+- 2026-06: Design Sign-off UI card no longer shows a person's name — now reads "Design signed off · <date>". File: `DesignWorkspace.jsx` (PDF declaration page unchanged).
+- 2026-06: Defects support MULTIPLE photos per defect. Backend append (deduped) on attach/upload, new `POST /defects/{id}/detach-photo`; multi-select picker; pack renders up to 3 per defect. Files: `server.py`, `DefectsPanel.jsx`, `pdf_builder.py`.
 - 2026-06: ADF1 Table D1 checklist gained a "Non-compliant / required" status (red chip in pack + red verdict banner "resolve before sign-off"); flags ventilation summary on dashboard. Files: `VentilationPanel.jsx`, `pdf_builder.py`, `server.py`.
 - 2026-06: Defects "From survey" gallery now loads the FULL photopack (getAllPhotos) and is grouped by area with sticky close, matching Site Conditions. Shared grouping util `lib/photoGroups.js`.
 - 2026-06: Photo extraction thresholds (whiteness/flat/min-size) left relaxed per user — full access to every assessment photo. Verified.

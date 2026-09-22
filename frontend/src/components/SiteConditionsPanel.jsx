@@ -99,13 +99,12 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
     } catch { toast.error("Could not save"); }
   };
 
-  const attachAndSave = async (i, ph) => {
-    const ev = structuredClone(sc.evidence || []);
-    ev[i] = { ...ev[i], url: ph.url, fig: ph.fig || "", source: "Manually attached", caption: ph.caption || "" };
-    const next = { ...sc, evidence: ev };
-    const e = ev[i];
-    if (e.key === "floor_type") next.floor_type = e.value; else next[e.key] = e.present;
-    setSc(next); setPick(null);
+  const evGallery = (e) => (Array.isArray(e?.photos) && e.photos.length
+    ? e.photos
+    : (e?.url ? [{ url: e.url, caption: e.caption || "", fig: e.fig || "", source: e.source || "" }] : []));
+
+  const persistSc = async (next) => {
+    setSc(next);
     try {
       const merged = { ...next };
       LOFT_CHECKS.forEach((c) => {
@@ -114,8 +113,36 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
         if (v !== null) merged[c.key] = v;
       });
       const data = await saveSiteConditions(projectId, merged); setSc(data); onChange?.(data);
-      toast.success("Photo attached & saved");
-    } catch { toast.error("Attached but could not save — click Save"); }
+    } catch { toast.error("Saved locally but could not sync — click Save"); }
+  };
+
+  const toggleSitePhoto = async (i, ph) => {
+    const ev = structuredClone(sc.evidence || []);
+    const cur = ev[i] || {};
+    let gallery = evGallery(cur);
+    const exists = gallery.some((g) => g.url === ph.url);
+    gallery = exists ? gallery.filter((g) => g.url !== ph.url)
+                     : [...gallery, { url: ph.url, caption: ph.caption || "", fig: ph.fig || "", source: "Manually attached" }];
+    const primary = gallery[0] || null;
+    ev[i] = { ...cur, photos: gallery, url: primary?.url || "", fig: primary?.fig || "",
+              caption: primary?.caption || (cur.caption || ""),
+              source: gallery.length ? (cur.source || "Manually attached") : cur.source,
+              na: gallery.length ? false : cur.na };
+    const next = { ...sc, evidence: ev };
+    const e2 = ev[i];
+    if (e2.key === "floor_type") next.floor_type = e2.value; else if (typeof e2.present === "boolean") next[e2.key] = e2.present;
+    await persistSc(next);
+    toast.success(exists ? "Photo removed" : "Photo added");
+  };
+
+  const removeSitePhoto = async (i, url) => {
+    const ev = structuredClone(sc.evidence || []);
+    const cur = ev[i] || {};
+    const gallery = evGallery(cur).filter((g) => g.url !== url);
+    const primary = gallery[0] || null;
+    ev[i] = { ...cur, photos: gallery, url: primary?.url || "", fig: primary?.fig || "", caption: primary?.caption || "" };
+    await persistSc({ ...sc, evidence: ev });
+    toast.success("Photo removed");
   };
 
   return (
@@ -189,6 +216,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
           {evidence.map((e, i) => {
             if (!hasLoft && LOFT_KEYS.has(e.key)) return null;
             const pv = e.present === true ? "true" : e.present === false ? "false" : "null";
+            const gal = evGallery(e);
             return (
               <div key={i} className="border border-border rounded-sm bg-card p-4 flex gap-4" data-testid={`site-condition-${e.key}`}>
                 <div className="w-32 shrink-0">
@@ -214,6 +242,19 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
                         className="text-[10px] text-muted-foreground hover:text-foreground underline underline-offset-2">No photo? Mark N/A</button>
                     </div>
                   )}
+                  {gal.length > 1 && (
+                    <div className="flex flex-wrap gap-1 mt-1.5" data-testid={`site-evidence-strip-${e.key}`}>
+                      {gal.map((g, gi) => (
+                        <div key={g.url || gi} className="relative w-[38px] h-[28px] rounded-sm overflow-hidden border border-border group/th">
+                          <button onClick={() => setZoom({ url: g.url, label: e.label, caption: g.caption || "" })} className="block w-full h-full" data-testid={`site-photo-thumb-${e.key}-${gi}`}>
+                            <img src={thumbUrl(g.url)} className="w-full h-full object-cover" alt="" />
+                          </button>
+                          <button onClick={() => removeSitePhoto(i, g.url)} data-testid={`site-photo-remove-${e.key}-${gi}`}
+                            className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-background border border-border text-muted-foreground hover:text-foreground opacity-0 group-hover/th:opacity-100 transition-opacity flex items-center justify-center"><X className="h-2.5 w-2.5" strokeWidth={2.5} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {e.fig ? (
                     <div className="font-mono text-[10px] text-muted-foreground mt-1">FIG {e.fig}{e.confidence ? ` · ${e.confidence}` : ""}</div>
                   ) : e.source ? (
@@ -221,7 +262,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
                   ) : null}
                   {e.url && (
                     <button onClick={() => setPick(i)} data-testid={`site-evidence-change-${e.key}`}
-                      className="text-[10px] text-muted-foreground hover:text-foreground mt-1 underline underline-offset-2">Change photo</button>
+                      className="text-[10px] text-muted-foreground hover:text-foreground mt-1 underline underline-offset-2">Add / manage photos</button>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -256,10 +297,10 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
           <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto pb-2" onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="site-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
             <div className="sticky top-0 z-[3] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-3 py-2.5 mb-3 border-b border-border" onClick={(ev) => ev.stopPropagation()}>
               <div className="min-w-0">
-                <div className="text-[14px] font-medium">Attach an evidence photo</div>
-                <div className="text-[11.5px] text-muted-foreground mt-0.5 truncate">Pick the survey photo that best evidences this condition — it saves automatically.</div>
+                <div className="text-[14px] font-medium">Add evidence photos{pick !== null && evGallery(sc.evidence?.[pick]).length ? ` · ${evGallery(sc.evidence?.[pick]).length} attached` : ""}</div>
+                <div className="text-[11.5px] text-muted-foreground mt-0.5 truncate">Tap photos to add or remove — attach as many as you need, then close. Saves automatically.</div>
               </div>
-              <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="shrink-0 h-9 px-4 text-[13px] font-medium rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-sm flex items-center gap-1.5"><X className="h-4 w-4" strokeWidth={2} /> Close</button>
+              <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="shrink-0 h-9 px-4 text-[13px] font-medium rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-sm flex items-center gap-1.5"><X className="h-4 w-4" strokeWidth={2} /> Done</button>
             </div>
             {photos.length === 0 ? (
               <div className="text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
@@ -270,10 +311,10 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" style={{ gridAutoRows: "210px" }}>
                   {grp.items.map(({ ph, pi }) => {
-                    const selected = pick !== null && (sc.evidence?.[pick]?.url) === ph.url;
+                    const selected = pick !== null && evGallery(sc.evidence?.[pick]).some((g) => g.url === ph.url);
                     return (
                     <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
-                      onClick={() => attachAndSave(pick, ph)}
+                      onClick={() => toggleSitePhoto(pick, ph)}
                       className={`rounded-sm overflow-hidden transition-colors text-left bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
                       <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
                         <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
