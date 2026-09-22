@@ -17,8 +17,13 @@ const UC_OPTS = [
 
 const CIRC = ["hall", "landing", "corridor", "lobby", "stair", "porch", "entrance"];
 const WET = ["kitchen", "bath", "wc", "toilet", "en-suite", "ensuite", "utility", "shower", "cloak", "laundry"];
-const wetRate = (n) => {
+const wetRate = (n, mode = "intermittent") => {
   const l = n.toLowerCase();
+  if (mode === "continuous") {
+    if (l.includes("kitchen")) return "13 l/s";
+    if (l.includes("wc") || l.includes("toilet") || l.includes("cloak")) return "6 l/s";
+    return "8 l/s";
+  }
   if (l.includes("kitchen")) return "30 l/s";
   if (l.includes("utility") || l.includes("laundry")) return "30 l/s";
   if (l.includes("wc") || l.includes("toilet") || l.includes("cloak")) return "6 l/s";
@@ -63,11 +68,20 @@ export function VentilationPanel({ projectId, initial, onChange, floorPlan }) {
     toast.success(add.length ? `Added ${add.length} room(s) from the floor plan` : "No new rooms found on the plan");
   };
   const populateWetRooms = () => {
+    const mode = v.ventMode || "intermittent";
     const have = new Set(rooms.map((r) => (r.room || "").toLowerCase()));
     const add = planNames.filter((n) => WET.some((w) => n.toLowerCase().includes(w)) && !have.has(n.toLowerCase()));
-    set("rooms", [...rooms, ...add.map((room) => ({ room, system: "dMEV", rate: wetRate(room), note: "ADF1 Table 1.1 minimum" }))]);
+    const note = mode === "continuous" ? "ADF1 Table 1.2 minimum" : "ADF1 Table 1.1 minimum";
+    set("rooms", [...rooms, ...add.map((room) => ({ room, system: mode === "continuous" ? "MEV" : "dMEV", rate: wetRate(room, mode), note }))]);
     toast.success(add.length ? `Added ${add.length} wet room(s) from the floor plan` : "No new wet rooms found on the plan");
   };
+  const setVentMode = (mode) => setV((s) => ({
+    ...s, ventMode: mode,
+    rooms: (s.rooms || []).map((r) => {
+      if (!/ADF1 Table 1\.[12] minimum/i.test(r.note || "")) return r;
+      return { ...r, rate: wetRate(r.room || "", mode), note: mode === "continuous" ? "ADF1 Table 1.2 minimum" : "ADF1 Table 1.1 minimum" };
+    }),
+  }));
   useEffect(() => {
     if ((v.undercuts || []).length === 0 && planNames.length) {
       const add = planNames.filter((n) => !CIRC.some((w) => n.toLowerCase().includes(w)));
@@ -201,6 +215,16 @@ export function VentilationPanel({ projectId, initial, onChange, floorPlan }) {
               <Plus className="h-3.5 w-3.5" strokeWidth={1.75} /> Add room
             </button>
           </div>
+        </div>
+        <div className="px-4 py-2.5 flex flex-wrap items-center gap-3 border-b border-border/60" data-testid="vent-mode-row">
+          <span className="text-[11px] text-muted-foreground">Extract mode</span>
+          <div className="inline-flex rounded-sm border border-border overflow-hidden">
+            {[["intermittent", "Intermittent"], ["continuous", "Continuous (MEV)"]].map(([val, lbl]) => (
+              <button key={val} type="button" onClick={() => setVentMode(val)} data-testid={`vent-mode-${val}`}
+                className={`h-7 px-3 text-[11.5px] transition-colors ${(v.ventMode || "intermittent") === val ? "bg-primary text-primary-foreground" : "bg-background hover:bg-secondary"}`}>{lbl}</button>
+            ))}
+          </div>
+          <span className="text-[11px] text-muted-foreground">{(v.ventMode || "intermittent") === "continuous" ? "ADF1 Table 1.2 — kitchen 13, utility/bath 8, WC 6 l/s" : "ADF1 Table 1.1 — kitchen 30, bath 15, WC 6 l/s"}</span>
         </div>
         <table className="w-full text-[12.5px]">
           <thead>

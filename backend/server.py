@@ -968,6 +968,7 @@ def _auto_resolve_datasheet_items(doc, ds_files=None):
     re-requested from the installer. Read-time (not persisted) so it reverts if the datasheet is gone."""
     from pdf_builder import _mfam
     labels = {}
+    specs = {}
 
     def _put(mref, label):
         if not mref:
@@ -985,10 +986,21 @@ def _auto_resolve_datasheet_items(doc, ds_files=None):
         label = " ".join(x for x in [(f.get("manufacturer") or "").strip(), (f.get("product") or "").strip()] if x).strip() or (m.get("system") or "").strip()
         labels.setdefault((m.get("code") or "").upper(), label)
         labels.setdefault(_mfam(m.get("code"), m.get("name")), label)
+        _sp = " ".join((pp.get("specs") or "") for pp in prods).strip()
+        if _sp:
+            specs.setdefault((m.get("code") or "").upper(), _sp)
+            specs.setdefault(_mfam(m.get("code"), m.get("name")), _sp)
     # Parsed datasheet products (may not yet be bound onto a measure)
     for d in doc.get("datasheetProducts") or []:
         label = " ".join(x for x in [(d.get("manufacturer") or "").strip(), (d.get("product") or d.get("name") or "").strip()] if x).strip() or "the uploaded datasheet"
         _put(d.get("measure") or d.get("family") or d.get("code"), label)
+        _sp = (d.get("specs") or "").strip()
+        _mref = d.get("measure") or d.get("family") or d.get("code")
+        if _sp and _mref:
+            specs.setdefault(str(_mref).upper(), _sp)
+            _f = _mfam(str(_mref), str(_mref))
+            if _f:
+                specs.setdefault(_f, _sp)
     # Uploaded Datasheet documents, matched to a measure family by filename keyword
     for fn in (ds_files or []):
         for fam, kws in DS_FAM_KW.items():
@@ -1046,7 +1058,23 @@ def _auto_resolve_datasheet_items(doc, ds_files=None):
             it["auto"] = True
             it["resolvedBy"] = "Datasheet"
             it["status"] = "Read from datasheet"
-            it["note"] = f"Resolved automatically — details read from {label}. No installer confirmation required."
+            _is_vent_rate = any(w in text for w in ("flow rate", "flow-rate", "l/s", "boost", "continuous rate", "model variant"))
+            _rates = ""
+            if _is_vent_rate:
+                _stxt = (specs.get(key) or specs.get(_mfam(key, it.get("measure"))) or "").lower()
+                _figs = re.findall(r"(\d+(?:\.\d+)?)\s*l\s*/?\s*s", _stxt)
+                # keep order, drop duplicates
+                _seen, _uniq = set(), []
+                for f in _figs:
+                    if f not in _seen:
+                        _seen.add(f); _uniq.append(f)
+                if _uniq:
+                    _rates = ", ".join(f"{f}\u00a0l/s" for f in _uniq[:6])
+            if _is_vent_rate and _rates:
+                it["note"] = (f"Resolved automatically — extract rates read from {label}: {_rates}. "
+                              f"Verify each room meets its ADF1 minimum; commissioning flow-rate data to be recorded on install.")
+            else:
+                it["note"] = f"Resolved automatically — details read from {label}. No installer confirmation required."
     doc["itemsBeforeIssue"] = items
 
 

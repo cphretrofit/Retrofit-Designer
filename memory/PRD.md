@@ -497,3 +497,9 @@ All in `pdf_builder.py`:
   * Label fallback: if the family lookup misses but the item names a held datasheet, resolves with "the uploaded datasheet".
 - Verified via unit test on the user's exact wording: "Nuaire FAITH-PLUS dMEV: confirm model variant, continuous and boost flow rates…" and "Astron solar panel datasheet not provided…" both auto-resolve (resolvedBy=Datasheet, note cites the product); an unrelated "Site access…" item stays open (no false positive).
 - NOTE: read-time behaviour; sign-off endpoint already applies the same. Requires REDEPLOY to reach production.
+
+## Ventilation — surfaced datasheet rates + intermittent/continuous toggle (Jun 2026)
+- Surfaced flow rates: server._auto_resolve_datasheet_items now builds a `specs` map (measure products + datasheetProducts specs). When a resolved item is a ventilation flow-rate item, it extracts `N l/s` figures from the matched product specs and writes them into the note, e.g. "extract rates read from Nuaire Faith-Plus dMEV: 8 l/s, 13 l/s. Verify each room meets its ADF1 minimum; commissioning data to be recorded." Falls back to the generic note when no figures are printed.
+- Continuous toggle: VentilationPanel wet-room schedule has an Intermittent/Continuous(MEV) segmented control (`v.ventMode`, default intermittent, persists via open ventilation dict). `wetRate(name, mode)`: intermittent = ADF1 Table 1.1 (kitchen/utility 30, bath 15, WC 6); continuous = ADF1 Table 1.2 (kitchen 13, WC 6, else 8). Populate-from-plan uses the current mode + note ("ADF1 Table 1.1/1.2 minimum") and system dMEV/MEV. Toggling re-applies rates ONLY to rows still carrying the auto "ADF1 Table 1.x minimum" note (manual edits preserved).
+- Verified live on 13 Mill View: Intermittent Kitchen 30/Bath 15 → Continuous Kitchen 13/Bath 8; custom-note rows untouched. Backend unit-tested the note surfacing.
+- NOTE: requires REDEPLOY for production.
