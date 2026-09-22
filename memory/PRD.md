@@ -13,6 +13,10 @@ Stack: React + FastAPI + MongoDB. PDF via WeasyPrint. AI/Vision via Claude Sonne
 - Universal "Add photo" picker exposing every image embedded across uploaded PDFs.
 
 ## Recent changes
+- 2026-06: PDF export fixes (mandatory docs + signatures + layout):
+  - Removed the "Approval & Declaration" signature page from the design pack (no signatures in the design document). `pdf_builder.py` assembly.
+  - In-section Ventilation now embeds EVERY matching uploaded doc (Ventilation Strategy / ADF1 Table D1 / Air-Tightness) exactly as provided — PDF, Excel, Word or image. Previously only PDFs embedded and Excel files were skipped (a generated D1 was substituted). `_bytes_to_page_uris` + reworked `_ventStrategyPages`.
+  - xlsx print-prep (`_prep_xlsx_for_print`): fit-to-width + cleared headers/footers before LibreOffice conversion — fixes right-edge column clipping and removes the "in.xlsx - <date>" stamp. ADF1 D1 8→5pp, Air-Tightness 31→11pp, logos/tables intact. Verified against 5 Scudamore Place docs.
 - 2026-06: Site Conditions now support MULTIPLE evidence photos per condition (mirrors defects). Evidence entries carry a `photos[]` array (primary = `url` for back-compat); multi-select picker (tap add/remove, sticky Done), removable thumbnail strip per condition. PDF card already renders the gallery (main + up to 9 thumbs). File: `SiteConditionsPanel.jsx` (no backend change — `save-site-conditions` stores verbatim, `_photos_data` already built).
 - 2026-06: Design Sign-off UI card no longer shows a person's name — now reads "Design signed off · <date>". File: `DesignWorkspace.jsx` (PDF declaration page unchanged).
 - 2026-06: Defects support MULTIPLE photos per defect. Backend append (deduped) on attach/upload, new `POST /defects/{id}/detach-photo`; multi-select picker; pack renders up to 3 per defect. Files: `server.py`, `DefectsPanel.jsx`, `pdf_builder.py`.

@@ -4270,7 +4270,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
              measures_schedule_page, performance,
              *([standards_page] if standards_page else []), *([exclusions_page] if exclusions_page else []), *([commissioning_page] if commissioning_page else []),
              compliance_handover_page,
-             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages, signoff_page,
+             *spec_pages, *photo_pages, drawings_page, *defects_pages, *items_pages,
              *([appendix_index_page] if appendix_index_page else []),
              *([datasheet_page] if datasheet_page else [])]
     pages = [x for x in pages if x]
@@ -4601,17 +4601,30 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                     p["_loftSurveyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _lpick["storage_path"], 8)
             except Exception as _e:
                 logger.warning("loft survey rasterise failed: %s", _e)
-        # Ventilation strategy + ADF1 Table D1 → Ventilation section
+        # Ventilation strategy + ADF1 Table D1 + Air-Tightness strategy → Ventilation section.
+        # Bind EVERY matching uploaded document, exactly as provided (PDF, Office or image),
+        # de-duped by filename. Office files (xlsx/doc/ods) are converted via LibreOffice first.
         p["_ventStrategyPages"] = []
         try:
             _vsrv = await db.documents.find({"project_id": project_id, "is_deleted": False,
                     "doc_type": {"$in": ["Ventilation Strategy", "Ventilation", "ADF1", "Air Tightness", "Technical Survey", "Supporting Document"]}}, {"_id": 0}).to_list(20)
             _VKW = ("ventilation strategy", "adf1", "table d1", "ventilation checklist", "air tightness", "airtight", "ventilation")
-            _vpick = next((_d for _d in _vsrv if _d.get("storage_path")
-                           and (_d.get("original_filename") or "").lower().endswith(".pdf")
-                           and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _VKW)), None)
-            if _vpick:
-                p["_ventStrategyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _vpick["storage_path"], 8)
+            _vpicks = [_d for _d in _vsrv if _d.get("storage_path")
+                       and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _VKW)]
+            _seen, _uris = set(), []
+            for _d in _vpicks:
+                _fk = re.sub(r"[^a-z0-9]+", "", (_d.get("original_filename") or "").lower())
+                if _fk and _fk in _seen:
+                    continue
+                if _fk:
+                    _seen.add(_fk)
+                try:
+                    _data, _ct = await asyncio.to_thread(get_object, _d["storage_path"])
+                    _uris += await asyncio.to_thread(_bytes_to_page_uris, _data,
+                                                     _d.get("original_filename"), _ct or _d.get("content_type"), 8)
+                except Exception as _e:
+                    logger.warning("vent doc rasterise failed: %s", _e)
+            p["_ventStrategyPages"] = _uris
         except Exception as _e:
             logger.warning("vent strategy rasterise failed: %s", _e)
     except Exception:
@@ -4625,16 +4638,20 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
 def _pdf_to_page_uris(storage_path, max_pages=8):
     """Rasterise the first pages of a stored PDF to JPEG data URIs (for in-section embedding)."""
     try:
+        data, _ = get_object(storage_path)
+    except Exception:
+        return []
+    return _pdf_bytes_to_page_uris(data, max_pages)
+
+
+def _pdf_bytes_to_page_uris(data, max_pages=8):
+    try:
         import fitz as _fz
     except Exception:
         try:
             import pymupdf as _fz
         except Exception:
             return []
-    try:
-        data, _ = get_object(storage_path)
-    except Exception:
-        return []
     out = []
     try:
         doc = _fz.open(stream=data, filetype="pdf")
@@ -4647,6 +4664,22 @@ def _pdf_to_page_uris(storage_path, max_pages=8):
     except Exception:
         return out
     return out
+
+
+def _bytes_to_page_uris(data, fn, ct, max_pages=8):
+    """Rasterise any provided document (PDF, Office or image) to page data URIs, exactly as supplied.
+    Office files (xlsx/xls/docx/doc/ods/odt) are converted to PDF via LibreOffice first."""
+    fn = (fn or "").lower()
+    ct = (ct or "").lower()
+    if fn.endswith((".png", ".jpg", ".jpeg", ".webp")) or ct.startswith("image/"):
+        mime = "image/png" if fn.endswith(".png") else "image/jpeg"
+        return ["data:%s;base64,%s" % (mime, base64.b64encode(data).decode())]
+    if fn.endswith((".xlsx", ".xls", ".docx", ".doc", ".ods", ".odt")):
+        conv = _office_to_pdf(data, fn.rsplit(".", 1)[-1])
+        if not conv:
+            return []
+        data = conv
+    return _pdf_bytes_to_page_uris(data, max_pages)
 
 
 async def _collect_source_docs(project_id: str):
@@ -4711,9 +4744,36 @@ async def _collect_source_docs(project_id: str):
     return out[:60]
 
 
+def _prep_xlsx_for_print(data):
+    """Make an uploaded workbook print cleanly: fit every sheet to page width (so nothing is
+    clipped on the right) and strip LibreOffice's default header/footer (the 'in.xlsx - date' stamp)."""
+    try:
+        import io, openpyxl
+        from openpyxl.worksheet.properties import PageSetupProperties
+        wb = openpyxl.load_workbook(io.BytesIO(data))
+        for ws in wb.worksheets:
+            ws.page_setup.fitToWidth = 1
+            ws.page_setup.fitToHeight = 0
+            try:
+                ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+            except Exception:
+                pass
+            for hf in (ws.oddHeader, ws.evenHeader, ws.firstHeader, ws.oddFooter, ws.evenFooter, ws.firstFooter):
+                for part in (hf.left, hf.center, hf.right):
+                    part.text = ""
+        bio = io.BytesIO()
+        wb.save(bio)
+        return bio.getvalue()
+    except Exception as e:
+        logger.warning("xlsx print-prep failed: %s", e)
+        return data
+
+
 def _office_to_pdf(data, ext):
     """Convert an Office document (xlsx/xls/docx/doc/ods/odt) to PDF via LibreOffice headless."""
     import tempfile, subprocess, os, glob
+    if ext.lower() == "xlsx":
+        data = _prep_xlsx_for_print(data)
     for binname in ("soffice", "libreoffice"):
         try:
             with tempfile.TemporaryDirectory() as td:
