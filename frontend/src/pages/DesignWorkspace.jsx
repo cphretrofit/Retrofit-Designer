@@ -523,7 +523,7 @@ export default function DesignWorkspace() {
               style={{ borderColor: signed ? "var(--c-pass)" : "var(--border)" }}>
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Coordinator Sign-off</div>
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5">Design Sign-off</div>
                   {signed ? (
                     <div className="text-[13px] flex items-center gap-2" style={{ color: "var(--c-pass)" }} data-testid="signoff-status">
                       <CheckCircle2 className="h-4 w-4 shrink-0" strokeWidth={2} />

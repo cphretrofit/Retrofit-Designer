@@ -1,7 +1,12 @@
 import { Meter } from "@/components/Shell";
-import { Circle, CheckCircle2 } from "lucide-react";
+import { Circle, CheckCircle2, ChevronRight } from "lucide-react";
 import { MARK_ICON, MARK_COLOR } from "./constants";
 import { ActionItems } from "./ActionItems";
+
+const gapTarget = (bar, item) => {
+  if (bar.section === "evidence") return /datasheet$/i.test(item || "") ? "evidence" : "conditions";
+  return bar.section;
+};
 
 export function IntelligencePanel({ p, measure, onOpen, onItemsChange }) {
   const checks = (() => {
@@ -78,18 +83,37 @@ export function IntelligencePanel({ p, measure, onOpen, onItemsChange }) {
             <div className="mt-2.5 space-y-1.5">
               {p.readiness.breakdown.filter((b) => b.value < 100).map((b) => (
                 <div key={b.label} className="text-[11.5px]" data-testid={`workspace-readiness-gap-${b.label.toLowerCase().replace(/\s+/g, '-')}`}>
-                  <div className="flex items-start gap-2">
+                  <button type="button" onClick={() => b.section && onOpen?.(gapTarget(b, null))}
+                    disabled={!b.section}
+                    data-testid={`readiness-goto-${b.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    className="group w-full flex items-start gap-2 text-left rounded-sm -mx-1 px-1 py-0.5 enabled:hover:bg-secondary/60 enabled:cursor-pointer transition-colors">
                     <span className="h-1.5 w-1.5 rounded-full shrink-0 mt-1.5" style={{ background: "var(--c-warning)" }} />
-                    <span className="text-foreground/85"><span className="font-medium">{b.label} {b.value}%</span>{b.detail ? ` \u2014 ${b.detail}` : ""}</span>
-                  </div>
+                    <span className="text-foreground/85 flex-1"><span className="font-medium">{b.label} {b.value}%</span>{b.detail ? ` \u2014 ${b.detail}` : ""}</span>
+                    {b.section && <ChevronRight className="h-3.5 w-3.5 mt-0.5 shrink-0 text-muted-foreground/40 group-hover:text-muted-foreground group-hover:translate-x-0.5 transition-all" strokeWidth={2} />}
+                  </button>
                   {b.missing && b.missing.length > 0 && (
                     <ul className="mt-1 ml-3.5 space-y-0.5">
                       {b.missing.slice(0, 3).map((mt, mi) => (
-                        <li key={mi} className="text-[10.5px] text-muted-foreground/70 leading-snug flex items-start gap-1.5">
-                          <span className="mt-[5px] h-[3px] w-[3px] rounded-full bg-muted-foreground/40 shrink-0" /><span>{mt}</span>
+                        <li key={mi}>
+                          <button type="button" onClick={() => b.section && onOpen?.(gapTarget(b, mt))}
+                            disabled={!b.section}
+                            data-testid={`readiness-goto-item-${b.label.toLowerCase().replace(/\s+/g, '-')}-${mi}`}
+                            className="group w-full text-left text-[10.5px] text-muted-foreground/75 leading-snug flex items-start gap-1.5 rounded-sm px-1 py-0.5 enabled:hover:bg-secondary/60 enabled:hover:text-foreground enabled:cursor-pointer transition-colors">
+                            <span className="mt-[5px] h-[3px] w-[3px] rounded-full bg-muted-foreground/40 shrink-0" />
+                            <span className="flex-1">{mt}</span>
+                            {b.section && <ChevronRight className="h-3 w-3 mt-[3px] shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" strokeWidth={2} />}
+                          </button>
                         </li>
                       ))}
-                      {b.missing.length > 3 && <li className="text-[10.5px] text-muted-foreground/55 ml-2.5">+{b.missing.length - 3} more</li>}
+                      {b.missing.length > 3 && (
+                        <li>
+                          <button type="button" onClick={() => b.section && onOpen?.(gapTarget(b, null))} disabled={!b.section}
+                            data-testid={`readiness-goto-more-${b.label.toLowerCase().replace(/\s+/g, '-')}`}
+                            className="text-[10.5px] text-muted-foreground/55 ml-2.5 enabled:hover:text-foreground enabled:hover:underline enabled:cursor-pointer">
+                            +{b.missing.length - 3} more
+                          </button>
+                        </li>
+                      )}
                     </ul>
                   )}
                 </div>

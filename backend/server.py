@@ -792,14 +792,14 @@ def _compute_readiness(p, ds_fams=None):
     signed = bool(p.get("coordinatorSignoff")) or p.get("status") in ("approved",)
     qa_missing = list(open_texts)
     if not signed:
-        qa_missing.append("Coordinator sign-off")
+        qa_missing.append("Design sign-off")
     qa_pass = resolved + (1 if signed else 0)
     qa_total = len(_active) + 1
     qa_val = _rd_pct(qa_pass, qa_total)
     if open_items > 0:
         qa_detail = f"{open_items} item{'s' if open_items != 1 else ''} before issue still open"
     elif not signed:
-        qa_detail = "Ready for coordinator sign-off \u2014 sign off in Outstanding Items"
+        qa_detail = "Ready for design sign-off \u2014 sign off in Outstanding Items"
     else:
         qa_detail = "Complete"
     bars.append({"label": "QA", "section": "outstanding", "value": qa_val, "detail": qa_detail,
@@ -1000,11 +1000,16 @@ def _auto_resolve_datasheet_items(doc, ds_files=None):
         if it.get("resolved") or it.get("confirmedBy"):
             continue
         text = (it.get("text") or "").lower()
+        _confirm_kw = ("not confirmed", "to be confirmed", "must be confirmed", "must be provided",
+                       "to be provided", "not provided", "confirm", "required", "assumed",
+                       "declared", "lambda", "grade")
         is_datasheet_item = (
             "product specification" in text
-            or ("datasheet" in text and any(k in text for k in ("not confirmed", "to be confirmed", "must be provided", "not provided", "confirm", "required")))
-            or ("manufacturer" in text and any(k in text for k in ("datasheet", "not confirmed", "to be confirmed", "confirm")))
-            or ("product" in text and any(k in text for k in ("not confirmed", "to be confirmed")))
+            or ("datasheet" in text and any(k in text for k in _confirm_kw))
+            or ("manufacturer" in text and any(k in text for k in _confirm_kw))
+            or ("product" in text and any(k in text for k in _confirm_kw))
+            or (any(w in text for w in ("insulation", "\u03bb", "lambda", "thermal conductivity"))
+                and any(k in text for k in ("must be confirmed", "to be confirmed", "assumed", "declared", "grade")))
         )
         if not is_datasheet_item:
             continue
@@ -3380,8 +3385,21 @@ async def signoff_design(project_id: str, payload: SignoffIn):
     if not proj:
         raise HTTPException(status_code=404, detail="Project not found")
     if payload.signed:
-        items = [it for it in (proj.get("itemsBeforeIssue") or []) if not (isinstance(it, dict) and it.get("dismissed"))]
-        open_items = [it for it in items if isinstance(it, dict) and not (it.get("resolved") or it.get("confirmedBy"))]
+        from pdf_builder import _is_handover_item
+        _ds_files = [(x.get("original_filename") or "").lower() for x in
+                     await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                             {"_id": 0, "original_filename": 1}).to_list(100)]
+        _cname = (proj.get("client") or "").strip()
+        if _cname:
+            _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}}, {"id": 1})
+            if _cl:
+                _ds_files += [(x.get("original_filename") or "").lower() for x in
+                              await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                                      {"_id": 0, "original_filename": 1}).to_list(200)]
+        _auto_resolve_datasheet_items(proj, _ds_files)
+        items = [it for it in (proj.get("itemsBeforeIssue") or [])
+                 if isinstance(it, dict) and not it.get("dismissed") and not _is_handover_item(it.get("text"))]
+        open_items = [it for it in items if not (it.get("resolved") or it.get("confirmedBy"))]
         if open_items:
             raise HTTPException(status_code=422, detail=f"{len(open_items)} item(s) before issue still open — clear them before sign-off")
         who = (payload.by or proj.get("coordinator") or "").strip()
@@ -3599,7 +3617,7 @@ async def start_pack_job(project_id: str, origin: Optional[str] = Query(None)):
     if readiness:
         incomplete = [b["label"] for b in readiness.get("breakdown", []) if b.get("value", 0) < 100]
         if incomplete or not signed:
-            parts = list(incomplete) + ([] if signed else ["coordinator sign-off"])
+            parts = list(incomplete) + ([] if signed else ["design sign-off"])
             raise HTTPException(status_code=422, detail=f"Design not ready to issue — complete: {', '.join(parts)}")
     job_id = str(uuid.uuid4())
     await db.pack_jobs.insert_one({"id": job_id, "_id": job_id, "project_id": project_id,

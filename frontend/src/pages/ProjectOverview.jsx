@@ -28,7 +28,7 @@ const READINESS_NAV = {
   "Calculations": { section: "calculations", hint: "Enter the U-value and heat-loss calculations" },
   "Junctions": { section: "junctions", hint: "Draw the thermal-bridge junction details" },
   "Evidence": { section: "evidence", hint: "Add survey photos and product datasheets to back each claim" },
-  "QA": { section: "outstanding", hint: "Clear the items before issue, then coordinator sign-off" },
+  "QA": { section: "outstanding", hint: "Clear the items before issue, then design sign-off" },
 };
 
 const KNOWN_PARTNERS = ["Aran Group", "Sustainable Building Services", "Everwarm", "Westville Insulation", "E.ON Solutions", "Bell Group"];

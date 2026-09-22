@@ -67,7 +67,7 @@ export default function DesignPack() {
   const signed = !!p.coordinatorSignoff || p.status === "approved";
   const bars = p.readiness?.breakdown || [];
   const incomplete = bars.filter((b) => b.value < 100);
-  const blockers = [...incomplete.map((b) => b.label), ...(signed ? [] : ["coordinator sign-off"])];
+  const blockers = [...incomplete.map((b) => b.label), ...(signed ? [] : ["design sign-off"])];
   const notReady = blockers.length > 0;
 
   const previewUrl = `${API}/projects/${id}/pack.html?origin=${encodeURIComponent(window.location.origin)}`;
