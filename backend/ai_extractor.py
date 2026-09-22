@@ -1640,6 +1640,12 @@ def _assign_products(project: dict, products: list, source: str = "datasheet"):
             leftover += recs
     if leftover:
         project["datasheetProducts"] = (project.get("datasheetProducts") or []) + leftover
+    # Datasheets are the source of truth: once a measure has a datasheet-sourced product, drop any
+    # earlier AI-guessed / interim rows (e.g. a JA Solar panel that was never provided on this job).
+    for m in project.get("measures") or []:
+        ps = m.get("products") or []
+        if any(x.get("source") == "datasheet" for x in ps):
+            m["products"] = [x for x in ps if x.get("source") == "datasheet"]
 
 
 async def _rebuild_client_catalog(client_id: str):

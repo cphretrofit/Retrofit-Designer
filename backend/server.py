@@ -1174,6 +1174,12 @@ async def get_project(project_id: str, request: Request):
                     _m["outstanding"] = _outs
     except Exception:
         pass
+    # Datasheets are the source of truth: never surface AI-guessed products (e.g. a JA Solar panel
+    # that was never provided) once a measure has any datasheet-sourced product. Read-time only.
+    for _m in (doc.get("measures") or []):
+        _ps = _m.get("products") or []
+        if any(x.get("source") == "datasheet" for x in _ps):
+            _m["products"] = [x for x in _ps if x.get("source") == "datasheet"]
     _ds_files = [(x.get("original_filename") or "").lower() for x in
                  await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
                                          {"_id": 0, "original_filename": 1}).to_list(100)]
@@ -3502,6 +3508,24 @@ async def list_documents(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
     docs = await db.documents.find({"project_id": project_id, "is_deleted": False, "doc_type": {"$ne": "Defect Photo"}}, {"_id": 0}).to_list(1000)
     return sorted(docs, key=lambda d: d.get("created_at", ""))
+
+
+@api_router.delete("/projects/{project_id}/documents/{doc_id}")
+async def delete_project_document(project_id: str, doc_id: str):
+    rec = await db.documents.find_one({"id": doc_id, "project_id": project_id, "is_deleted": {"$ne": True}})
+    if not rec:
+        raise HTTPException(status_code=404, detail="Document not found")
+    await db.documents.update_one({"id": doc_id}, {"$set": {"is_deleted": True}})
+    remaining = None
+    if (rec.get("doc_type") or "") == "Datasheet":
+        remaining = await db.documents.count_documents({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}})
+        if remaining == 0:
+            proj = await db.projects.find_one({"id": project_id}, {"_id": 0})
+            if proj:
+                _assign_products(proj, [])  # no datasheets left → clear datasheet-sourced products
+                await db.projects.update_one({"id": project_id},
+                    {"$set": {"measures": proj.get("measures"), "datasheetProducts": proj.get("datasheetProducts") or [], "packHash": ""}})
+    return {"ok": True, "remainingDatasheets": remaining}
 
 
 @api_router.get("/documents/{doc_id}/download")

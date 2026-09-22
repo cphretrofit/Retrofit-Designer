@@ -525,3 +525,9 @@ Real cause was in _collect_source_docs (the actual Appendix-B PDF binder), not j
 - Generated D1 table: _adf1_ventilation_pages was skipped when _uploadedAdf1 was set (xlsx can't rasterise inline) -> nothing showed. Now the pages list only skips the generated D1 pages when embedded PDF strategy pages exist; xlsx uploads still get the generated ADF1/D1 table in the Ventilation section.
 - Product table (_measure_datasheet_block): shows only datasheet-sourced products when any exist (drops AI-guessed JA Solar), deduped by manufacturer|product; appendix datasheetProducts list deduped too.
 NOTE: All verified against preview data; the user's affected job is in DEPLOYED data — REQUIRES REDEPLOY to take effect.
+
+## Datasheets = source of truth + delete + duplicate flag (Jun 2026)
+- Purge AI-guessed products: rule "once a measure has any source=='datasheet' product, keep only datasheet-sourced ones" applied (a) read-time in get_project (immediate, non-destructive) and (b) persisted in ai_extractor._assign_products. Removes phantom JA Solar while preserving manual products on measures with no datasheet. PDF already handles via _measure_datasheet_block. Verified: API returns only datasheet-sourced products (Astronergy+Fox ESS).
+- Delete documents: new DELETE /projects/{id}/documents/{doc_id} (soft delete); if a Datasheet and none remain, clears datasheet-sourced products via _assign_products(proj, []). Frontend DocumentsList: trash button per row (data-testid delete-doc-{id}); after deleting a Datasheet with others remaining, auto re-parses to keep products in sync. api.deleteDocument added.
+- Duplicate indicator: DocumentsList flags any doc whose normalised filename appears >1 with an amber "Uploaded twice" badge (dup-flag-{id}).
+- Confirmed to user: D1/ventilation-strategy binding + generated D1 pages are fixed in code (LibreOffice xlsx->PDF verified); REQUIRES REDEPLOY to reach the live job.
