@@ -531,3 +531,8 @@ NOTE: All verified against preview data; the user's affected job is in DEPLOYED 
 - Delete documents: new DELETE /projects/{id}/documents/{doc_id} (soft delete); if a Datasheet and none remain, clears datasheet-sourced products via _assign_products(proj, []). Frontend DocumentsList: trash button per row (data-testid delete-doc-{id}); after deleting a Datasheet with others remaining, auto re-parses to keep products in sync. api.deleteDocument added.
 - Duplicate indicator: DocumentsList flags any doc whose normalised filename appears >1 with an amber "Uploaded twice" badge (dup-flag-{id}).
 - Confirmed to user: D1/ventilation-strategy binding + generated D1 pages are fixed in code (LibreOffice xlsx->PDF verified); REQUIRES REDEPLOY to reach the live job.
+
+## Site Conditions — image pickup + easier lightbox exit (Jun 2026)
+- "Not picking up all images": ai_extractor._is_graphic_or_logo was too aggressive on pale survey photos — loosened whiteness gate 0.86->0.93, few-colour floor <10->< 6, dominant-colour 0.85->0.92; min embedded-image size 150->120px (both passes). Result: picker /photos/all for 2 Trunch Hill went to 467 photos (408 from PDFs). Signature-label, transparency, border-ring and aspect-ratio guards retained so logos/signatures still excluded.
+- "Awkward to get off images": SiteConditionsPanel lightbox + photo picker now have an always-visible fixed top-right round ✕ button (site-lightbox-close / site-photo-picker-x); lightbox closes on click ANYWHERE (image is cursor-zoom-out) as well as Esc.
+- NOTE: extraction is read-time (in-memory cache); REQUIRES REDEPLOY for the live job.

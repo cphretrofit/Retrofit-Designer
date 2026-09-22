@@ -442,11 +442,12 @@ def _is_graphic_or_logo(raw):
         ncol = len(set(q))
         white = sum(1 for (r, g, bl) in px if min(r, g, bl) > 222) / len(px)
         # Whole-image whiteness — signatures / declarations / forms are mostly white with sparse ink.
-        if white > 0.86:
+        # (Kept high so a pale loft/ceiling/render survey photo is not mistaken for a blank form.)
+        if white > 0.93:
             return True
-        if ncol < 10:
+        if ncol < 6:
             return True  # flat / few-colour artwork or signature
-        if Counter(q).most_common(1)[0][1] > len(q) * 0.85:
+        if Counter(q).most_common(1)[0][1] > len(q) * 0.93:
             return True  # one flat colour dominates (letterhead / logo panel)
         # Page-white border ring: only a graphic when the interior is ALSO flat/low-colour. A real
         # survey photo keeps rich colour (even with white matting), so it is NOT culled here.
@@ -501,7 +502,7 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
         xref_ex, xref_hash, hash_pages = {}, {}, {}
         for xr, pgs in xref_pages.items():
             w, h = xref_dim.get(xr, (0, 0))
-            if w < 150 or h < 150:
+            if w < 120 or h < 120:
                 continue  # icon / rule / tiny logo — never a survey photo
             try:
                 ex = doc.extract_image(xr)
@@ -556,7 +557,7 @@ def extract_sitenote_photo_labels(pdf_bytes, max_imgs=80):
                 if not ex:
                     continue
                 w, ht = ex.get("width", 0), ex.get("height", 0)
-                if w < 150 or ht < 150:
+                if w < 120 or ht < 120:
                     continue
                 ar = (w / ht) if ht else 0
                 if ar and (ar > 4 or ar < 0.25):  # very wide/thin banner, rule or divider

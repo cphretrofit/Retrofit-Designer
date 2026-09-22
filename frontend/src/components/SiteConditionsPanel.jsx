@@ -252,6 +252,8 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
 
       {pick !== null && (
         <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-photo-picker" onClick={() => setPick(null)}>
+          <button onClick={() => setPick(null)} data-testid="site-photo-picker-x" aria-label="Close"
+            className="fixed top-4 right-4 z-10 h-11 w-11 flex items-center justify-center rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-md"><X className="h-5 w-5" strokeWidth={2} /></button>
           <div className="max-w-4xl w-full mx-auto flex items-center justify-between mb-4" onClick={(ev) => ev.stopPropagation()}>
             <div>
               <div className="text-[14px] font-medium">Attach an evidence photo</div>
@@ -281,14 +283,15 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
       )}
 
       {zoom && (
-        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-lightbox" onClick={() => setZoom(null)}>
+        <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-sm flex flex-col p-6" data-testid="site-lightbox" onClick={() => setZoom(null)}>
+          <button onClick={() => setZoom(null)} data-testid="site-lightbox-close" aria-label="Close"
+            className="fixed top-4 right-4 z-10 h-11 w-11 flex items-center justify-center rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-md"><X className="h-5 w-5" strokeWidth={2} /></button>
           <div className="flex-1 min-h-0 flex items-center justify-center">
-            <img src={mediaUrl(zoom.url)} alt={zoom.label} onClick={(ev) => ev.stopPropagation()} className="max-h-[74vh] max-w-[82vw] object-contain rounded-sm border border-border cursor-default" data-testid="site-lightbox-image" />
+            <img src={mediaUrl(zoom.url)} alt={zoom.label} className="max-h-[74vh] max-w-[82vw] object-contain rounded-sm border border-border cursor-zoom-out" data-testid="site-lightbox-image" title="Click anywhere to close" />
           </div>
-          <div className="shrink-0 max-w-2xl w-full mx-auto mt-4 flex items-center gap-3" onClick={(ev) => ev.stopPropagation()}>
+          <div className="shrink-0 max-w-2xl w-full mx-auto mt-4 flex items-center gap-3 justify-center" onClick={(ev) => ev.stopPropagation()}>
             <span className="text-[13px] font-medium">{zoom.label}</span>
-            {zoom.caption && <span className="text-[12px] text-muted-foreground flex-1 truncate">{zoom.caption}</span>}
-            <button onClick={() => setZoom(null)} data-testid="site-lightbox-close" className="h-9 px-3 text-[12px] text-muted-foreground hover:text-foreground ml-auto">Close</button>
+            {zoom.caption && <span className="text-[12px] text-muted-foreground truncate">{zoom.caption}</span>}
           </div>
         </div>
       )}
