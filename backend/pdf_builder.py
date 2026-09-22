@@ -3849,6 +3849,14 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
                 spec_pages.append(_ahdr
                                   + f'<img src="{_au}" style="display:block; margin:12px auto 0; max-width:100%; max-height:232mm; width:auto; height:auto; border:1px solid #e5e5e5;">'
                                   + f'<div class="mono faint" style="font-size:8px; margin-top:5px; text-align:center;">ASHP technical survey &middot; page {_pi + 1} of {len(_ap)}</div>')
+        if fam_j == "LOFT" and p.get("_loftSurveyPages"):
+            _lp = p["_loftSurveyPages"]
+            for _pi, _lu in enumerate(_lp):
+                _lhdr = (_head("Loft Survey")
+                         + '<div class="muted" style="font-size:11px; margin-top:6px;">Loft / roof-space survey for this dwelling, bound within the Loft section.</div>') if _pi == 0 else ""
+                spec_pages.append(_lhdr
+                                  + f'<img src="{_lu}" style="display:block; margin:12px auto 0; max-width:100%; max-height:232mm; width:auto; height:auto; border:1px solid #e5e5e5;">'
+                                  + f'<div class="mono faint" style="font-size:8px; margin-top:5px; text-align:center;">Loft survey &middot; page {_pi + 1} of {len(_lp)}</div>')
 
     # ---- Defects & remedial actions ----
     defects = list(p.get("defects") or [])
@@ -4209,10 +4217,17 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     brand_cover = _brand_cover_html(p, issued_date)
     premium_cover = _premium_cover_html(p, hero_uri, issued_date)
     signoff_page = _signoff_html(p, issued_date)
+    vent_strategy_pages = []
+    for _i, _u in enumerate(p.get("_ventStrategyPages") or []):
+        _hd = ('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Approved Document F &middot; ADF1</div>'
+               '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Ventilation Strategy &amp; Table D1 Checklist</div>'
+               '<div class="muted" style="font-size:11px; margin-top:8px;">Ventilation strategy and ADF1 Table D1 checklist provided for this dwelling, bound within the Ventilation section.</div>') if _i == 0 else ""
+        vent_strategy_pages.append(_hd + f'<img src="{_u}" style="display:block; margin:12px auto 0; max-width:100%; max-height:232mm; width:auto; height:auto; border:1px solid #e5e5e5;">'
+                                   + f'<div class="mono faint" style="font-size:8px; margin-top:5px; text-align:center;">Ventilation strategy &middot; page {_i + 1}</div>')
     pages = [*([brand_cover] if brand_cover else []), premium_cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
-             ventilation_page, *([] if p.get("_uploadedAdf1") else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),
+             ventilation_page, *vent_strategy_pages, *([] if (p.get("_uploadedAdf1") or vent_strategy_pages) else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),
              *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
@@ -4432,19 +4447,46 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         datas = [r for r in _gres if r and not isinstance(r, Exception)]
         e["_photos_data"] = datas
         e["_data"] = datas[0] if datas else None
+    def _norm_fn(_s):
+        return re.sub(r"[^a-z0-9]+", "", (_s or "").lower())
     try:
         _dsd = await db.documents.find({"project_id": project_id, "is_deleted": False,
                                         "doc_type": {"$in": ["Datasheet", "Technical Survey", "ASHP Survey", "Scope of Works", "Job Card", "Assessment"]}}, {"_id": 0}).to_list(80)
-        p["_datasheetDocs"] = [{"name": d.get("original_filename") or "Document", "type": d.get("doc_type") or ""} for d in _dsd]
+        _seen_fn, _docs = set(), []
+        for d in _dsd:
+            fn = d.get("original_filename") or "Document"
+            k = _norm_fn(fn)
+            if k in _seen_fn:
+                continue
+            _seen_fn.add(k)
+            _docs.append({"name": fn, "type": d.get("doc_type") or ""})
+        p["_datasheetDocs"] = _docs
     except Exception:
-        p["_datasheetDocs"] = []
+        p["_datasheetDocs"], _seen_fn = [], set()
     try:
         _cname = (p.get("client") or "").strip()
         if _cname:
             _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}})
             if _cl:
+                # Only bind client-library datasheets that match a product ACTUALLY specified on this
+                # project — a shared library holds many brands, so an unfiltered merge injects phantom
+                # datasheets (e.g. a JA Solar sheet that was never provided for this job).
+                _ptoks = set()
+                for _m in (p.get("measures") or []):
+                    for _pr in (_m.get("products") or []):
+                        for _w in re.findall(r"[a-z0-9]+", f"{_pr.get('manufacturer', '')} {_pr.get('product', '')}".lower()):
+                            if len(_w) >= 4:
+                                _ptoks.add(_w)
                 _cdocs = await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(100)
-                p["_datasheetDocs"] = (p.get("_datasheetDocs") or []) + [{"name": d.get("original_filename") or "Datasheet", "type": f"Datasheet · {_cname} library"} for d in _cdocs]
+                for d in _cdocs:
+                    fn = d.get("original_filename") or "Datasheet"
+                    k = _norm_fn(fn)
+                    if k in _seen_fn:
+                        continue
+                    if _ptoks and not any(t in fn.lower() for t in _ptoks):
+                        continue
+                    _seen_fn.add(k)
+                    p["_datasheetDocs"].append({"name": fn, "type": f"Datasheet · {_cname} library"})
     except Exception:
         pass
     issued = datetime.now(timezone.utc).strftime("%d %b %Y")
@@ -4463,18 +4505,22 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
         _has_solar = any(_mfam(mm.get("code"), mm.get("name")) == "SOLAR" for mm in (p.get("measures") or []))
         p["_solarSurveyPages"] = []
         if _has_solar:
-            _SOLKW = ("solar survey", "pv survey", "pv design", "mcs", "solar technical", "solar tech",
-                      "roof survey", "structural survey", "solar pv design", "pv tech", "pv technical",
-                      "technical survey", "easy pv", "easypv", "pv report")
-            _sblob = " ".join(((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _alldocs
-                              if (x.get("doc_type") or "") not in ("Survey Photo", "Floor Plan", "Defect Photo")).lower()
-            p["_solarSurveyMissing"] = not any(k in _sblob for k in _SOLKW)
+            _SOL_POS = ("solar", "pv survey", "pv design", "pv report", "pv technical", "pv tech",
+                        "photovoltaic", "easy pv", "easypv", "solar pv", "solar survey", "solar technical", "mcs")
+            _SOL_NEG = ("loft", "insulation", "ashp", "heat pump", "heat-pump", "ventilation",
+                        "airtight", "air tight", "adf1", "table d1")
+
+            def _is_solar_doc(_t):
+                _t = (_t or "").lower()
+                return any(k in _t for k in _SOL_POS) and not any(k in _t for k in _SOL_NEG)
+            _sblob_docs = [x for x in _alldocs if (x.get("doc_type") or "") not in ("Survey Photo", "Floor Plan", "Defect Photo")]
+            p["_solarSurveyMissing"] = not any(_is_solar_doc((x.get("original_filename") or "") + " " + (x.get("doc_type") or "")) for x in _sblob_docs)
             try:
                 _srv = await db.documents.find({"project_id": project_id, "is_deleted": False,
                         "doc_type": {"$in": ["Technical Survey", "ASHP Survey", "Solar"]}}, {"_id": 0}).to_list(20)
                 _pick = next((_d for _d in _srv if _d.get("storage_path")
                               and (_d.get("original_filename") or "").lower().endswith(".pdf")
-                              and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _SOLKW)), None)
+                              and _is_solar_doc((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or ""))), None)
                 if _pick:
                     p["_solarSurveyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _pick["storage_path"], 8)
                     if p["_solarSurveyPages"]:
@@ -4497,9 +4543,40 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
                     p["_ashpSurveyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _apick["storage_path"], 8)
             except Exception as _e:
                 logger.warning("ashp survey rasterise failed: %s", _e)
+        # Loft survey → Loft section
+        _has_loft = any(_mfam(mm.get("code"), mm.get("name")) == "LOFT" for mm in (p.get("measures") or []))
+        p["_loftSurveyPages"] = []
+        if _has_loft:
+            _LKW = ("loft survey", "loft inspection", "loft report", "insulation survey", "roof space", "loft technical", "loft")
+            _LNEG = ("solar", " pv", "easy pv", "ashp", "heat pump", "heat-pump")
+            try:
+                _lsrv = await db.documents.find({"project_id": project_id, "is_deleted": False,
+                        "doc_type": {"$in": ["Technical Survey", "Loft Survey", "Survey", "Report", "Supporting Document"]}}, {"_id": 0}).to_list(20)
+                _lpick = next((_d for _d in _lsrv if _d.get("storage_path")
+                               and (_d.get("original_filename") or "").lower().endswith(".pdf")
+                               and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _LKW)
+                               and not any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _LNEG)), None)
+                if _lpick:
+                    p["_loftSurveyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _lpick["storage_path"], 8)
+            except Exception as _e:
+                logger.warning("loft survey rasterise failed: %s", _e)
+        # Ventilation strategy + ADF1 Table D1 → Ventilation section
+        p["_ventStrategyPages"] = []
+        try:
+            _vsrv = await db.documents.find({"project_id": project_id, "is_deleted": False,
+                    "doc_type": {"$in": ["Ventilation Strategy", "Ventilation", "ADF1", "Air Tightness", "Technical Survey", "Supporting Document"]}}, {"_id": 0}).to_list(20)
+            _VKW = ("ventilation strategy", "adf1", "table d1", "ventilation checklist", "air tightness", "airtight", "ventilation")
+            _vpick = next((_d for _d in _vsrv if _d.get("storage_path")
+                           and (_d.get("original_filename") or "").lower().endswith(".pdf")
+                           and any(k in (((_d.get("original_filename") or "") + " " + (_d.get("doc_type") or "")).lower()) for k in _VKW)), None)
+            if _vpick:
+                p["_ventStrategyPages"] = await asyncio.to_thread(_pdf_to_page_uris, _vpick["storage_path"], 8)
+        except Exception as _e:
+            logger.warning("vent strategy rasterise failed: %s", _e)
     except Exception:
         p["_uploadedAdf1"] = p["_uploadedAirtight"] = False
         p["_solarSurveyMissing"] = False
+        p["_loftSurveyPages"] = p["_ventStrategyPages"] = []
     html = build_pack_html(p, photo_uris, hero_uri, qr_uri, issued, hero_is_property)
     return p, html
 
