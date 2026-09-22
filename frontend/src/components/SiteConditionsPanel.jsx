@@ -17,6 +17,37 @@ const LOFT_CHECKS = [
   { key: "loft_tank", label: "Cold-water storage tank in the loft" },
 ];
 
+// Group survey photos into logical areas from their caption. Order matters — the first
+// matching bucket wins. Anything that doesn't clearly match lands in "Other / Unsorted"
+// rather than being mis-filed, since photopack captions vary.
+const PHOTO_GROUPS = [
+  { key: "external", label: "External & elevations", kw: [/elevation/, /external/, /\bfront\b/, /\brear\b/, /\bside\b/, /garden/, /\bdpc\b/, /cavity/, /wall thickness/, /render/, /brick/] },
+  { key: "loft", label: "Loft & roof", kw: [/loft/, /\broof\b/, /attic/, /rafter/, /eaves/, /ridge/] },
+  { key: "kitchen", label: "Kitchen", kw: [/kitchen/] },
+  { key: "bath", label: "Bathroom & WC", kw: [/bath/, /\bwc\b/, /shower/, /toilet/, /en.?suite/] },
+  { key: "bed", label: "Bedrooms", kw: [/bed\s?room/, /\bbed\s?\d/, /\bbed\b/] },
+  { key: "living", label: "Living & reception", kw: [/living/, /lounge/, /reception/, /dining/, /sitting/] },
+  { key: "hall", label: "Hall, stairs & landing", kw: [/hall/, /stair/, /landing/] },
+  { key: "floor", label: "Floors", kw: [/\bfloor/] },
+  { key: "windows", label: "Windows & doors", kw: [/window/, /\bdoor/, /glazing/, /undercut/] },
+  { key: "services", label: "Meters, heating & services", kw: [/meter/, /boiler/, /heating/, /cylinder/, /thermostat/, /control/, /\bgas\b/, /electric/, /fan/, /extractor/] },
+  { key: "damp", label: "Damp, mould & condensation", kw: [/mould/, /mold/, /damp/, /condensation/, /penetrat/] },
+];
+
+function buildPhotoGroups(photos) {
+  const map = new Map();
+  photos.forEach((ph, pi) => {
+    const cap = (ph.caption || "").toLowerCase();
+    const grp = PHOTO_GROUPS.find((g) => g.kw.some((re) => re.test(cap)));
+    const key = grp ? grp.key : "other";
+    const label = grp ? grp.label : "Other / unsorted";
+    if (!map.has(key)) map.set(key, { key, label, items: [] });
+    map.get(key).items.push({ ph, pi });
+  });
+  const order = [...PHOTO_GROUPS.map((g) => g.key), "other"];
+  return order.filter((k) => map.has(k)).map((k) => map.get(k));
+}
+
 export function SiteConditionsPanel({ projectId, project, onChange }) {
   const [sc, setSc] = useState((project.property && project.property.siteConditions) || {});
   const [busy, setBusy] = useState(false);
@@ -261,23 +292,32 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
             </div>
             <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0"><X className="h-4 w-4" /> Close</button>
           </div>
-          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(ev) => ev.stopPropagation()} onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="site-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
+          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto pb-2" onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="site-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
             {photos.length === 0 ? (
-              <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
-            ) : photos.map((ph, pi) => {
-              const selected = pick !== null && (sc.evidence?.[pick]?.url) === ph.url;
-              return (
-              <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
-                onClick={() => attachAndSave(pick, ph)}
-                className={`rounded-sm overflow-hidden transition-colors text-left bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
-                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
-                  <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
-                  {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`site-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
+              <div className="text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
+            ) : buildPhotoGroups(photos).map((grp) => (
+              <div key={grp.key} className="mb-6" data-testid={`site-photo-group-${grp.key}`}>
+                <div className="sticky top-0 z-[1] bg-background/90 backdrop-blur-sm py-1.5 mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {grp.label}<span className="text-[10px] normal-case tracking-normal text-muted-foreground/70">({grp.items.length})</span>
                 </div>
-                <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
-              </button>
-              );
-            })}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" style={{ gridAutoRows: "210px" }}>
+                  {grp.items.map(({ ph, pi }) => {
+                    const selected = pick !== null && (sc.evidence?.[pick]?.url) === ph.url;
+                    return (
+                    <button key={ph.url || pi} data-testid={`site-photo-option-${pi}`}
+                      onClick={() => attachAndSave(pick, ph)}
+                      className={`rounded-sm overflow-hidden transition-colors text-left bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
+                      <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
+                        <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                        {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`site-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
+                      </div>
+                      <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
+                    </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
