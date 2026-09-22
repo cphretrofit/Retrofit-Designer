@@ -4252,7 +4252,7 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
     pages = [*([brand_cover] if brand_cover else []), premium_cover, summary_page, contents_page, foreword_page, *directory_pages,
              *([heritage_page] if heritage_page else []), *([solar_page] if solar_page else []),
              *site_pages, *considerations_pages,
-             ventilation_page, *vent_strategy_pages, *([] if (p.get("_uploadedAdf1") or vent_strategy_pages) else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),
+             ventilation_page, *vent_strategy_pages, *([] if vent_strategy_pages else _adf1_ventilation_pages(p, measures)), *([floorplan_page] if floorplan_page else []),
              *compliance_pages, overheating_page, *custom_pages,
              divider,
              *scope_pages, matrix_page,
@@ -4634,22 +4634,49 @@ def _pdf_to_page_uris(storage_path, max_pages=8):
 
 
 async def _collect_source_docs(project_id: str):
-    out, seen = [], set()
+    out, seen_sp, seen_fn = [], set(), set()
+    _STOP = {"solar", "module", "modules", "panel", "panels", "inverter", "inverters", "bifacial",
+             "mono", "monocrystalline", "crystalline", "series", "single", "phase", "type", "topcon",
+             "ntype", "new", "energy", "technology", "technologies", "system", "systems", "insulation",
+             "board", "batten", "ltd", "limited", "the", "and", "datasheet", "product", "spec",
+             "specification", "kwp", "watt", "cell", "cells", "roof", "mounted", "array", " pv", "pv",
+             "water", "tank", "cylinder", "heat", "pump", "with", "for"}
+
+    def _nf(s):
+        return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
     try:
+        proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1, "measures": 1})
+        # Project source docs to bind: datasheets + the uploaded ventilation / air-tightness strategy.
         recs = await db.documents.find({"project_id": project_id, "is_deleted": False,
-                "doc_type": "Datasheet"}, {"_id": 0}).to_list(60)
-        proj = await db.projects.find_one({"id": project_id}, {"_id": 0, "client": 1})
+                "doc_type": {"$in": ["Datasheet", "Ventilation Strategy", "Air Tightness", "ADF1"]}}, {"_id": 0}).to_list(60)
+        # Distinctive tokens (manufacturer + model), generic words removed, from products specified on THIS job.
+        _ptoks = set()
+        for m in ((proj or {}).get("measures") or []):
+            for pr in (m.get("products") or []):
+                for w in re.findall(r"[a-z0-9]+", f"{pr.get('manufacturer', '')} {pr.get('product', '')} {pr.get('reference', '')}".lower()):
+                    if len(w) >= 3 and w not in _STOP:
+                        _ptoks.add(w)
         cname = (proj or {}).get("client")
         if cname:
             cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(cname)}$", "$options": "i"}})
             if cl:
-                recs += await db.documents.find({"client_id": cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(40)
+                _lib = await db.documents.find({"client_id": cl["id"], "doc_type": "Datasheet", "is_deleted": False}, {"_id": 0}).to_list(40)
+                for d in _lib:
+                    fn = (d.get("original_filename") or "").lower()
+                    # Only bind a shared-library datasheet if it names a product actually specified on this
+                    # job — stops phantom brands (e.g. a JA Solar sheet) that were never provided here.
+                    if _ptoks and not any(t in fn for t in _ptoks):
+                        continue
+                    recs.append(d)
         _metas, _tasks = [], []
         for d in recs:
             sp = d.get("storage_path")
-            if not sp or sp in seen:
+            fk = _nf(d.get("original_filename"))
+            if not sp or sp in seen_sp or (fk and fk in seen_fn):
                 continue
-            seen.add(sp)
+            seen_sp.add(sp)
+            if fk:
+                seen_fn.add(fk)
             fn = (d.get("original_filename") or "").lower()
             ct = d.get("content_type") or ""
             if not (fn.endswith((".pdf", ".xlsx", ".xls", ".docx", ".doc", ".ods", ".odt")) or fn.endswith((".png", ".jpg", ".jpeg", ".webp")) or "pdf" in ct or "image" in ct):
