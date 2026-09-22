@@ -60,6 +60,8 @@ export const startPackJob = (id, origin) => api.post(`/projects/${id}/pack/gener
 export const packJobStatus = (id, jobId) => api.get(`/projects/${id}/pack/jobs/${jobId}`).then((r) => r.data);
 export const attachDefectSurveyPhoto = (id, did, url, fig, caption) =>
   api.post(`/projects/${id}/defects/${did}/attach-survey-photo`, { url, fig, caption }).then((r) => r.data);
+export const detachDefectPhoto = (id, did, url) =>
+  api.post(`/projects/${id}/defects/${did}/detach-photo`, { url }).then((r) => r.data);
 
 export const heritageLookup = (id) => api.post(`/projects/${id}/heritage/lookup`).then((r) => r.data);
 export const solarLookup = (id) => api.post(`/projects/${id}/solar/lookup`).then((r) => r.data);

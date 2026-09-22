@@ -2998,7 +2998,7 @@ async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile 
         ext = "jpg"
     mime = file.content_type or ("image/jpeg" if ext in ("jpg", "jpeg") else f"image/{ext}")
     if d.get("photoDocId"):
-        await db.documents.update_one({"id": d["photoDocId"]}, {"$set": {"is_deleted": True}})
+        pass
     pid = str(uuid.uuid4())
     path = f"{APP_NAME}/uploads/{pid}.{ext}"
     stored = (await asyncio.to_thread(put_object, path, data, mime))["path"]
@@ -3008,10 +3008,18 @@ async def upload_defect_photo(project_id: str, defect_id: str, file: UploadFile 
         "size": len(data), "is_deleted": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
     })
-    d["photo"] = f"/api/documents/{pid}/download"
-    d["photoDocId"] = pid
+    new_url = f"/api/documents/{pid}/download"
+    cap = (caption or "").strip()
+    gallery = list(d.get("photos") or [])
+    if not gallery and d.get("photo"):
+        gallery = [{"url": d["photo"], "caption": d.get("photoCaption") or "", "fig": d.get("photoFig") or ""}]
+    gallery.append({"url": new_url, "caption": cap, "fig": ""})
+    d["photos"] = gallery
     d["photoAuto"] = False
-    d["photoCaption"] = (caption or "").strip()
+    if not d.get("photo"):
+        d["photo"] = new_url
+        d["photoDocId"] = pid
+        d["photoCaption"] = cap
     await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
     return {"defects": defects}
 
@@ -3048,9 +3056,53 @@ async def attach_defect_survey_photo(project_id: str, defect_id: str, payload: A
     found = False
     for d in defects:
         if d.get("id") == defect_id:
-            d["photo"] = payload.url
-            d["photoFig"] = payload.fig
+            gallery = list(d.get("photos") or [])
+            if not gallery and d.get("photo"):
+                gallery = [{"url": d["photo"], "caption": d.get("photoCaption") or "", "fig": d.get("photoFig") or ""}]
+            if not any(g.get("url") == payload.url for g in gallery):
+                gallery.append({"url": payload.url, "caption": payload.caption or "", "fig": payload.fig or ""})
+            d["photos"] = gallery
+            if not d.get("photo"):
+                d["photo"] = payload.url
+                d["photoFig"] = payload.fig
+                d["photoCaption"] = payload.caption or ""
             d["photoAuto"] = False
+            found = True
+            break
+    if not found:
+        raise HTTPException(status_code=404, detail="Defect not found")
+    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    return {"defects": defects}
+
+
+class DetachPhotoIn(BaseModel):
+    url: str
+
+
+@api_router.post("/projects/{project_id}/defects/{defect_id}/detach-photo")
+async def detach_defect_photo(project_id: str, defect_id: str, payload: DetachPhotoIn):
+    proj = await db.projects.find_one({"id": project_id})
+    if not proj:
+        raise HTTPException(status_code=404, detail="Project not found")
+    defects = proj.get("defects") or []
+    found = False
+    for d in defects:
+        if d.get("id") == defect_id:
+            gallery = list(d.get("photos") or [])
+            if not gallery and d.get("photo"):
+                gallery = [{"url": d["photo"], "caption": d.get("photoCaption") or "", "fig": d.get("photoFig") or ""}]
+            gallery = [g for g in gallery if g.get("url") != payload.url]
+            d["photos"] = gallery
+            if d.get("photo") == payload.url:
+                if gallery:
+                    d["photo"] = gallery[0].get("url")
+                    d["photoCaption"] = gallery[0].get("caption") or ""
+                    d["photoFig"] = gallery[0].get("fig")
+                else:
+                    d["photo"] = None
+                    d["photoCaption"] = ""
+                    d["photoFig"] = None
+                    d["photoDocId"] = None
             found = True
             break
     if not found:

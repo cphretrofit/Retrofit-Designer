@@ -3902,10 +3902,12 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
         for i, d in enumerate(defects[:24]):
             sv = (d.get("severity") or "medium").lower()
             col = DSEV.get(sv, "#B45309")
-            img_html = ((f'<div style="margin-bottom:6px;"><img src="{d["_photo_data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;">'
-                         + (f'<div class="mono faint" style="font-size:8px; margin-top:3px; width:120px; line-height:1.3;">{_esc(d.get("photoCaption") or "")}</div>' if d.get("photoCaption") else "")
-                         + '</div>')
-                        if d.get("_photo_data") else "")
+            _pr = d.get("_photos_render") or ([{"data": d["_photo_data"], "caption": d.get("photoCaption") or ""}] if d.get("_photo_data") else [])
+            img_html = "".join(
+                (f'<div style="margin-bottom:6px;"><img src="{pr["data"]}" style="width:120px; height:80px; object-fit:cover; border:1px solid #e5e5e5;">'
+                 + (f'<div class="mono faint" style="font-size:8px; margin-top:3px; width:120px; line-height:1.3;">{_esc(pr.get("caption") or "")}</div>' if pr.get("caption") else "")
+                 + '</div>')
+                for pr in _pr)
             extra = ""
             if d.get("cause"):
                 extra += f'<div style="font-size:10px; color:#666; margin-top:4px; line-height:1.4;"><span class="faint upper" style="font-size:7.5px; letter-spacing:0.1em; margin-right:6px;">Cause</span>{_esc(d.get("cause"))}</div>'
@@ -4466,13 +4468,18 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
             pass
         p["floorPlan"] = fp
     for d in (p.get("defects") or []):
-        if not d.get("photo"):
-            d["_photo_data"] = None
-    _defs = [d for d in (p.get("defects") or []) if d.get("photo")]
-    if _defs:
-        _dres = await asyncio.gather(*[_uri(d.get("photo") or "") for d in _defs], return_exceptions=True)
-        for d, r in zip(_defs, _dres):
-            d["_photo_data"] = r if not isinstance(r, Exception) else None
+        gal = list(d.get("photos") or [])
+        if not gal and d.get("photo"):
+            gal = [{"url": d["photo"], "caption": d.get("photoCaption") or ""}]
+        gal = [g for g in gal if g.get("url")][:3]
+        rendered = []
+        if gal:
+            _dres = await asyncio.gather(*[_uri(g["url"]) for g in gal], return_exceptions=True)
+            for g, r in zip(gal, _dres):
+                if r and not isinstance(r, Exception):
+                    rendered.append({"data": r, "caption": g.get("caption") or ""})
+        d["_photos_render"] = rendered
+        d["_photo_data"] = rendered[0]["data"] if rendered else None
     for e in (((p.get("property") or {}).get("siteConditions") or {}).get("evidence") or []):
         gal = [ph.get("url") for ph in (e.get("photos") or []) if ph.get("url")]
         if not gal and e.get("url"):

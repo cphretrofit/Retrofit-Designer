@@ -13,8 +13,11 @@ Stack: React + FastAPI + MongoDB. PDF via WeasyPrint. AI/Vision via Claude Sonne
 - Universal "Add photo" picker exposing every image embedded across uploaded PDFs.
 
 ## Recent changes
-- 2026-06: Photo extraction thresholds (whiteness/flat/min-size) left relaxed per user — full access to every assessment photo (79-photo photopacks fully surfaced). Verified.
-- 2026-06: Site Conditions photo picker — click-off-to-close (removed grid stopPropagation) and photos grouped by area (External/Loft/Kitchen/Bathroom/Bedrooms/Living/Hall/Floors/Windows/Services/Damp) with an "Other / unsorted" catch-all for ambiguous captions. File: `frontend/src/components/SiteConditionsPanel.jsx`.
+- 2026-06: Defects now support MULTIPLE photos per defect (across all defects). Backend attach-survey-photo & upload append to `defects[].photos[]` (deduped) instead of overwriting; new `POST /defects/{id}/detach-photo` removes one and re-points primary. Survey picker is multi-select (tap to add/remove, stays open, sticky Done). Design pack renders up to 3 photos per defect. Files: `server.py`, `DefectsPanel.jsx`, `pdf_builder.py`.
+- 2026-06: ADF1 Table D1 checklist gained a "Non-compliant / required" status (red chip in pack + red verdict banner "resolve before sign-off"); flags ventilation summary on dashboard. Files: `VentilationPanel.jsx`, `pdf_builder.py`, `server.py`.
+- 2026-06: Defects "From survey" gallery now loads the FULL photopack (getAllPhotos) and is grouped by area with sticky close, matching Site Conditions. Shared grouping util `lib/photoGroups.js`.
+- 2026-06: Photo extraction thresholds (whiteness/flat/min-size) left relaxed per user — full access to every assessment photo. Verified.
+- 2026-06: Site Conditions photo picker — click-off-to-close, sticky Close bar, grouped-by-area with "Other / unsorted" catch-all.
 
 ## Prioritized backlog
 - P2 Slimming sliders: expose photos-per-measure and datasheet-page caps on Design Pack screen.
