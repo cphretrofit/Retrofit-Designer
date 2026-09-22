@@ -995,6 +995,24 @@ def _auto_resolve_datasheet_items(doc, ds_files=None):
             if any(k in fn for k in kws):
                 labels.setdefault(fam, "the uploaded datasheet")
 
+    # Significant word tokens from every recognised datasheet label (manufacturer + product names),
+    # so an item that NAMES an attached product (e.g. "Nuaire FAITH-PLUS", "Astron[ergy]") is treated
+    # as datasheet-backed even if its wording never says the word "datasheet".
+    label_tokens = set()
+    for _lab in labels.values():
+        for _w in re.findall(r"[a-z0-9]+", (_lab or "").lower()):
+            if len(_w) >= 4:
+                label_tokens.add(_w)
+
+    def _names_ds(text):
+        for t in re.findall(r"[a-z0-9]+", text):
+            if len(t) < 4:
+                continue
+            for lt in label_tokens:
+                if t == lt or t.startswith(lt) or lt.startswith(t):
+                    return True
+        return False
+
     items = doc.get("itemsBeforeIssue") or []
     for it in items:
         if it.get("resolved") or it.get("confirmedBy"):
@@ -1002,19 +1020,27 @@ def _auto_resolve_datasheet_items(doc, ds_files=None):
         text = (it.get("text") or "").lower()
         _confirm_kw = ("not confirmed", "to be confirmed", "must be confirmed", "must be provided",
                        "to be provided", "not provided", "confirm", "required", "assumed",
-                       "declared", "lambda", "grade")
+                       "declared", "lambda", "grade", "record")
+        _has_confirm = any(k in text for k in _confirm_kw)
         is_datasheet_item = (
             "product specification" in text
-            or ("datasheet" in text and any(k in text for k in _confirm_kw))
-            or ("manufacturer" in text and any(k in text for k in _confirm_kw))
-            or ("product" in text and any(k in text for k in _confirm_kw))
+            or ("datasheet" in text and _has_confirm)
+            or ("manufacturer" in text and _has_confirm)
+            or ("product" in text and _has_confirm)
             or (any(w in text for w in ("insulation", "\u03bb", "lambda", "thermal conductivity"))
                 and any(k in text for k in ("must be confirmed", "to be confirmed", "assumed", "declared", "grade")))
+            # ventilation flow-rate / model-variant confirmations (rates are printed on the unit datasheet)
+            or (any(w in text for w in ("flow rate", "flow-rate", "l/s", "model variant", "boost", "continuous rate"))
+                and _has_confirm)
+            # the item explicitly names a product we hold a datasheet for
+            or (_names_ds(text) and _has_confirm)
         )
         if not is_datasheet_item:
             continue
         key = (it.get("measure") or "").upper()
         label = labels.get(key) or labels.get(_mfam(key, it.get("measure")))
+        if not label and _names_ds(text):
+            label = "the uploaded datasheet"
         if label:
             it["resolved"] = True
             it["auto"] = True

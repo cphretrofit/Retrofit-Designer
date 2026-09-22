@@ -489,3 +489,11 @@ All in `pdf_builder.py`:
 - Datasheet auto-resolve broadened (server._auto_resolve_datasheet_items): now also matches "must be confirmed / to be provided / must be provided" and insulation grade/λ/lambda/declared/assumed wording, so items like the Isover loft λ item auto-clear once a matching datasheet label exists (user chose option a).
 - SIGN-OFF BUG FIX: POST /projects/{id}/signoff counted RAW db items (auto-resolve is read-time only), so a project showing all-resolved on screen was blocked with "N items still open". Endpoint now gathers project+client Datasheet filenames, runs _auto_resolve_datasheet_items on the doc, filters handover items, THEN counts open — matching the displayed list. Verified: ae03ee9c (0 open on screen) now returns 200 on sign-off (previously 422).
 - Rename "Coordinator sign-off" → "Design sign-off" across user-facing surfaces: Outstanding card header (DesignWorkspace), readiness qa_detail + qa_missing (server _compute_readiness), issue-gate parts (server), ProjectOverview QA hint, DesignPack blockers. (Code comment at server.py:785 left as-is.)
+
+## Datasheet auto-resolve — names + flow-rate items (Jun 2026)
+- server._auto_resolve_datasheet_items made robust so "confirm before issue" items clear when the datasheet IS attached, matching user intent:
+  * Builds label_tokens from every recognised datasheet manufacturer/product name; helper _names_ds() matches items that NAME an attached product even without the word "datasheet" (prefix-aware, so "Astron" matches "Astronergy").
+  * Added ventilation branch: items with "flow rate/flow-rate/l/s/model variant/boost/continuous rate" + a confirm word resolve (rates are read from the unit datasheet). Added "record" to confirm keywords.
+  * Label fallback: if the family lookup misses but the item names a held datasheet, resolves with "the uploaded datasheet".
+- Verified via unit test on the user's exact wording: "Nuaire FAITH-PLUS dMEV: confirm model variant, continuous and boost flow rates…" and "Astron solar panel datasheet not provided…" both auto-resolve (resolvedBy=Datasheet, note cites the product); an unrelated "Site access…" item stays open (no false positive).
+- NOTE: read-time behaviour; sign-off endpoint already applies the same. Requires REDEPLOY to reach production.
