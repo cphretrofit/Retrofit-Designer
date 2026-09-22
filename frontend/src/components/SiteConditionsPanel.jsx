@@ -283,21 +283,19 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
 
       {pick !== null && (
         <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-photo-picker" onClick={() => setPick(null)}>
-          <button onClick={() => setPick(null)} data-testid="site-photo-picker-x" aria-label="Close"
-            className="fixed top-4 right-4 z-10 h-11 w-11 flex items-center justify-center rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-md"><X className="h-5 w-5" strokeWidth={2} /></button>
-          <div className="max-w-4xl w-full mx-auto flex items-center justify-between mb-4" onClick={(ev) => ev.stopPropagation()}>
-            <div>
-              <div className="text-[14px] font-medium">Attach an evidence photo</div>
-              <div className="text-[11.5px] text-muted-foreground mt-0.5">Pick the survey photo that best evidences this condition — it saves automatically.</div>
-            </div>
-            <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1 shrink-0"><X className="h-4 w-4" /> Close</button>
-          </div>
           <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto pb-2" onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="site-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
+            <div className="sticky top-0 z-[3] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-3 py-2.5 mb-3 border-b border-border" onClick={(ev) => ev.stopPropagation()}>
+              <div className="min-w-0">
+                <div className="text-[14px] font-medium">Attach an evidence photo</div>
+                <div className="text-[11.5px] text-muted-foreground mt-0.5 truncate">Pick the survey photo that best evidences this condition — it saves automatically.</div>
+              </div>
+              <button onClick={() => setPick(null)} data-testid="site-photo-picker-close" className="shrink-0 h-9 px-4 text-[13px] font-medium rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-sm flex items-center gap-1.5"><X className="h-4 w-4" strokeWidth={2} /> Close</button>
+            </div>
             {photos.length === 0 ? (
               <div className="text-center text-[13px] text-muted-foreground py-10">No survey photos available to attach — import survey photos first.</div>
             ) : buildPhotoGroups(photos).map((grp) => (
               <div key={grp.key} className="mb-6" data-testid={`site-photo-group-${grp.key}`}>
-                <div className="sticky top-0 z-[1] bg-background/90 backdrop-blur-sm py-1.5 mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                <div className="sticky top-[52px] z-[1] bg-background/90 backdrop-blur-sm py-1.5 mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                   {grp.label}<span className="text-[10px] normal-case tracking-normal text-muted-foreground/70">({grp.items.length})</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" style={{ gridAutoRows: "210px" }}>
