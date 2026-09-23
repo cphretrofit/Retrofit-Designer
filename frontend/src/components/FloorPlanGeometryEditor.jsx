@@ -4,6 +4,9 @@ import { toast } from "sonner";
 import { Loader2, Plus, Trash2, Save, Code2, Table2, Move } from "lucide-react";
 
 const NUM = ["x", "y", "w", "h"];
+const WNUM = ["x", "y", "w", "proj"];
+const WALLS = ["top", "bottom", "left", "right"];
+const BAY_TYPES = [["flat", "Flat window"], ["box", "Box bay"], ["canted", "Canted bay"], ["bow", "Bow bay"]];
 const GRID = 0.05;
 const CW = 620; // canvas width in px
 const PALETTE = ["#DBEAFE", "#DCFCE7", "#FEF3C7", "#FCE7F3", "#E0E7FF", "#FEE2E2", "#CCFBF1", "#F3E8FF"];
@@ -18,9 +21,10 @@ const snap = (v) => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v) => (typeof v === "number" ? v : Number(v) || 0);
 
-function FloorCanvas({ floor, onPatch, onOverall }) {
+function FloorCanvas({ floor, onPatch, onOverall, onPatchWin }) {
   const drag = useRef(null);
   const rooms = floor.rooms || [];
+  const windows = floor.windows || [];
   const roomMaxW = Math.max(1, ...rooms.map((r) => num(r.x) + num(r.w)));
   const roomMaxH = Math.max(1, ...rooms.map((r) => num(r.y) + num(r.h)));
   const ow = num(floor.overall?.w) || roomMaxW;
@@ -40,6 +44,12 @@ function FloorCanvas({ floor, onPatch, onOverall }) {
     e.preventDefault(); e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     drag.current = { kind: "wall", mode, sx: e.clientX, sy: e.clientY, scale, ovw: ow, ovh: oh };
+  };
+  const startWin = (wi, wall) => (e) => {
+    e.preventDefault(); e.stopPropagation();
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const w = windows[wi];
+    drag.current = { kind: "win", wi, wall, sx: e.clientX, sy: e.clientY, scale, ox: num(w.x), oy: num(w.y) };
   };
   const resizeRoom = (mode, d, dxm, dym) => {
     const MIN = 0.3;
@@ -68,6 +78,9 @@ function FloorCanvas({ floor, onPatch, onOverall }) {
       if (d.mode.includes("w")) patch.w = Number(clamp(snap(d.ovw + dxm), roomMaxW, 60).toFixed(2));
       if (d.mode.includes("h")) patch.h = Number(clamp(snap(d.ovh + dym), roomMaxH, 60).toFixed(2));
       onOverall(patch);
+    } else if (d.kind === "win") {
+      if (d.wall === "top" || d.wall === "bottom") onPatchWin(d.wi, { x: Number(clamp(snap(d.ox + dxm), 0, ow).toFixed(2)) });
+      else onPatchWin(d.wi, { y: Number(clamp(snap(d.oy + dym), 0, oh).toFixed(2)) });
     } else if (d.mode === "move") {
       onPatch(d.ri, {
         x: clamp(snap(d.ox + dxm), 0, Math.max(0, ow - d.ow)),
@@ -121,6 +134,32 @@ function FloorCanvas({ floor, onPatch, onOverall }) {
           </g>
         );
       })}
+      {windows.map((w, wi) => {
+        const wall = (w.wall || "top").toLowerCase();
+        const kind = (w.bay || "flat").toLowerCase();
+        const hw = Math.max(6, (num(w.w) || 1.2) / 2 * scale);
+        const pp = Math.max(8, (num(w.proj) || 0.5) * scale);
+        let cx, cy, adx, ady, ndx, ndy;
+        if (wall === "top") { cx = PAD + num(w.x) * scale; cy = PAD; adx = 1; ady = 0; ndx = 0; ndy = -1; }
+        else if (wall === "bottom") { cx = PAD + num(w.x) * scale; cy = PAD + CH; adx = 1; ady = 0; ndx = 0; ndy = 1; }
+        else if (wall === "left") { cx = PAD; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = -1; ndy = 0; }
+        else { cx = PAD + CW; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = 1; ndy = 0; }
+        const plx = cx - adx * hw, ply = cy - ady * hw, prx = cx + adx * hw, pry = cy + ady * hw;
+        let shape = null;
+        if (kind === "box") shape = `M${plx},${ply} L${plx + ndx * pp},${ply + ndy * pp} L${prx + ndx * pp},${pry + ndy * pp} L${prx},${pry}`;
+        else if (kind === "canted") { const ins = hw * 0.45; shape = `M${plx},${ply} L${plx + ndx * pp + adx * ins},${ply + ndy * pp + ady * ins} L${prx + ndx * pp - adx * ins},${pry + ndy * pp - ady * ins} L${prx},${pry}`; }
+        else if (kind === "bow") shape = `M${plx},${ply} C${plx + ndx * pp * 1.33},${ply + ndy * pp * 1.33} ${prx + ndx * pp * 1.33},${pry + ndy * pp * 1.33} ${prx},${pry}`;
+        return (
+          <g key={wi} data-testid={`fp-window-${wi}`}>
+            {shape && <path d={shape} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />}
+            <line x1={plx} y1={ply} x2={prx} y2={pry} stroke="#0055FF" strokeWidth={kind === "flat" ? 3 : 1.6} />
+            <rect x={cx - 5} y={cy - 5} width="10" height="10" rx="2" fill="#0055FF" stroke="#fff" strokeWidth="1"
+              onPointerDown={startWin(wi, wall)} style={{ cursor: (wall === "top" || wall === "bottom") ? "ew-resize" : "ns-resize" }}
+              data-testid={`fp-window-handle-${wi}`} />
+            <text x={cx + ndx * (pp + 13)} y={cy + ndy * (pp + 13) + 3} textAnchor="middle" fontSize="9" fontWeight="700" fill="#0055FF" style={{ pointerEvents: "none" }}>{w.label || `W${wi + 1}`}</text>
+          </g>
+        );
+      })}
       <rect x={PAD + CW - 3} y={PAD} width="6" height={CH} fill="#0055FF" opacity="0.5" onPointerDown={startWall("w")} style={{ cursor: "ew-resize" }} data-testid="fp-wall-right" />
       <rect x={PAD} y={PAD + CH - 3} width={CW} height="6" fill="#0055FF" opacity="0.5" onPointerDown={startWall("h")} style={{ cursor: "ns-resize" }} data-testid="fp-wall-bottom" />
       <rect x={PAD + CW - 7} y={PAD + CH - 7} width="14" height="14" fill="#0055FF" onPointerDown={startWall("wh")} style={{ cursor: "nwse-resize" }} data-testid="fp-wall-corner" />
@@ -143,6 +182,15 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
   const addRoom = (fi) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: [...(f.rooms || []), { name: "Room", x: 0, y: 0, w: 2, h: 2 }] })));
   const delRoom = (fi, ri) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: (f.rooms || []).filter((_, j) => j !== ri) })));
   const patchOverall = (fi, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, overall: { ...(f.overall || {}), ...patch } })));
+  const patchWin = (fi, wi, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, windows: (f.windows || []).map((w, j) => (j !== wi ? w : { ...w, ...patch })) })));
+  const setWinField = (fi, wi, key, val) => patchWin(fi, wi, { [key]: WNUM.includes(key) ? (val === "" ? "" : Number(val)) : val });
+  const addWin = (fi) => setFloors((fs) => fs.map((f, i) => {
+    if (i !== fi) return f;
+    const ws = f.windows || [];
+    const w = num(f.overall?.w) || 4;
+    return { ...f, windows: [...ws, { wall: "top", x: Number((w / 2).toFixed(2)), w: 1.5, bay: "box", proj: 0.6, label: `W${ws.length + 1}` }] };
+  }));
+  const delWin = (fi, wi) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, windows: (f.windows || []).filter((_, j) => j !== wi) })));
 
   const buildCad = () => {
     if (mode === "json") return JSON.parse(json);
@@ -185,12 +233,12 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
       {mode === "visual" && (
         <div className="space-y-4">
           <div className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-            <Move className="h-3.5 w-3.5" /> Drag any <strong>room wall or corner</strong> (blue handles) to reshape it — walls can be pulled independently for L-shaped / non-box layouts. Drag a room body to move it, or the outer blue walls to set the overall size. Dimensions update live &middot; snaps to 5&thinsp;cm.
+            <Move className="h-3.5 w-3.5" /> Drag any <strong>room wall or corner</strong> (blue handles) to reshape it — walls can be pulled independently for L-shaped / non-box layouts. Drag a room body to move it, or the outer blue walls to set the overall size. Blue <strong>window / bay markers</strong> drag along their wall; add or change bay type in the Rooms tab. Dimensions update live &middot; snaps to 5&thinsp;cm.
           </div>
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
               {floors.length > 1 && <div className="text-[12px] font-medium mb-1.5">{f.title || `Floor ${fi + 1}`}</div>}
-              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} />
+              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} />
             </div>
           ))}
         </div>
@@ -227,6 +275,31 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
               <button onClick={() => addRoom(fi)} data-testid={`fp-editor-add-${fi}`} className="flex items-center gap-1 h-7 px-2 mt-1 border border-dashed border-border rounded-sm text-[11.5px] text-muted-foreground hover:bg-secondary">
                 <Plus className="h-3.5 w-3.5" /> Add room
               </button>
+
+              <div className="mt-4 pt-3 border-t border-border">
+                <div className="text-[11.5px] font-medium mb-1.5">Windows &amp; bays</div>
+                <div className="grid grid-cols-[1fr_5rem_6.5rem_3.5rem_3.5rem_3.5rem_auto] gap-1.5 items-center text-[10px] text-muted-foreground mb-1">
+                  <span>Label</span><span className="text-center">Wall</span><span className="text-center">Type</span><span className="text-center">Pos</span><span className="text-center">Width</span><span className="text-center">Proj.</span><span className="w-6" />
+                </div>
+                {(f.windows || []).map((w, wi) => {
+                  const posKey = (w.wall === "left" || w.wall === "right") ? "y" : "x";
+                  const isFlat = (w.bay || "flat") === "flat";
+                  return (
+                  <div key={wi} className="grid grid-cols-[1fr_5rem_6.5rem_3.5rem_3.5rem_3.5rem_auto] gap-1.5 items-center mb-1" data-testid={`fp-window-row-${fi}-${wi}`}>
+                    <input value={w.label ?? ""} onChange={(e) => setWinField(fi, wi, "label", e.target.value)} data-testid={`fp-window-label-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-2 text-[11.5px]" />
+                    <select value={w.wall || "top"} onChange={(e) => setWinField(fi, wi, "wall", e.target.value)} data-testid={`fp-window-wall-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] bg-background">{WALLS.map((x) => <option key={x} value={x}>{x}</option>)}</select>
+                    <select value={w.bay || "flat"} onChange={(e) => setWinField(fi, wi, "bay", e.target.value)} data-testid={`fp-window-type-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] bg-background">{BAY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+                    <input type="number" step="0.05" value={w[posKey] ?? ""} onChange={(e) => setWinField(fi, wi, posKey, e.target.value)} data-testid={`fp-window-pos-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center" />
+                    <input type="number" step="0.05" value={w.w ?? ""} onChange={(e) => setWinField(fi, wi, "w", e.target.value)} data-testid={`fp-window-w-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center" />
+                    <input type="number" step="0.05" value={w.proj ?? ""} onChange={(e) => setWinField(fi, wi, "proj", e.target.value)} disabled={isFlat} data-testid={`fp-window-proj-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center disabled:opacity-40" />
+                    <button onClick={() => delWin(fi, wi)} data-testid={`fp-window-del-${fi}-${wi}`} className="h-7 w-6 flex items-center justify-center text-[var(--c-critical)] hover:bg-secondary rounded-sm"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </div>
+                  );
+                })}
+                <button onClick={() => addWin(fi)} data-testid={`fp-window-add-${fi}`} className="flex items-center gap-1 h-7 px-2 mt-1 border border-dashed border-border rounded-sm text-[11.5px] text-muted-foreground hover:bg-secondary">
+                  <Plus className="h-3.5 w-3.5" /> Add window / bay
+                </button>
+              </div>
             </div>
           ))}
         </div>

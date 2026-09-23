@@ -13,6 +13,8 @@ Stack: React + FastAPI + MongoDB. PDF via WeasyPrint. AI/Vision via Claude Sonne
 - Universal "Add photo" picker exposing every image embedded across uploaded PDFs.
 
 ## Recent changes
+- 2026-06: Bay windows — floor-plan windows now support Flat / Box / Canted / Bow types with editable wall, position, width and projection depth. Backend `_bay_outline` draws the 2D projection (`cad_floorplan.py`); editor adds draggable canvas markers + a "Windows & bays" form (`FloorPlanGeometryEditor.jsx`). All 4 types verified rendering. 3D massing deferred.
+- 2026-06: Deleting a defect now sticks — site-note-derived defects add their key to `dismissedDefectKeys` so auto-match re-extraction never resurrects them (`delete_defect`, `_attach_sitenote_defect_photos`). Fixes "no dMEV in wet room (WC only)" recurring defect.
 - 2026-06: Floor plan (`cad_floorplan.py`) — removed the RdSAP "I confirm… / Assessor-Operative signature / Date" confirmation block and stray page number from the generated plan; right-column divider + `VB_H` now re-flow to content (no empty band). No signatures in the design document.
 - 2026-06: Appendix (`_collect_source_docs`) now binds ONLY product datasheets — vent/air-tightness/ADF1 docs are bound once in-section (Ventilation), fixing the duplicate copy at the bottom of the pack.
 - 2026-06: PDF export fixes (mandatory docs + signatures + layout):
