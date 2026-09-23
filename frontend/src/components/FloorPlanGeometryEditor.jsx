@@ -239,6 +239,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
               {floors.length > 1 && <div className="text-[12px] font-medium mb-1.5">{f.title || `Floor ${fi + 1}`}</div>}
               <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} />
+              <WindowsEditor floor={f} fi={fi} addWin={addWin} delWin={delWin} setWinField={setWinField} />
             </div>
           ))}
         </div>
@@ -276,30 +277,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
                 <Plus className="h-3.5 w-3.5" /> Add room
               </button>
 
-              <div className="mt-4 pt-3 border-t border-border">
-                <div className="text-[11.5px] font-medium mb-1.5">Windows &amp; bays</div>
-                <div className="grid grid-cols-[1fr_5rem_6.5rem_3.5rem_3.5rem_3.5rem_auto] gap-1.5 items-center text-[10px] text-muted-foreground mb-1">
-                  <span>Label</span><span className="text-center">Wall</span><span className="text-center">Type</span><span className="text-center">Pos</span><span className="text-center">Width</span><span className="text-center">Proj.</span><span className="w-6" />
-                </div>
-                {(f.windows || []).map((w, wi) => {
-                  const posKey = (w.wall === "left" || w.wall === "right") ? "y" : "x";
-                  const isFlat = (w.bay || "flat") === "flat";
-                  return (
-                  <div key={wi} className="grid grid-cols-[1fr_5rem_6.5rem_3.5rem_3.5rem_3.5rem_auto] gap-1.5 items-center mb-1" data-testid={`fp-window-row-${fi}-${wi}`}>
-                    <input value={w.label ?? ""} onChange={(e) => setWinField(fi, wi, "label", e.target.value)} data-testid={`fp-window-label-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-2 text-[11.5px]" />
-                    <select value={w.wall || "top"} onChange={(e) => setWinField(fi, wi, "wall", e.target.value)} data-testid={`fp-window-wall-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] bg-background">{WALLS.map((x) => <option key={x} value={x}>{x}</option>)}</select>
-                    <select value={w.bay || "flat"} onChange={(e) => setWinField(fi, wi, "bay", e.target.value)} data-testid={`fp-window-type-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] bg-background">{BAY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-                    <input type="number" step="0.05" value={w[posKey] ?? ""} onChange={(e) => setWinField(fi, wi, posKey, e.target.value)} data-testid={`fp-window-pos-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center" />
-                    <input type="number" step="0.05" value={w.w ?? ""} onChange={(e) => setWinField(fi, wi, "w", e.target.value)} data-testid={`fp-window-w-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center" />
-                    <input type="number" step="0.05" value={w.proj ?? ""} onChange={(e) => setWinField(fi, wi, "proj", e.target.value)} disabled={isFlat} data-testid={`fp-window-proj-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center disabled:opacity-40" />
-                    <button onClick={() => delWin(fi, wi)} data-testid={`fp-window-del-${fi}-${wi}`} className="h-7 w-6 flex items-center justify-center text-[var(--c-critical)] hover:bg-secondary rounded-sm"><Trash2 className="h-3.5 w-3.5" /></button>
-                  </div>
-                  );
-                })}
-                <button onClick={() => addWin(fi)} data-testid={`fp-window-add-${fi}`} className="flex items-center gap-1 h-7 px-2 mt-1 border border-dashed border-border rounded-sm text-[11.5px] text-muted-foreground hover:bg-secondary">
-                  <Plus className="h-3.5 w-3.5" /> Add window / bay
-                </button>
-              </div>
+              <WindowsEditor floor={f} fi={fi} addWin={addWin} delWin={delWin} setWinField={setWinField} />
             </div>
           ))}
         </div>
@@ -319,3 +297,44 @@ const buildCadSafe = (cadData, floors, multi) => {
   if (multi) return { ...cadData, floors, manualEdit: true };
   return { ...cadData, ...floors[0], manualEdit: true };
 };
+
+function WindowsEditor({ floor, fi, addWin, delWin, setWinField }) {
+  const wins = floor.windows || [];
+  return (
+    <div className="mt-3 pt-3 border-t border-border" data-testid={`fp-windows-editor-${fi}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div className="text-[12px] font-medium">Windows &amp; bays</div>
+        <button onClick={() => addWin(fi)} data-testid={`fp-window-add-${fi}`}
+          className="flex items-center gap-1.5 h-8 px-3 bg-[var(--c-action)] text-white rounded-sm text-[12px] font-medium hover:opacity-90">
+          <Plus className="h-4 w-4" /> Add window / bay
+        </button>
+      </div>
+      {wins.length === 0 ? (
+        <div className="text-[11.5px] text-muted-foreground bg-secondary/40 border border-dashed border-border rounded-sm px-3 py-2.5" data-testid={`fp-windows-empty-${fi}`}>
+          No windows yet. Click <strong>Add window / bay</strong>, choose a <strong>bay type</strong> (Box, Canted or Bow), then drag its blue marker on the plan to position it.
+        </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-[1fr_5rem_6.5rem_3.5rem_3.5rem_3.5rem_auto] gap-1.5 items-center text-[10px] text-muted-foreground mb-1">
+            <span>Label</span><span className="text-center">Wall</span><span className="text-center">Type</span><span className="text-center">Pos</span><span className="text-center">Width</span><span className="text-center">Proj.</span><span className="w-6" />
+          </div>
+          {wins.map((w, wi) => {
+            const posKey = (w.wall === "left" || w.wall === "right") ? "y" : "x";
+            const isFlat = (w.bay || "flat") === "flat";
+            return (
+            <div key={wi} className="grid grid-cols-[1fr_5rem_6.5rem_3.5rem_3.5rem_3.5rem_auto] gap-1.5 items-center mb-1" data-testid={`fp-window-row-${fi}-${wi}`}>
+              <input value={w.label ?? ""} onChange={(e) => setWinField(fi, wi, "label", e.target.value)} data-testid={`fp-window-label-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-2 text-[11.5px]" />
+              <select value={w.wall || "top"} onChange={(e) => setWinField(fi, wi, "wall", e.target.value)} data-testid={`fp-window-wall-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] bg-background">{WALLS.map((x) => <option key={x} value={x}>{x}</option>)}</select>
+              <select value={w.bay || "flat"} onChange={(e) => setWinField(fi, wi, "bay", e.target.value)} data-testid={`fp-window-type-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] bg-background">{BAY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+              <input type="number" step="0.05" value={w[posKey] ?? ""} onChange={(e) => setWinField(fi, wi, posKey, e.target.value)} data-testid={`fp-window-pos-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center" />
+              <input type="number" step="0.05" value={w.w ?? ""} onChange={(e) => setWinField(fi, wi, "w", e.target.value)} data-testid={`fp-window-w-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center" />
+              <input type="number" step="0.05" value={w.proj ?? ""} onChange={(e) => setWinField(fi, wi, "proj", e.target.value)} disabled={isFlat} data-testid={`fp-window-proj-${fi}-${wi}`} className="h-7 border border-border rounded-sm px-1 text-[11px] text-center disabled:opacity-40" />
+              <button onClick={() => delWin(fi, wi)} data-testid={`fp-window-del-${fi}-${wi}`} className="h-7 w-6 flex items-center justify-center text-[var(--c-critical)] hover:bg-secondary rounded-sm"><Trash2 className="h-3.5 w-3.5" /></button>
+            </div>
+            );
+          })}
+        </>
+      )}
+    </div>
+  );
+}
