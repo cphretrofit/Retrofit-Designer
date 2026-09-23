@@ -430,23 +430,33 @@ def _sanitise_doors(rooms, doors):
     return out
 
 
-def _bay_outline(cx, cy, adx, ady, ndx, ndy, hw, pp, kind):
-    """Outward bay projection path. (cx,cy)=wall centre; (adx,ady)=unit along wall;
-    (ndx,ndy)=unit outward normal; hw=half-width px; pp=projection px."""
+def _bay_render(cx, cy, adx, ady, ndx, ndy, hw, pp, kind):
+    """Bay projection drawn as a double line (outer wall + inner window frame) so it reads
+    like an architectural bay symbol. (cx,cy)=wall centre; (adx,ady)=along wall; (ndx,ndy)=outward normal."""
+    fr = max(2.5, min(6.0, pp * 0.28))
     plx, ply = cx - adx * hw, cy - ady * hw
     prx, pry = cx + adx * hw, cy + ady * hw
+    out = []
     if kind == "bow":
-        c1x, c1y = plx + ndx * pp * 1.33, ply + ndy * pp * 1.33
-        c2x, c2y = prx + ndx * pp * 1.33, pry + ndy * pp * 1.33
-        return f'M{plx:.1f},{ply:.1f} C{c1x:.1f},{c1y:.1f} {c2x:.1f},{c2y:.1f} {prx:.1f},{pry:.1f}'
-    if kind == "canted":
-        ins = hw * 0.45
-        olx, oly = plx + ndx * pp + adx * ins, ply + ndy * pp + ady * ins
-        orx, ory = prx + ndx * pp - adx * ins, pry + ndy * pp - ady * ins
-        return f'M{plx:.1f},{ply:.1f} L{olx:.1f},{oly:.1f} L{orx:.1f},{ory:.1f} L{prx:.1f},{pry:.1f}'
-    olx, oly = plx + ndx * pp, ply + ndy * pp
-    orx, ory = prx + ndx * pp, pry + ndy * pp
-    return f'M{plx:.1f},{ply:.1f} L{olx:.1f},{oly:.1f} L{orx:.1f},{ory:.1f} L{prx:.1f},{pry:.1f}'
+        o = f'M{plx:.1f},{ply:.1f} C{plx+ndx*pp*1.33:.1f},{ply+ndy*pp*1.33:.1f} {prx+ndx*pp*1.33:.1f},{pry+ndy*pp*1.33:.1f} {prx:.1f},{pry:.1f}'
+        iLx, iLy = plx + adx * fr + ndx * fr, ply + ady * fr + ndy * fr
+        iRx, iRy = prx - adx * fr + ndx * fr, pry - ady * fr + ndy * fr
+        pi = pp - fr
+        i = f'M{iLx:.1f},{iLy:.1f} C{iLx+ndx*pi*1.3:.1f},{iLy+ndy*pi*1.3:.1f} {iRx+ndx*pi*1.3:.1f},{iRy+ndy*pi*1.3:.1f} {iRx:.1f},{iRy:.1f}'
+        out.append(f'<path d="{o}" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+        out.append(f'<path d="{i}" fill="none" stroke="#111" stroke-width="0.9"/>')
+    else:
+        ins = hw * 0.45 if kind == "canted" else 0.0
+        oL2x, oL2y = plx + ndx * pp + adx * ins, ply + ndy * pp + ady * ins
+        oR2x, oR2y = prx + ndx * pp - adx * ins, pry + ndy * pp - ady * ins
+        out.append(f'<path d="M{plx:.1f},{ply:.1f} L{oL2x:.1f},{oL2y:.1f} L{oR2x:.1f},{oR2y:.1f} L{prx:.1f},{pry:.1f}" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+        iLx, iLy = plx + adx * fr + ndx * fr, ply + ady * fr + ndy * fr
+        iRx, iRy = prx - adx * fr + ndx * fr, pry - ady * fr + ndy * fr
+        ins2 = (hw - fr) * 0.45 if kind == "canted" else 0.0
+        iL2x, iL2y = iLx + ndx * (pp - fr) + adx * ins2, iLy + ndy * (pp - fr) + ady * ins2
+        iR2x, iR2y = iRx + ndx * (pp - fr) - adx * ins2, iRy + ndy * (pp - fr) - ady * ins2
+        out.append(f'<path d="M{iLx:.1f},{iLy:.1f} L{iL2x:.1f},{iL2y:.1f} L{iR2x:.1f},{iR2y:.1f} L{iRx:.1f},{iRy:.1f}" fill="none" stroke="#111" stroke-width="0.9"/>')
+    return "".join(out)
 
 
 def _render_single(d: dict):
@@ -604,8 +614,7 @@ def _render_single(d: dict):
         if kind in ("box", "canted", "bow"):
             hw = max(8.0, (wln / 2) * S)
             pp = max(10.0, prj * S)
-            path = _bay_outline(cx, cy, adx, ady, ndx, ndy, hw, pp, kind)
-            parts.append(f'<path d="{path}" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            parts.append(_bay_render(cx, cy, adx, ady, ndx, ndy, hw, pp, kind))
             parts.append(f'<line x1="{cx-adx*hw:.1f}" y1="{cy-ady*hw:.1f}" x2="{cx+adx*hw:.1f}" y2="{cy+ady*hw:.1f}" stroke="#111" stroke-width="1"/>')
             lx, ly = cx + ndx * (pp + 22), cy + ndy * (pp + 22)
             tdy = -18 if wall == "top" else 15

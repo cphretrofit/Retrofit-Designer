@@ -7,6 +7,13 @@ const NUM = ["x", "y", "w", "h"];
 const WNUM = ["x", "y", "w", "proj"];
 const WALLS = ["top", "bottom", "left", "right"];
 const BAY_TYPES = [["flat", "Flat window"], ["box", "Box bay"], ["canted", "Canted bay"], ["bow", "Bow bay"]];
+const WIN_TEMPLATES = [["box", "Box bay"], ["canted", "Canted bay"], ["bow", "Bow bay"], ["flat", "Flat window"]];
+const bayPreviewPath = (kind) => {
+  if (kind === "flat") return "M16,34 L16,29 L44,29 L44,34";
+  if (kind === "canted") return "M12,34 L20,12 L40,12 L48,34";
+  if (kind === "bow") return "M12,34 C12,6 48,6 48,34";
+  return "M12,34 L12,12 L48,12 L48,34";
+};
 const GRID = 0.05;
 const CW = 620; // canvas width in px
 const PALETTE = ["#DBEAFE", "#DCFCE7", "#FEF3C7", "#FCE7F3", "#E0E7FF", "#FEE2E2", "#CCFBF1", "#F3E8FF"];
@@ -158,14 +165,28 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
         else if (wall === "left") { cx = PAD; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = -1; ndy = 0; }
         else { cx = PAD + CW; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = 1; ndy = 0; }
         const plx = cx - adx * hw, ply = cy - ady * hw, prx = cx + adx * hw, pry = cy + ady * hw;
-        let shape = null;
-        if (kind === "box") shape = `M${plx},${ply} L${plx + ndx * pp},${ply + ndy * pp} L${prx + ndx * pp},${pry + ndy * pp} L${prx},${pry}`;
-        else if (kind === "canted") { const ins = hw * 0.45; shape = `M${plx},${ply} L${plx + ndx * pp + adx * ins},${ply + ndy * pp + ady * ins} L${prx + ndx * pp - adx * ins},${pry + ndy * pp - ady * ins} L${prx},${pry}`; }
-        else if (kind === "bow") shape = `M${plx},${ply} C${plx + ndx * pp * 1.33},${ply + ndy * pp * 1.33} ${prx + ndx * pp * 1.33},${pry + ndy * pp * 1.33} ${prx},${pry}`;
+        const fr = Math.max(2, Math.min(5, pp * 0.28));
+        let outer = null, inner = null;
+        if (kind === "bow") {
+          outer = `M${plx},${ply} C${plx + ndx * pp * 1.33},${ply + ndy * pp * 1.33} ${prx + ndx * pp * 1.33},${pry + ndy * pp * 1.33} ${prx},${pry}`;
+          const iLx = plx + adx * fr + ndx * fr, iLy = ply + ady * fr + ndy * fr, iRx = prx - adx * fr + ndx * fr, iRy = pry - ady * fr + ndy * fr, pi = pp - fr;
+          inner = `M${iLx},${iLy} C${iLx + ndx * pi * 1.3},${iLy + ndy * pi * 1.3} ${iRx + ndx * pi * 1.3},${iRy + ndy * pi * 1.3} ${iRx},${iRy}`;
+        } else if (kind !== "flat") {
+          const ins = kind === "canted" ? hw * 0.45 : 0;
+          outer = `M${plx},${ply} L${plx + ndx * pp + adx * ins},${ply + ndy * pp + ady * ins} L${prx + ndx * pp - adx * ins},${pry + ndy * pp - ady * ins} L${prx},${pry}`;
+          const iLx = plx + adx * fr + ndx * fr, iLy = ply + ady * fr + ndy * fr, iRx = prx - adx * fr + ndx * fr, iRy = pry - ady * fr + ndy * fr;
+          const ins2 = kind === "canted" ? (hw - fr) * 0.45 : 0;
+          inner = `M${iLx},${iLy} L${iLx + ndx * (pp - fr) + adx * ins2},${iLy + ndy * (pp - fr) + ady * ins2} L${iRx + ndx * (pp - fr) - adx * ins2},${iRy + ndy * (pp - fr) - ady * ins2} L${iRx},${iRy}`;
+        }
         return (
           <g key={wi} data-testid={`fp-window-${wi}`}>
-            {shape && <path d={shape} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />}
-            <line x1={plx} y1={ply} x2={prx} y2={pry} stroke="#0055FF" strokeWidth={kind === "flat" ? 3 : 1.6} />
+            {outer && <path d={outer} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />}
+            {inner && <path d={inner} fill="none" stroke="#0055FF" strokeWidth="1" />}
+            {kind === "flat"
+              ? ((wall === "top" || wall === "bottom")
+                ? <rect x={cx - hw} y={cy - 3} width={hw * 2} height="6" fill="#fff" stroke="#0055FF" strokeWidth="1.6" />
+                : <rect x={cx - 3} y={cy - hw} width="6" height={hw * 2} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />)
+              : <line x1={plx} y1={ply} x2={prx} y2={pry} stroke="#0055FF" strokeWidth="1" />}
             <rect x={cx - 5} y={cy - 5} width="10" height="10" rx="2" fill="#0055FF" stroke="#fff" strokeWidth="1"
               onPointerDown={startWin(wi, wall)} style={{ cursor: (wall === "top" || wall === "bottom") ? "ew-resize" : "ns-resize" }}
               data-testid={`fp-window-handle-${wi}`} />
@@ -264,20 +285,22 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
               {floors.length > 1 && <div className="text-[12px] font-medium mb-1.5">{f.title || `Floor ${fi + 1}`}</div>}
-              <div className="flex flex-wrap items-center gap-2 mb-2">
-                <button onClick={() => setPlacing({ fi, kind: "box" })} data-testid={`fp-place-bay-${fi}`}
-                  className={`flex items-center gap-1.5 h-8 px-3 rounded-sm text-[12px] font-medium ${placing?.fi === fi && placing?.kind !== "flat" ? "ring-2 ring-offset-1 ring-[var(--c-action)] bg-[var(--c-action)] text-white" : "bg-[var(--c-action)] text-white hover:opacity-90"}`}>
-                  <Plus className="h-4 w-4" /> Add bay window
-                </button>
-                <button onClick={() => setPlacing({ fi, kind: "flat" })} data-testid={`fp-place-window-${fi}`}
-                  className={`flex items-center gap-1.5 h-8 px-3 rounded-sm text-[12px] font-medium border ${placing?.fi === fi && placing?.kind === "flat" ? "border-[var(--c-action)] ring-2 ring-offset-1 ring-[var(--c-action)]" : "border-border hover:bg-secondary"}`}>
-                  <Plus className="h-4 w-4" /> Add window
-                </button>
-                {placing?.fi === fi && (
-                  <span className="text-[11.5px] font-medium text-[var(--c-action)]" data-testid={`fp-place-hint-${fi}`}>
-                    Now click on the plan where it should go… <button onClick={() => setPlacing(null)} className="underline ml-1" data-testid={`fp-place-cancel-${fi}`}>cancel</button>
-                  </span>
-                )}
+              <div className="mb-2">
+                <div className="text-[11px] text-muted-foreground mb-1.5">Pick a window template, then click on the plan to drop it — you can edit the measurements after.</div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {WIN_TEMPLATES.map(([k, label]) => (
+                    <button key={k} onClick={() => setPlacing({ fi, kind: k })} data-testid={`fp-tpl-${k}-${fi}`}
+                      className={`flex flex-col items-center gap-1 px-2.5 py-1.5 rounded-md border transition-colors ${placing?.fi === fi && placing?.kind === k ? "border-[var(--c-action)] ring-2 ring-[var(--c-action)] bg-[var(--c-action)]/5" : "border-border hover:border-foreground/40 hover:bg-secondary"}`}>
+                      <svg viewBox="0 0 60 40" className="w-14 h-9"><line x1="6" y1="34" x2="54" y2="34" stroke="#111" strokeWidth="1.5" /><path d={bayPreviewPath(k)} fill="#fff" stroke="#0055FF" strokeWidth="2" strokeLinejoin="round" /></svg>
+                      <span className="text-[10.5px] font-medium">{label}</span>
+                    </button>
+                  ))}
+                  {placing?.fi === fi && (
+                    <span className="text-[11.5px] font-medium text-[var(--c-action)] ml-1 self-center" data-testid={`fp-place-hint-${fi}`}>
+                      Now click on the plan…<button onClick={() => setPlacing(null)} className="underline ml-1.5" data-testid={`fp-place-cancel-${fi}`}>cancel</button>
+                    </span>
+                  )}
+                </div>
               </div>
               <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} placing={placing?.fi === fi} placeKind={placing?.kind} onPlace={(wall, pos) => placeWin(fi, wall, pos)} />
               <WindowsEditor floor={f} fi={fi} addWin={addWin} delWin={delWin} setWinField={setWinField} />
