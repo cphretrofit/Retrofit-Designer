@@ -430,6 +430,25 @@ def _sanitise_doors(rooms, doors):
     return out
 
 
+def _bay_outline(cx, cy, adx, ady, ndx, ndy, hw, pp, kind):
+    """Outward bay projection path. (cx,cy)=wall centre; (adx,ady)=unit along wall;
+    (ndx,ndy)=unit outward normal; hw=half-width px; pp=projection px."""
+    plx, ply = cx - adx * hw, cy - ady * hw
+    prx, pry = cx + adx * hw, cy + ady * hw
+    if kind == "bow":
+        c1x, c1y = plx + ndx * pp * 1.33, ply + ndy * pp * 1.33
+        c2x, c2y = prx + ndx * pp * 1.33, pry + ndy * pp * 1.33
+        return f'M{plx:.1f},{ply:.1f} C{c1x:.1f},{c1y:.1f} {c2x:.1f},{c2y:.1f} {prx:.1f},{pry:.1f}'
+    if kind == "canted":
+        ins = hw * 0.45
+        olx, oly = plx + ndx * pp + adx * ins, ply + ndy * pp + ady * ins
+        orx, ory = prx + ndx * pp - adx * ins, pry + ndy * pp - ady * ins
+        return f'M{plx:.1f},{ply:.1f} L{olx:.1f},{oly:.1f} L{orx:.1f},{ory:.1f} L{prx:.1f},{pry:.1f}'
+    olx, oly = plx + ndx * pp, ply + ndy * pp
+    orx, ory = prx + ndx * pp, pry + ndy * pp
+    return f'M{plx:.1f},{ply:.1f} L{olx:.1f},{oly:.1f} L{orx:.1f},{ory:.1f} L{prx:.1f},{pry:.1f}'
+
+
 def _render_single(d: dict):
     ov = d.get("overall") or {}
     W = _num(ov.get("w"), 8.0) or 8.0
@@ -565,24 +584,39 @@ def _render_single(d: dict):
         if wc:
             parts.append(_circle_label(ccx, ccy + rhpx * 0.24, wc, r=11))
 
-    # windows: gap rectangle on wall + circled label just outside (+ optional TVR tag)
+    # windows: flat gap on the wall, OR a projecting bay (box / canted / bow) drawn outward.
     for wdw in (d.get("windows") or []):
         wall = (wdw.get("wall") or "").lower()
         lbl = wdw.get("label") or ""
+        kind = (wdw.get("bay") or wdw.get("bayType") or "flat").lower()
+        wln = _num(wdw.get("w")) or 1.2
+        prj = _num(wdw.get("proj")) or 0.5
         if wall == "top":
-            x = mx(_num(wdw.get("x"))); y = my(0); lx, ly, tdy = x, y - 26, -18
-            parts.append(f'<rect x="{x-16:.1f}" y="{y-4:.1f}" width="32" height="8" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(0), 1, 0, 0, -1
         elif wall == "bottom":
-            x = mx(_num(wdw.get("x"))); y = my(H); lx, ly, tdy = x, y + 26, 15
-            parts.append(f'<rect x="{x-16:.1f}" y="{y-4:.1f}" width="32" height="8" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(H), 1, 0, 0, 1
         elif wall == "left":
-            x = mx(0); y = my(_num(wdw.get("y"))); lx, ly, tdy = x - 26, y, 15
-            parts.append(f'<rect x="{x-4:.1f}" y="{y-16:.1f}" width="8" height="32" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            cx, cy, adx, ady, ndx, ndy = mx(0), my(_num(wdw.get("y"))), 0, 1, -1, 0
         elif wall == "right":
-            x = mx(W); y = my(_num(wdw.get("y"))); lx, ly, tdy = x + 26, y, 15
-            parts.append(f'<rect x="{x-4:.1f}" y="{y-16:.1f}" width="8" height="32" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            cx, cy, adx, ady, ndx, ndy = mx(W), my(_num(wdw.get("y"))), 0, 1, 1, 0
         else:
             continue
+        if kind in ("box", "canted", "bow"):
+            hw = max(8.0, (wln / 2) * S)
+            pp = max(10.0, prj * S)
+            path = _bay_outline(cx, cy, adx, ady, ndx, ndy, hw, pp, kind)
+            parts.append(f'<path d="{path}" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            parts.append(f'<line x1="{cx-adx*hw:.1f}" y1="{cy-ady*hw:.1f}" x2="{cx+adx*hw:.1f}" y2="{cy+ady*hw:.1f}" stroke="#111" stroke-width="1"/>')
+            lx, ly = cx + ndx * (pp + 22), cy + ndy * (pp + 22)
+            tdy = -18 if wall == "top" else 15
+        else:
+            if wall in ("top", "bottom"):
+                parts.append(f'<rect x="{cx-16:.1f}" y="{cy-4:.1f}" width="32" height="8" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            else:
+                parts.append(f'<rect x="{cx-4:.1f}" y="{cy-16:.1f}" width="8" height="32" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+            lx = cx + ndx * 26
+            ly = cy + ndy * 26
+            tdy = -18 if wall == "top" else 15
         parts.append(_circle_label(lx, ly, lbl, r=11))
         if tvr:
             parts.append(f'<text x="{lx:.1f}" y="{ly+tdy:.1f}" font-size="8.5" font-weight="bold" text-anchor="middle" fill="#DC2626" font-family="Helvetica,Arial,sans-serif">TVR</text>')

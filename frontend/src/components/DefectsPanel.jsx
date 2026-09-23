@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from "react";
-import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, updateField, mediaUrl, thumbUrl, getAllPhotos } from "@/lib/api";
+import { addDefect, updateDefect, deleteDefect, uploadDefectPhoto, autoMatchDefectPhotos, attachDefectSurveyPhoto, detachDefectPhoto, updateField, mediaUrl, thumbUrl, getAllPhotos } from "@/lib/api";
 import { buildPhotoGroups } from "@/lib/photoGroups";
 import { toast } from "sonner";
 import { Plus, Trash2, Camera, Loader2, Check, Pencil, Wand2, Images, ChevronLeft, ChevronRight, Maximize2, X } from "lucide-react";

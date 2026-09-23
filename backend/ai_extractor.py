@@ -333,7 +333,8 @@ async def _attach_sitenote_defect_photos(project_id, proj, doc_sources=None):
         return 0
     defects = proj.get("defects") or []
     existing_keys = {d.get("siteNoteKey") for d in defects if d.get("siteNoteKey")}
-    sn = [sd for sd in sn if _sn_key(sd) not in existing_keys]
+    dismissed = set(proj.get("dismissedDefectKeys") or [])
+    sn = [sd for sd in sn if _sn_key(sd) not in existing_keys and _sn_key(sd) not in dismissed]
     if not sn:
         return 0
     changed, used = 0, set()

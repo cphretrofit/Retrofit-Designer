@@ -2976,7 +2976,15 @@ async def delete_defect(project_id: str, defect_id: str):
     defects = [d for d in all_d if d.get("id") != defect_id]
     if removed and removed.get("photoDocId"):
         await db.documents.update_one({"id": removed["photoDocId"]}, {"$set": {"is_deleted": True}})
-    await db.projects.update_one({"id": project_id}, {"$set": {"defects": defects}})
+    upd = {"defects": defects}
+    # If a site-note-derived defect is deleted as incorrect, remember its key so the
+    # auto-match re-extraction never resurrects it.
+    if removed and removed.get("siteNoteKey"):
+        dismissed = list(proj.get("dismissedDefectKeys") or [])
+        if removed["siteNoteKey"] not in dismissed:
+            dismissed.append(removed["siteNoteKey"])
+        upd["dismissedDefectKeys"] = dismissed
+    await db.projects.update_one({"id": project_id}, {"$set": upd})
     return {"defects": defects}
 
 
