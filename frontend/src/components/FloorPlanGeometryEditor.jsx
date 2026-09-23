@@ -21,8 +21,9 @@ const snap = (v) => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v) => (typeof v === "number" ? v : Number(v) || 0);
 
-function FloorCanvas({ floor, onPatch, onOverall, onPatchWin }) {
+function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind, onPlace }) {
   const drag = useRef(null);
+  const svgRef = useRef(null);
   const rooms = floor.rooms || [];
   const windows = floor.windows || [];
   const roomMaxW = Math.max(1, ...rooms.map((r) => num(r.x) + num(r.w)));
@@ -91,10 +92,22 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin }) {
     }
   };
   const end = () => { drag.current = null; };
+  const handlePlace = (e) => {
+    if (!placing || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const sx = (e.clientX - rect.left) * (VW / rect.width);
+    const sy = (e.clientY - rect.top) * (VH / rect.height);
+    const mx = (sx - PAD) / scale, my = (sy - PAD) / scale;
+    const dists = [["top", Math.abs(my)], ["bottom", Math.abs(my - oh)], ["left", Math.abs(mx)], ["right", Math.abs(mx - ow)]];
+    dists.sort((a, b) => a[1] - b[1]);
+    const wall = dists[0][0];
+    const pos = (wall === "left" || wall === "right") ? clamp(my, 0, oh) : clamp(mx, 0, ow);
+    onPlace(wall, pos);
+  };
 
   return (
-    <svg width="100%" viewBox={`0 0 ${VW} ${VH}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
-      className="border border-border rounded-sm bg-white touch-none select-none" data-testid="fp-visual-canvas" style={{ maxHeight: 520 }}>
+    <svg ref={svgRef} width="100%" viewBox={`0 0 ${VW} ${VH}`} onPointerMove={move} onPointerUp={end} onPointerLeave={end} onClick={handlePlace}
+      className="border border-border rounded-sm bg-white touch-none select-none" data-testid="fp-visual-canvas" style={{ maxHeight: 520, cursor: placing ? "crosshair" : "default" }}>
       <line x1={PAD} y1={PAD - 14} x2={PAD + CW} y2={PAD - 14} stroke="#94a3b8" strokeWidth="0.75" />
       <line x1={PAD} y1={PAD - 17} x2={PAD} y2={PAD - 11} stroke="#94a3b8" strokeWidth="0.75" />
       <line x1={PAD + CW} y1={PAD - 17} x2={PAD + CW} y2={PAD - 11} stroke="#94a3b8" strokeWidth="0.75" />
@@ -173,6 +186,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
   const [mode, setMode] = useState("visual");
   const [json, setJson] = useState(() => JSON.stringify(cadData || {}, null, 2));
   const [saving, setSaving] = useState(false);
+  const [placing, setPlacing] = useState(null);
 
   const patchRoom = (fi, ri, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : {
     ...f, rooms: (f.rooms || []).map((r, j) => (j !== ri ? r : { ...r, ...patch })),
@@ -191,6 +205,18 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
     return { ...f, windows: [...ws, { wall: "top", x: Number((w / 2).toFixed(2)), w: 1.5, bay: "box", proj: 0.6, label: `W${ws.length + 1}` }] };
   }));
   const delWin = (fi, wi) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, windows: (f.windows || []).filter((_, j) => j !== wi) })));
+  const placeWin = (fi, wall, pos) => {
+    const kind = placing?.kind || "box";
+    setFloors((fs) => fs.map((f, i) => {
+      if (i !== fi) return f;
+      const ws = f.windows || [];
+      const w = { wall, w: 1.5, bay: kind, proj: kind === "flat" ? 0 : 0.6, label: `W${ws.length + 1}` };
+      if (wall === "left" || wall === "right") w.y = Number(pos.toFixed(2)); else w.x = Number(pos.toFixed(2));
+      return { ...f, windows: [...ws, w] };
+    }));
+    setPlacing(null);
+    toast.success(`${kind === "flat" ? "Window" : "Bay window"} placed — drag its marker to fine-tune`);
+  };
 
   const buildCad = () => {
     if (mode === "json") return JSON.parse(json);
@@ -233,12 +259,27 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
       {mode === "visual" && (
         <div className="space-y-4">
           <div className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-            <Move className="h-3.5 w-3.5" /> Drag any <strong>room wall or corner</strong> (blue handles) to reshape it — walls can be pulled independently for L-shaped / non-box layouts. Drag a room body to move it, or the outer blue walls to set the overall size. Blue <strong>window / bay markers</strong> drag along their wall; add or change bay type in the Rooms tab. Dimensions update live &middot; snaps to 5&thinsp;cm.
+            <Move className="h-3.5 w-3.5" /> To add a window or bay, click <strong>Add bay window</strong> below, then click on the plan where it should go — it snaps to the nearest wall. Drag a room wall/corner to reshape, a room body to move it, the outer blue walls to resize, or a blue window marker to slide it. Snaps to 5&thinsp;cm.
           </div>
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
               {floors.length > 1 && <div className="text-[12px] font-medium mb-1.5">{f.title || `Floor ${fi + 1}`}</div>}
-              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} />
+              <div className="flex flex-wrap items-center gap-2 mb-2">
+                <button onClick={() => setPlacing({ fi, kind: "box" })} data-testid={`fp-place-bay-${fi}`}
+                  className={`flex items-center gap-1.5 h-8 px-3 rounded-sm text-[12px] font-medium ${placing?.fi === fi && placing?.kind !== "flat" ? "ring-2 ring-offset-1 ring-[var(--c-action)] bg-[var(--c-action)] text-white" : "bg-[var(--c-action)] text-white hover:opacity-90"}`}>
+                  <Plus className="h-4 w-4" /> Add bay window
+                </button>
+                <button onClick={() => setPlacing({ fi, kind: "flat" })} data-testid={`fp-place-window-${fi}`}
+                  className={`flex items-center gap-1.5 h-8 px-3 rounded-sm text-[12px] font-medium border ${placing?.fi === fi && placing?.kind === "flat" ? "border-[var(--c-action)] ring-2 ring-offset-1 ring-[var(--c-action)]" : "border-border hover:bg-secondary"}`}>
+                  <Plus className="h-4 w-4" /> Add window
+                </button>
+                {placing?.fi === fi && (
+                  <span className="text-[11.5px] font-medium text-[var(--c-action)]" data-testid={`fp-place-hint-${fi}`}>
+                    Now click on the plan where it should go… <button onClick={() => setPlacing(null)} className="underline ml-1" data-testid={`fp-place-cancel-${fi}`}>cancel</button>
+                  </span>
+                )}
+              </div>
+              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} placing={placing?.fi === fi} placeKind={placing?.kind} onPlace={(wall, pos) => placeWin(fi, wall, pos)} />
               <WindowsEditor floor={f} fi={fi} addWin={addWin} delWin={delWin} setWinField={setWinField} />
             </div>
           ))}
