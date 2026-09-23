@@ -180,13 +180,12 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
         }
         return (
           <g key={wi} data-testid={`fp-window-${wi}`}>
+            <line x1={plx} y1={ply} x2={prx} y2={pry} stroke="#fff" strokeWidth="4" />
             {outer && <path d={outer} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />}
             {inner && <path d={inner} fill="none" stroke="#0055FF" strokeWidth="1" />}
-            {kind === "flat"
-              ? ((wall === "top" || wall === "bottom")
-                ? <rect x={cx - hw} y={cy - 3} width={hw * 2} height="6" fill="#fff" stroke="#0055FF" strokeWidth="1.6" />
-                : <rect x={cx - 3} y={cy - hw} width="6" height={hw * 2} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />)
-              : <line x1={plx} y1={ply} x2={prx} y2={pry} stroke="#0055FF" strokeWidth="1" />}
+            {kind === "flat" && ((wall === "top" || wall === "bottom")
+              ? <rect x={cx - hw} y={cy - 3} width={hw * 2} height="6" fill="#fff" stroke="#0055FF" strokeWidth="1.6" />
+              : <rect x={cx - 3} y={cy - hw} width="6" height={hw * 2} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />)}
             <rect x={cx - 5} y={cy - 5} width="10" height="10" rx="2" fill="#0055FF" stroke="#fff" strokeWidth="1"
               onPointerDown={startWin(wi, wall)} style={{ cursor: (wall === "top" || wall === "bottom") ? "ew-resize" : "ns-resize" }}
               data-testid={`fp-window-handle-${wi}`} />

@@ -611,18 +611,19 @@ def _render_single(d: dict):
             cx, cy, adx, ady, ndx, ndy = mx(W), my(_num(wdw.get("y"))), 0, 1, 1, 0
         else:
             continue
+        hw = max(8.0, (wln / 2) * S)
+        # cut the external wall across the opening so the building outline follows the window / bay
+        parts.append(f'<line x1="{cx-adx*hw:.1f}" y1="{cy-ady*hw:.1f}" x2="{cx+adx*hw:.1f}" y2="{cy+ady*hw:.1f}" stroke="#fff" stroke-width="3.2"/>')
         if kind in ("box", "canted", "bow"):
-            hw = max(8.0, (wln / 2) * S)
             pp = max(10.0, prj * S)
             parts.append(_bay_render(cx, cy, adx, ady, ndx, ndy, hw, pp, kind))
-            parts.append(f'<line x1="{cx-adx*hw:.1f}" y1="{cy-ady*hw:.1f}" x2="{cx+adx*hw:.1f}" y2="{cy+ady*hw:.1f}" stroke="#111" stroke-width="1"/>')
             lx, ly = cx + ndx * (pp + 22), cy + ndy * (pp + 22)
             tdy = -18 if wall == "top" else 15
         else:
             if wall in ("top", "bottom"):
-                parts.append(f'<rect x="{cx-16:.1f}" y="{cy-4:.1f}" width="32" height="8" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+                parts.append(f'<rect x="{cx-hw:.1f}" y="{cy-3:.1f}" width="{2*hw:.1f}" height="6" fill="#fff" stroke="#111" stroke-width="1.2"/>')
             else:
-                parts.append(f'<rect x="{cx-4:.1f}" y="{cy-16:.1f}" width="8" height="32" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+                parts.append(f'<rect x="{cx-3:.1f}" y="{cy-hw:.1f}" width="6" height="{2*hw:.1f}" fill="#fff" stroke="#111" stroke-width="1.2"/>')
             lx = cx + ndx * 26
             ly = cy + ndy * 26
             tdy = -18 if wall == "top" else 15
