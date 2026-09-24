@@ -1,0 +1,29 @@
+{
+  "summary": "Iter24 tested (A) backend action-item snapshot endpoints on project 5e275c28 and (B) frontend live-sync + Photos sticky header + Overview readiness sync. Backend: all four mutating endpoints (POST /items, PUT /items/{i}, PATCH /items/{i}/confirm, POST /items/confirm-all) return the required snapshot keys {itemsBeforeIssue, readiness, measures, completion}. Test item created was successfully deleted via DELETE /items/{raw_index} (index 12), leaving project unchanged. Frontend: readiness-overall (71%) shown, action-item toggle updates the Resolved/Mark as resolved state without page reload; Photos sticky header + Top + Save & Exit + photo-card-0 all present, sticky stays visible after scroll, Save & Exit navigates to /project/{id}; ProjectOverview ibi-0 toggle changes state without full reload (URL preserved, toast 'Confirmation removed' shown, QA % updated from 90% to 80% visible in screenshot).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "ProjectOverview readiness live-sync", "issue": "confirm-all-btn was NOT found on project overview page (all items already in confirmed state showed 'Undo' buttons only). Likely conditional render — verify it appears when at least one unconfirmed item exists.", "affected_selectors": ["[data-testid=confirm-all-btn]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/test_iter24_snapshot.py", "/app/test_reports/pytest/iter24.xml"],
+  "action_items": [
+    "Optional: verify data-testid=confirm-all-btn renders when there is at least one unconfirmed Item Before Issue on Overview.",
+    "Occasional 502 seen on Overview during rapid clicks (single occurrence, non-blocking) — monitor backend logs if repro."
+  ],
+  "critical_code_review_comments": [
+    "Snapshot payload consistency verified for all four mutation endpoints — good.",
+    "onItemsChange in ActionItems.jsx correctly receives the merged snapshot; IntelligencePanel updates without a refetch.",
+    "Photos sticky header is z-indexed correctly and remains visible on scroll of #ws-scroll."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter24_snapshot.py"],
+  "success_rate": {"backend": "100% (1/1 flow, 4/4 endpoints returning snapshot keys)", "frontend": "~95% (all target selectors present and functional; confirm-all-btn not visible in current state)"},
+  "test_credentials": "it@cphretrofit.co.uk (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created and deleted TEST_iter24_snapshot action item on project 5e275c28. Toggled resolved+ibi-0 states then reverted. Project state restored.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Snapshot response keys are consistently {itemsBeforeIssue, readiness, measures, completion}. Action-item added via POST expects 'text' field (not 'title'). Raw storage index differs from filtered GET index; DELETE uses raw index. For readiness-overall visual delta test, resolve multiple items to see % move noticeably — a single item may leave rounded overall unchanged.",
+  "rca of the issue": "n/a — no functional issue reproduced. Live-sync working: ItemsChange handler merges snapshot into state and IntelligencePanel/ProjectOverview reflect the change without navigation."
+}
