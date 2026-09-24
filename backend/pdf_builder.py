@@ -3133,6 +3133,19 @@ def _signoff_html(p, issued_date=""):
             f'<div class="faint" style="font-size:10px; margin-top:44px;">Date issued: {_esc(issued_date)}</div></div>')
 
 
+_NONPHOTO_KW = ("epc", "certificate", "energy performance", "energy rating",
+                "floor plan", "floorplan", "site plan", "location plan",
+                "datasheet", "scope of works", "job card", "bar chart",
+                "logo", "letterhead", "company logo", "brand mark", "brandmark")
+
+
+def _is_nonphoto_img(ph):
+    """True for images that are documents/logos rather than genuine survey photographs — these are
+    kept out of the Photographic Schedule (and cover/evidence selection)."""
+    t = ((ph.get("caption") or "") + " " + (ph.get("url") or "")).lower()
+    return any(k in t for k in _NONPHOTO_KW)
+
+
 def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_is_property=False):
     name = _esc(p.get("name") or "Project")
     town = _esc(p.get("town") or p.get("address") or "")
@@ -3284,8 +3297,9 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     # (per-measure technical specifications are built below)
 
-    # Photographic schedule (paginated, 6 per page)
-    ph_list = photo_uris or []
+    # Photographic schedule (paginated, 6 per page) — exclude logos / document scans (EPC, floor
+    # plans, datasheets etc.); those belong on the cover / in their own sections, not the schedule.
+    ph_list = [ph for ph in (photo_uris or []) if not _is_nonphoto_img(ph)]
     photo_pages = []
     if ph_list:
         for gi in range(0, len(ph_list), 6):
@@ -4309,14 +4323,7 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     _sel = photos[:48]
     _datas = await asyncio.gather(*[_uri(ph.get("url") or "") for ph in _sel])
     photo_uris = [{**ph, "data": d} for ph, d in zip(_sel, _datas)]
-    def _is_doc_img(ph):
-        cap = (ph.get("caption") or "").lower()
-        url = (ph.get("url") or "").lower()
-        t = cap + " " + url
-        return any(k in t for k in ("epc", "certificate", "energy performance", "energy rating",
-                                    "floor plan", "floorplan", "site plan", "location plan",
-                                    "datasheet", "scope of works", "job card", "bar chart"))
-    _real = [ph for ph in photo_uris if not _is_doc_img(ph)]
+    _real = [ph for ph in photo_uris if not _is_nonphoto_img(ph)]
     _DETAIL = ("window", "extractor", "fan", "socket", "meter", "loft", "shower", "boiler",
                "cylinder", "tank", "downlight", "spotlight", "vent", "hatch", "radiator",
                "fuse", "consumer unit", "purge", "trickle", "wet room", "bathroom", "kitchen")
@@ -4356,7 +4363,7 @@ async def _render_pack_html(project_id: str, origin: Optional[str] = None) -> tu
     if not hero_uri:
         _EXT_HINT = ("elevation", "external", "dpc", "front", "rear", "facade", "frontage",
                      "gable", "exterior", "dwelling", "street", "outside")
-        _all_real = [ph for ph in photos if not _is_doc_img(ph)]
+        _all_real = [ph for ph in photos if not _is_nonphoto_img(ph)]
         _pool = [ph for ph in _all_real if any(h in (ph.get("caption") or "").lower() for h in _EXT_HINT)]
         for ph in _all_real[:6]:
             if ph not in _pool:
