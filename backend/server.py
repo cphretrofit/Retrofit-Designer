@@ -812,6 +812,50 @@ def _compute_readiness(p, ds_fams=None):
     bars.append({"label": "QA", "section": "outstanding", "value": qa_val, "detail": qa_detail,
                  "done": qa_val >= 100, "missing": qa_missing[:12]})
 
+    # "Why is this being asked?" — name the measure(s) driving each readiness area so it's
+    # obvious when a requirement is (or isn't) relevant to this specific job.
+    def _mnames(pred):
+        seen, out = set(), []
+        for m in ms:
+            if pred(m):
+                nm = m.get("name") or (m.get("code") or "").upper()
+                if nm and nm not in seen:
+                    seen.add(nm)
+                    out.append(nm)
+        return out
+
+    def _join(names):
+        return ", ".join(names) if names else ""
+
+    fabric_names = _mnames(lambda m: (m.get("code") or "").upper() in _FABRIC_CODES)
+    heat_names = _mnames(lambda m: (m.get("code") or "").upper() in ("ASHP", "HEAT"))
+    vent_names = _mnames(lambda m: (m.get("code") or "").upper() == "VENT")
+    all_names = _mnames(lambda m: True)
+
+    calc_drivers = []
+    if fabric_names:
+        calc_drivers.append(f"U-values for {_join(fabric_names)}")
+    if heat_names:
+        calc_drivers.append(f"heat-loss for {_join(heat_names)}")
+    if vent_names:
+        calc_drivers.append(f"ventilation rates for {_join(vent_names)}")
+
+    whys = {
+        "Property Data": "Required for every PAS 2035 design — dwelling, age band, floor area, construction and window schedule underpin every specification.",
+        "Measures": ("Tracks the design of each measure in scope: " + _join(all_names) + ".") if all_names else "No measures are in scope yet — add the retrofit measures for this job.",
+        "Specifications": ("Every in-scope measure needs a specific product / build-up: " + _join(all_names) + ".") if all_names else "No measures in scope, so no specifications are required.",
+        "Calculations": ("Driven by " + "; ".join(calc_drivers) + ".") if calc_drivers else "No measures in scope require standalone calculations.",
+        "Junctions": ("Thermal-bridge details are required for the fabric measures in scope: " + _join(fabric_names) + ".") if fabric_names else "No fabric measures in scope, so junction details are not required.",
+        "Evidence": ("Each measure's claim needs a datasheet plus survey photos"
+                     + ((" (measures: " + _join(all_names) + ")") if all_names else "")
+                     + ". Loft-specific evidence (recessed downlights, cross-flow, loft storage, tank, ESH cable) is "
+                     + ("included because a loft / room-in-roof measure is in scope."
+                        if has_loft else "not required — no loft or room-in-roof measure is in scope.")),
+        "QA": "Every item before issue must be cleared and the design signed off before this job can be issued.",
+    }
+    for b in bars:
+        b["why"] = whys.get(b["label"], "")
+
     overall = round(sum(b["value"] for b in bars) / len(bars)) if bars else 0
     return {"overall": overall, "breakdown": bars}
 

@@ -4,6 +4,7 @@ import { getProject, confirmItem, confirmAllItems, updateField, heritageLookup, 
 import { TopBar, ReadinessRing, Meter } from "@/components/Shell";
 import { StatusChip, Field } from "@/components/StatusChip";
 import { PropertyDiagram } from "@/components/PropertyDiagram";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { toast } from "sonner";
 import {
   ArrowRight, PenTool, FileOutput, CheckCircle2, AlertTriangle, Info, Circle, MinusCircle, Layers, Camera, Loader2, Truck, Check, X, Landmark,
@@ -277,6 +278,27 @@ export default function ProjectOverview() {
                             ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" style={{ color: "var(--c-pass)" }} strokeWidth={2} />
                             : <Circle className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" strokeWidth={2} />}
                           {b.label}
+                          {b.why && (
+                            <TooltipProvider delayDuration={120}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Why is ${b.label} being asked?`}
+                                    data-testid={`readiness-why-${section}`}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center text-muted-foreground/40 hover:text-foreground transition-colors cursor-help"
+                                  >
+                                    <Info className="h-3 w-3" strokeWidth={2} />
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" align="start" className="max-w-[280px] leading-snug text-[11px] font-normal normal-case tracking-normal">
+                                  {b.why}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          )}
                         </span>
                         <span className="flex items-center gap-1.5">
                           <span className="font-mono tabular-nums">{b.value}%</span>
