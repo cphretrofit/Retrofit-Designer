@@ -1,7 +1,7 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { saveFloorplanCad } from "@/lib/api";
 import { toast } from "sonner";
-import { Loader2, Plus, Trash2, Save, Code2, Table2, Move } from "lucide-react";
+import { Loader2, Plus, Trash2, Save, Code2, Table2, Move, Undo2, Redo2 } from "lucide-react";
 
 const NUM = ["x", "y", "w", "h"];
 const WNUM = ["x", "y", "w", "proj"];
@@ -28,9 +28,21 @@ const snap = (v) => Math.round(v / GRID) * GRID;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const num = (v) => (typeof v === "number" ? v : Number(v) || 0);
 
-function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind, onPlace }) {
+function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, onDelWin, placing, placeKind, onPlace }) {
   const drag = useRef(null);
   const svgRef = useRef(null);
+  const [selWin, setSelWin] = useState(null);
+  useEffect(() => {
+    const onKey = (e) => {
+      if (selWin == null) return;
+      const t = e.target;
+      if (t && (/(INPUT|SELECT|TEXTAREA)/.test(t.tagName) || t.isContentEditable)) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); onDelWin?.(selWin); setSelWin(null); }
+      else if (e.key === "Escape") setSelWin(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selWin, onDelWin]);
   const rooms = floor.rooms || [];
   const windows = floor.windows || [];
   const roomMaxW = Math.max(1, ...rooms.map((r) => num(r.x) + num(r.w)));
@@ -63,6 +75,7 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
     e.preventDefault(); e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const w = windows[wi];
+    setSelWin(wi);
     drag.current = { kind: "win", wi, wall, sx: e.clientX, sy: e.clientY, scale, ox: num(w.x), oy: num(w.y) };
   };
   const resizeRoom = (mode, d, dxm, dym) => {
@@ -106,7 +119,8 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
   };
   const end = () => { drag.current = null; };
   const handlePlace = (e) => {
-    if (!placing || !svgRef.current) return;
+    if (!placing) { setSelWin(null); return; }
+    if (!svgRef.current) return;
     const rect = svgRef.current.getBoundingClientRect();
     const sx = (e.clientX - rect.left) * (VW / rect.width);
     const sy = (e.clientY - rect.top) * (VH / rect.height);
@@ -203,18 +217,21 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
           const ins2 = kind === "canted" ? (hw - fr) * 0.45 : 0;
           inner = `M${iLx},${iLy} L${iLx + ndx * (pp - fr) + adx * ins2},${iLy + ndy * (pp - fr) + ady * ins2} L${iRx + ndx * (pp - fr) - adx * ins2},${iRy + ndy * (pp - fr) - ady * ins2} L${iRx},${iRy}`;
         }
+        const isSel = selWin === wi;
         return (
           <g key={wi} data-testid={`fp-window-${wi}`}>
             <line x1={plx} y1={ply} x2={prx} y2={pry} stroke="#fff" strokeWidth="4" />
-            {outer && <path d={outer} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />}
-            {inner && <path d={inner} fill="none" stroke="#0055FF" strokeWidth="1" />}
+            {outer && <path d={outer} fill="#fff" stroke={isSel ? "#dc2626" : "#0055FF"} strokeWidth="1.6" />}
+            {inner && <path d={inner} fill="none" stroke={isSel ? "#dc2626" : "#0055FF"} strokeWidth="1" />}
             {kind === "flat" && ((wall === "top" || wall === "bottom")
-              ? <rect x={cx - hw} y={cy - 3} width={hw * 2} height="6" fill="#fff" stroke="#0055FF" strokeWidth="1.6" />
-              : <rect x={cx - 3} y={cy - hw} width="6" height={hw * 2} fill="#fff" stroke="#0055FF" strokeWidth="1.6" />)}
-            <rect x={cx - 5} y={cy - 5} width="10" height="10" rx="2" fill="#0055FF" stroke="#fff" strokeWidth="1"
-              onPointerDown={startWin(wi, wall)} style={{ cursor: (wall === "top" || wall === "bottom") ? "ew-resize" : "ns-resize" }}
+              ? <rect x={cx - hw} y={cy - 3} width={hw * 2} height="6" fill="#fff" stroke={isSel ? "#dc2626" : "#0055FF"} strokeWidth="1.6" />
+              : <rect x={cx - 3} y={cy - hw} width="6" height={hw * 2} fill="#fff" stroke={isSel ? "#dc2626" : "#0055FF"} strokeWidth="1.6" />)}
+            {isSel && <circle cx={cx} cy={cy} r="9.5" fill="none" stroke="#dc2626" strokeWidth="1.4" strokeDasharray="2.5 2" />}
+            <rect x={cx - 5} y={cy - 5} width="10" height="10" rx="2" fill={isSel ? "#dc2626" : "#0055FF"} stroke="#fff" strokeWidth="1"
+              onPointerDown={startWin(wi, wall)} onClick={(e) => { e.stopPropagation(); setSelWin(wi); }}
+              style={{ cursor: (wall === "top" || wall === "bottom") ? "ew-resize" : "ns-resize" }}
               data-testid={`fp-window-handle-${wi}`} />
-            <text x={cx + ndx * (pp + 13)} y={cy + ndy * (pp + 13) + 3} textAnchor="middle" fontSize="9" fontWeight="700" fill="#0055FF" style={{ pointerEvents: "none" }}>{w.label || `W${wi + 1}`}</text>
+            <text x={cx + ndx * (pp + 13)} y={cy + ndy * (pp + 13) + 3} textAnchor="middle" fontSize="9" fontWeight="700" fill={isSel ? "#dc2626" : "#0055FF"} style={{ pointerEvents: "none" }}>{w.label || `W${wi + 1}`}</text>
           </g>
         );
       })}
@@ -233,6 +250,48 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [placing, setPlacing] = useState(null);
 
+  // Undo / redo history for the geometry (Ctrl+Z / Shift+Ctrl+Z). Snapshots the `floors` state.
+  const hist = useRef({ past: [], future: [], last: undefined, skip: false });
+  const [canHist, setCanHist] = useState({ u: false, r: false });
+  const syncHist = () => setCanHist({ u: hist.current.past.length > 0, r: hist.current.future.length > 0 });
+  useEffect(() => {
+    const h = hist.current;
+    if (h.skip) { h.skip = false; h.last = floors; return; }
+    if (h.last !== undefined && h.last !== floors) {
+      h.past.push(h.last);
+      if (h.past.length > 100) h.past.shift();
+      h.future = [];
+      syncHist();
+    }
+    h.last = floors;
+  }, [floors]);
+  const undo = () => {
+    const h = hist.current;
+    if (!h.past.length) return;
+    const prev = h.past.pop();
+    h.future.push(h.last);
+    h.skip = true; h.last = prev;
+    setFloors(prev); setPlacing(null); syncHist();
+  };
+  const redo = () => {
+    const h = hist.current;
+    if (!h.future.length) return;
+    const next = h.future.pop();
+    h.past.push(h.last);
+    h.skip = true; h.last = next;
+    setFloors(next); setPlacing(null); syncHist();
+  };
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+      const t = e.target;
+      if (t && (/(INPUT|SELECT|TEXTAREA)/.test(t.tagName) || t.isContentEditable)) return;
+      e.preventDefault();
+      if (e.shiftKey) redo(); else undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const patchRoom = (fi, ri, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : {
     ...f, rooms: (f.rooms || []).map((r, j) => (j !== ri ? r : { ...r, ...patch })),
   })));
@@ -296,6 +355,11 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="text-[13px] font-medium">Edit floor-plan geometry</div>
         <div className="flex items-center gap-2">
+          <button onClick={undo} disabled={!canHist.u} data-testid="fp-undo" title="Undo (Ctrl+Z)"
+            className="flex items-center gap-1 h-7 px-2.5 rounded-sm border border-border text-[11.5px] hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"><Undo2 className="h-3.5 w-3.5" /> Undo</button>
+          <button onClick={redo} disabled={!canHist.r} data-testid="fp-redo" title="Redo (Shift+Ctrl+Z)"
+            className="flex items-center gap-1 h-7 px-2.5 rounded-sm border border-border text-[11.5px] hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed"><Redo2 className="h-3.5 w-3.5" /> Redo</button>
+          <span className="w-px h-5 bg-border mx-0.5" />
           <Tab id="visual" icon={Move} label="Visual" />
           <Tab id="form" icon={Table2} label="Rooms" />
           <Tab id="json" icon={Code2} label="Raw JSON" />
@@ -305,7 +369,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
       {mode === "visual" && (
         <div className="space-y-4">
           <div className="text-[11.5px] text-muted-foreground flex items-center gap-1.5">
-            <Move className="h-3.5 w-3.5" /> To add a window or bay, click <strong>Add bay window</strong> below, then click on the plan where it should go — it snaps to the nearest wall. Drag a room wall/corner to reshape, a room body to move it, the outer blue walls to resize, or a blue window marker to slide it. Snaps to 5&thinsp;cm.
+            <Move className="h-3.5 w-3.5" /> To add a window or bay, click <strong>Add bay window</strong> below, then click on the plan where it should go — it snaps to the nearest wall. Drag a room wall/corner to reshape, a room body to move it, the outer blue walls to resize, or a blue window marker to slide it. Click a marker then press <strong>Delete</strong> to remove it; <strong>Ctrl</strong>+<strong>Z</strong> to undo, <strong>Shift</strong>+<strong>Ctrl</strong>+<strong>Z</strong> to redo. Snaps to 5&thinsp;cm.
           </div>
           {floors.map((f, fi) => (
             <div key={fi} data-testid={`fp-visual-floor-${fi}`}>
@@ -327,7 +391,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
                   )}
                 </div>
               </div>
-              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} placing={placing?.fi === fi} placeKind={placing?.kind} onPlace={(wall, pos, perp) => placeWin(fi, wall, pos, perp)} />
+              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} onDelWin={(wi) => delWin(fi, wi)} placing={placing?.fi === fi} placeKind={placing?.kind} onPlace={(wall, pos, perp) => placeWin(fi, wall, pos, perp)} />
               <WindowsEditor floor={f} fi={fi} addWin={addWin} delWin={delWin} setWinField={setWinField} />
             </div>
           ))}
