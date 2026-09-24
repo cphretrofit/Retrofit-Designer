@@ -60,23 +60,37 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, onDelWin, placing,
   const CH = oh * scale;
   const VW = CW + PAD * 2, VH = CH + PAD * 2;
 
+  const toModel = (clientX, clientY) => {
+    const svg = svgRef.current;
+    const ctm = svg && svg.getScreenCTM && svg.getScreenCTM();
+    if (ctm) {
+      const pt = svg.createSVGPoint(); pt.x = clientX; pt.y = clientY;
+      const loc = pt.matrixTransform(ctm.inverse());
+      return { mx: (loc.x - PAD) / scale, my: (loc.y - PAD) / scale };
+    }
+    const rect = svg.getBoundingClientRect();
+    return { mx: ((clientX - rect.left) * (VW / rect.width) - PAD) / scale, my: ((clientY - rect.top) * (VH / rect.height) - PAD) / scale };
+  };
   const startRoom = (ri, mode) => (e) => {
     e.preventDefault(); e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const r = rooms[ri];
-    drag.current = { kind: "room", ri, mode, sx: e.clientX, sy: e.clientY, scale, ox: num(r.x), oy: num(r.y), ow: num(r.w), oh: num(r.h) };
+    const p = toModel(e.clientX, e.clientY);
+    drag.current = { kind: "room", ri, mode, mx0: p.mx, my0: p.my, ox: num(r.x), oy: num(r.y), ow: num(r.w), oh: num(r.h) };
   };
   const startWall = (mode) => (e) => {
     e.preventDefault(); e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    drag.current = { kind: "wall", mode, sx: e.clientX, sy: e.clientY, scale, ovw: ow, ovh: oh };
+    const p = toModel(e.clientX, e.clientY);
+    drag.current = { kind: "wall", mode, mx0: p.mx, my0: p.my, ovw: ow, ovh: oh };
   };
   const startWin = (wi, wall) => (e) => {
     e.preventDefault(); e.stopPropagation();
     e.currentTarget.setPointerCapture?.(e.pointerId);
     const w = windows[wi];
     setSelWin(wi);
-    drag.current = { kind: "win", wi, wall, sx: e.clientX, sy: e.clientY, scale, ox: num(w.x), oy: num(w.y) };
+    const p = toModel(e.clientX, e.clientY);
+    drag.current = { kind: "win", wi, wall, mx0: p.mx, my0: p.my, ox: num(w.x), oy: num(w.y) };
   };
   const resizeRoom = (mode, d, dxm, dym) => {
     const MIN = 0.3;
@@ -98,8 +112,9 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, onDelWin, placing,
   const move = (e) => {
     const d = drag.current;
     if (!d) return;
-    const dxm = (e.clientX - d.sx) / d.scale;
-    const dym = (e.clientY - d.sy) / d.scale;
+    const p = toModel(e.clientX, e.clientY);
+    const dxm = p.mx - d.mx0;
+    const dym = p.my - d.my0;
     if (d.kind === "wall") {
       const patch = {};
       if (d.mode.includes("w")) patch.w = Number(clamp(snap(d.ovw + dxm), roomMaxW, 60).toFixed(2));
@@ -121,10 +136,7 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, onDelWin, placing,
   const handlePlace = (e) => {
     if (!placing) { setSelWin(null); return; }
     if (!svgRef.current) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const sx = (e.clientX - rect.left) * (VW / rect.width);
-    const sy = (e.clientY - rect.top) * (VH / rect.height);
-    const mx = (sx - PAD) / scale, my = (sy - PAD) / scale;
+    const { mx, my } = toModel(e.clientX, e.clientY);
     // Snap to the nearest ACTUAL room edge (handles L-shaped buildings), remembering the exact wall
     // line (perpendicular offset) so the window sits on that specific wall, not a global bounding edge.
     let best = null;
