@@ -611,13 +611,17 @@ def _render_single(d: dict):
         wln = _num(wdw.get("w")) or 1.2
         prj = _num(wdw.get("proj")) or 0.5
         if wall == "top":
-            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_by0), 1, 0, 0, -1
+            _wy = wdw.get("wy")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_num(_wy) if _wy not in (None, "") else _by0), 1, 0, 0, -1
         elif wall == "bottom":
-            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_by1), 1, 0, 0, 1
+            _wy = wdw.get("wy")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_num(_wy) if _wy not in (None, "") else _by1), 1, 0, 0, 1
         elif wall == "left":
-            cx, cy, adx, ady, ndx, ndy = mx(_bx0), my(_num(wdw.get("y"))), 0, 1, -1, 0
+            _wx = wdw.get("wx")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(_wx) if _wx not in (None, "") else _bx0), my(_num(wdw.get("y"))), 0, 1, -1, 0
         elif wall == "right":
-            cx, cy, adx, ady, ndx, ndy = mx(_bx1), my(_num(wdw.get("y"))), 0, 1, 1, 0
+            _wx = wdw.get("wx")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(_wx) if _wx not in (None, "") else _bx1), my(_num(wdw.get("y"))), 0, 1, 1, 0
         else:
             continue
         hw = max(8.0, (wln / 2) * S)

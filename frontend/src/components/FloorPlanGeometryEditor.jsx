@@ -111,11 +111,30 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
     const sx = (e.clientX - rect.left) * (VW / rect.width);
     const sy = (e.clientY - rect.top) * (VH / rect.height);
     const mx = (sx - PAD) / scale, my = (sy - PAD) / scale;
-    const dists = [["top", Math.abs(my - by0)], ["bottom", Math.abs(my - by1)], ["left", Math.abs(mx - bx0)], ["right", Math.abs(mx - bx1)]];
-    dists.sort((a, b) => a[1] - b[1]);
-    const wall = dists[0][0];
-    const pos = (wall === "left" || wall === "right") ? clamp(my, by0, by1) : clamp(mx, bx0, bx1);
-    onPlace(wall, pos);
+    // Snap to the nearest ACTUAL room edge (handles L-shaped buildings), remembering the exact wall
+    // line (perpendicular offset) so the window sits on that specific wall, not a global bounding edge.
+    let best = null;
+    for (const r of rooms) {
+      const rx = num(r.x), ry = num(r.y), rw = num(r.w), rh = num(r.h);
+      const inX = mx >= rx - 0.5 && mx <= rx + rw + 0.5;
+      const inY = my >= ry - 0.5 && my <= ry + rh + 0.5;
+      const cand = [
+        { wall: "top", perp: ry, along: clamp(mx, rx, rx + rw), d: Math.abs(my - ry) + (inX ? 0 : 5) },
+        { wall: "bottom", perp: ry + rh, along: clamp(mx, rx, rx + rw), d: Math.abs(my - (ry + rh)) + (inX ? 0 : 5) },
+        { wall: "left", perp: rx, along: clamp(my, ry, ry + rh), d: Math.abs(mx - rx) + (inY ? 0 : 5) },
+        { wall: "right", perp: rx + rw, along: clamp(my, ry, ry + rh), d: Math.abs(mx - (rx + rw)) + (inY ? 0 : 5) },
+      ];
+      for (const c of cand) if (!best || c.d < best.d) best = c;
+    }
+    if (!best) {
+      const dists = [["top", Math.abs(my - by0), by0], ["bottom", Math.abs(my - by1), by1], ["left", Math.abs(mx - bx0), bx0], ["right", Math.abs(mx - bx1), bx1]];
+      dists.sort((a, b) => a[1] - b[1]);
+      const wall = dists[0][0];
+      const pos = (wall === "left" || wall === "right") ? clamp(my, by0, by1) : clamp(mx, bx0, bx1);
+      onPlace(wall, pos, dists[0][2]);
+      return;
+    }
+    onPlace(best.wall, best.along, best.perp);
   };
 
   return (
@@ -166,10 +185,10 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
         const hw = Math.max(6, (num(w.w) || 1.2) / 2 * scale);
         const pp = Math.max(8, (num(w.proj) || 0.5) * scale);
         let cx, cy, adx, ady, ndx, ndy;
-        if (wall === "top") { cx = PAD + num(w.x) * scale; cy = PAD + by0 * scale; adx = 1; ady = 0; ndx = 0; ndy = -1; }
-        else if (wall === "bottom") { cx = PAD + num(w.x) * scale; cy = PAD + by1 * scale; adx = 1; ady = 0; ndx = 0; ndy = 1; }
-        else if (wall === "left") { cx = PAD + bx0 * scale; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = -1; ndy = 0; }
-        else { cx = PAD + bx1 * scale; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = 1; ndy = 0; }
+        if (wall === "top") { cx = PAD + num(w.x) * scale; cy = PAD + (w.wy != null && w.wy !== "" ? num(w.wy) : by0) * scale; adx = 1; ady = 0; ndx = 0; ndy = -1; }
+        else if (wall === "bottom") { cx = PAD + num(w.x) * scale; cy = PAD + (w.wy != null && w.wy !== "" ? num(w.wy) : by1) * scale; adx = 1; ady = 0; ndx = 0; ndy = 1; }
+        else if (wall === "left") { cx = PAD + (w.wx != null && w.wx !== "" ? num(w.wx) : bx0) * scale; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = -1; ndy = 0; }
+        else { cx = PAD + (w.wx != null && w.wx !== "" ? num(w.wx) : bx1) * scale; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = 1; ndy = 0; }
         const plx = cx - adx * hw, ply = cy - ady * hw, prx = cx + adx * hw, pry = cy + ady * hw;
         const fr = Math.max(2, Math.min(5, pp * 0.28));
         let outer = null, inner = null;
@@ -223,7 +242,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
   const delRoom = (fi, ri) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, rooms: (f.rooms || []).filter((_, j) => j !== ri) })));
   const patchOverall = (fi, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, overall: { ...(f.overall || {}), ...patch } })));
   const patchWin = (fi, wi, patch) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, windows: (f.windows || []).map((w, j) => (j !== wi ? w : { ...w, ...patch })) })));
-  const setWinField = (fi, wi, key, val) => patchWin(fi, wi, { [key]: WNUM.includes(key) ? (val === "" ? "" : Number(val)) : val });
+  const setWinField = (fi, wi, key, val) => patchWin(fi, wi, key === "wall" ? { wall: val, wx: undefined, wy: undefined } : { [key]: WNUM.includes(key) ? (val === "" ? "" : Number(val)) : val });
   const addWin = (fi) => setFloors((fs) => fs.map((f, i) => {
     if (i !== fi) return f;
     const ws = f.windows || [];
@@ -231,13 +250,14 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
     return { ...f, windows: [...ws, { wall: "top", x: Number((w / 2).toFixed(2)), w: 1.5, bay: "box", proj: 0.6, label: `W${ws.length + 1}` }] };
   }));
   const delWin = (fi, wi) => setFloors((fs) => fs.map((f, i) => (i !== fi ? f : { ...f, windows: (f.windows || []).filter((_, j) => j !== wi) })));
-  const placeWin = (fi, wall, pos) => {
+  const placeWin = (fi, wall, pos, perp) => {
     const kind = placing?.kind || "box";
     setFloors((fs) => fs.map((f, i) => {
       if (i !== fi) return f;
       const ws = f.windows || [];
       const w = { wall, w: 1.5, bay: kind, proj: kind === "flat" ? 0 : 0.6, label: `W${ws.length + 1}` };
-      if (wall === "left" || wall === "right") w.y = Number(pos.toFixed(2)); else w.x = Number(pos.toFixed(2));
+      if (wall === "left" || wall === "right") { w.y = Number(pos.toFixed(2)); if (perp != null) w.wx = Number(perp.toFixed(2)); }
+      else { w.x = Number(pos.toFixed(2)); if (perp != null) w.wy = Number(perp.toFixed(2)); }
       return { ...f, windows: [...ws, w] };
     }));
     setPlacing(null);
@@ -307,7 +327,7 @@ export function FloorPlanGeometryEditor({ projectId, cadData, onSaved }) {
                   )}
                 </div>
               </div>
-              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} placing={placing?.fi === fi} placeKind={placing?.kind} onPlace={(wall, pos) => placeWin(fi, wall, pos)} />
+              <FloorCanvas floor={f} onPatch={(ri, patch) => patchRoom(fi, ri, patch)} onOverall={(patch) => patchOverall(fi, patch)} onPatchWin={(wi, patch) => patchWin(fi, wi, patch)} placing={placing?.fi === fi} placeKind={placing?.kind} onPlace={(wall, pos, perp) => placeWin(fi, wall, pos, perp)} />
               <WindowsEditor floor={f} fi={fi} addWin={addWin} delWin={delWin} setWinField={setWinField} />
             </div>
           ))}
