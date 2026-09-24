@@ -278,6 +278,20 @@ export default function DesignWorkspace() {
         const coverThumb = p.coverPhotoUrl ? mediaUrl(p.coverPhotoUrl) : (photos.find((x) => x.isMain) ? mediaUrl(photos.find((x) => x.isMain).url) : null);
         return (
           <div className="anim-in">
+            <div className="sticky top-0 z-20 -mx-7 px-7 mb-4 bg-surface/95 backdrop-blur-sm border-b border-border" data-testid="photos-sticky-header">
+              <div className="flex items-center justify-between gap-3 py-2.5">
+                <div className="min-w-0">
+                  <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Photo Library</div>
+                  <div className="text-[11.5px] text-muted-foreground/80 truncate">Curate the pack photos — changes save automatically.</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={() => document.getElementById("ws-scroll")?.scrollTo({ top: 0, behavior: "smooth" })} data-testid="photos-back-to-top"
+                    className="flex items-center gap-1.5 text-[12px] px-2.5 h-8 rounded-sm border border-border text-muted-foreground hover:bg-secondary transition-colors"><ChevronUp className="h-3.5 w-3.5" strokeWidth={1.75} /> Top</button>
+                  <button onClick={() => navigate(`/project/${id}`)} data-testid="photos-save-exit"
+                    className="flex items-center gap-1.5 text-[12px] px-3 h-8 rounded-sm bg-primary text-primary-foreground hover:opacity-90 transition-opacity"><CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.75} /> Save &amp; Exit</button>
+                </div>
+              </div>
+            </div>
             <div className="border border-border rounded-sm bg-card p-3 mb-4" data-testid="cover-photo-card">
               <div className="flex items-center gap-4">
                 <div className="min-w-0 flex-1">
@@ -315,8 +329,8 @@ export default function DesignWorkspace() {
                     className={cn("border rounded-sm bg-card overflow-hidden transition-opacity cursor-grab active:cursor-grabbing", inc ? "border-border" : "border-dashed border-border opacity-50", dragIdx === i && "ring-1 ring-[var(--c-action)]")}
                     data-testid={`photo-card-${i}`}
                   >
-                    <div className="aspect-[4/3] overflow-hidden relative">
-                      <img src={mediaUrl(ph.url)} alt={ph.caption} className="w-full h-full object-cover pointer-events-none" />
+                    <div className="aspect-[4/3] overflow-hidden relative bg-neutral-100">
+                      <img src={thumbUrl(ph.url)} alt={ph.caption} loading="lazy" decoding="async" className="w-full h-full object-cover pointer-events-none opacity-0 transition-opacity duration-300" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} />
                       {ph.isMain && (
                         <div className="absolute top-2 left-2 flex items-center gap-1 bg-primary text-primary-foreground text-[9.5px] font-medium uppercase tracking-[0.08em] px-1.5 py-0.5 rounded-sm" data-testid={`photo-main-badge-${i}`}>
                           <Star className="h-3 w-3 fill-current" strokeWidth={0} /> Main
@@ -734,7 +748,7 @@ export default function DesignWorkspace() {
         )}
 
         {/* Center */}
-        <main className="flex-1 overflow-y-auto thin-scroll">
+        <main id="ws-scroll" className="flex-1 overflow-y-auto thin-scroll">
           <div className="max-w-[900px] mx-auto px-7 py-6">
             <div className="flex items-center justify-between mb-5">
               <div>
@@ -748,7 +762,7 @@ export default function DesignWorkspace() {
         </main>
 
         {/* Right intelligence */}
-        <IntelligencePanel p={p} measure={activeMeasure} onOpen={setSection} onItemsChange={(items) => setP((prev) => ({ ...prev, itemsBeforeIssue: items }))} />
+        <IntelligencePanel p={p} measure={activeMeasure} onOpen={setSection} onItemsChange={(items, extra) => setP((prev) => ({ ...prev, itemsBeforeIssue: items, ...(extra?.readiness ? { readiness: extra.readiness } : {}), ...(extra?.measures ? { measures: extra.measures } : {}), ...(extra?.completion != null ? { completion: extra.completion } : {}) }))} />
       </div>
     </div>
   );

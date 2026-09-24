@@ -745,11 +745,15 @@ def _default_junctions(fam):
 
 
 PACK_CSS = """
-@page { size: A4; margin: 0 0 12mm 0; @bottom-left { content: element(docfoot); padding-left: 18mm; border-top: 1px solid #e5e5e5; } @bottom-right { content: counter(page) " / " counter(pages); padding-right: 18mm; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
+@page { size: A4; margin: 16mm 0 16mm 0; @bottom-left { content: element(docfoot); padding-left: 18mm; border-top: 1px solid #e5e5e5; } @bottom-right { content: counter(page) " / " counter(pages); padding-right: 18mm; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
 @page :first { margin: 0; @bottom-left { content: none; border-top: none; } @bottom-right { content: none; border-top: none; } }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter','Helvetica Neue','DejaVu Sans',sans-serif; color: #171717; font-size: 12px; line-height: 1.45; }
-.page { position: relative; width: 210mm; min-height: 285mm; padding: 18mm 18mm 12mm; page-break-after: always; }
+/* Vertical spacing (top/bottom) comes from the @page margins so EVERY physical sheet — including
+   overflow/continuation pages — gets identical breathing room and content is never cut off at the
+   top edge or under the footer. .page only supplies the 18mm side gutters for print. The rigid
+   full-height "slide" look (min-height + inner padding) is applied for on-screen preview only. */
+.page { position: relative; width: 210mm; padding: 0 18mm; page-break-after: always; }
 .docref { position: running(docfoot); font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; }
 .screen-foot { display: none; }
 @media screen { .screen-foot { display: flex; justify-content: space-between; align-items: center; position: absolute; left: 18mm; right: 18mm; bottom: 4mm; padding-top: 4px; border-top: 1px solid #e5e5e5; font-family: 'JetBrains Mono','DejaVu Sans Mono',monospace; font-size: 8px; color: #a3a3a3; } }
@@ -771,7 +775,8 @@ td { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 11px; }
 .pass { color: #16A34A; } .warn { color: #B45309; }
 @media screen {
   body { background: #52525b; padding: 28px 0; }
-  .page { background: #fff; margin: 0 auto 28px; box-shadow: 0 4px 24px rgba(0,0,0,0.28); }
+  .page { background: #fff; margin: 0 auto 28px; min-height: 285mm; padding: 18mm 18mm 16mm; box-shadow: 0 4px 24px rgba(0,0,0,0.28); }
+  .page.cover-bleed { padding: 0; min-height: 297mm; }
   .docref { display: none; }
 }
 """
@@ -4770,9 +4775,17 @@ def _prep_xlsx_for_print(data):
         return data
 
 
+_OFFICE_PDF_CACHE = {}
+
+
 def _office_to_pdf(data, ext):
-    """Convert an Office document (xlsx/xls/docx/doc/ods/odt) to PDF via LibreOffice headless."""
-    import tempfile, subprocess, os, glob
+    """Convert an Office document (xlsx/xls/docx/doc/ods/odt) to PDF via LibreOffice headless.
+    Results are cached in-process keyed by the original bytes, so repeat pack builds that reuse the
+    same appendix documents skip the (slow) LibreOffice conversion entirely."""
+    import tempfile, subprocess, os, glob, hashlib
+    _key = (ext.lower(), hashlib.sha256(data).hexdigest())
+    if _key in _OFFICE_PDF_CACHE:
+        return _OFFICE_PDF_CACHE[_key]
     if ext.lower() == "xlsx":
         data = _prep_xlsx_for_print(data)
     for binname in ("soffice", "libreoffice"):
@@ -4786,7 +4799,11 @@ def _office_to_pdf(data, ext):
                 outs = glob.glob(os.path.join(td, "*.pdf"))
                 if outs:
                     with open(outs[0], "rb") as f:
-                        return f.read()
+                        result = f.read()
+                    if len(_OFFICE_PDF_CACHE) > 64:
+                        _OFFICE_PDF_CACHE.clear()
+                    _OFFICE_PDF_CACHE[_key] = result
+                    return result
         except Exception as e:
             logger.warning("office->pdf via %s failed: %s", binname, e)
     return None

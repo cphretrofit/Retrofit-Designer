@@ -1252,6 +1252,9 @@ async def get_project(project_id: str, request: Request):
         if _m.get("outstanding"):
             _m["outstanding"] = [o for o in _m["outstanding"] if not _is_handover_item(o)]
     _apply_measure_progress(doc)
+    _mcomps = [m.get("completion") for m in (doc.get("measures") or []) if isinstance(m.get("completion"), (int, float))]
+    if _mcomps:
+        doc["completion"] = round(sum(_mcomps) / len(_mcomps))
     doc["readiness"] = _compute_readiness(doc, _datasheet_families(doc, _ds_files))
     # Auto-orient the plan compass from the assessment's stated orientation (one-time, persisted).
     _fp = doc.get("floorPlan") or {}
@@ -2895,7 +2898,8 @@ async def confirm_item(project_id: str, index: int, payload: ItemConfirm):
         items[index].pop("confirmedBy", None)
         items[index].pop("confirmedAt", None)
     await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
-    return {"itemsBeforeIssue": items}
+    _snap = await _project_snapshot(project_id)
+    return {"itemsBeforeIssue": items, **_snap}
 
 
 class ActionUpdate(BaseModel):
@@ -2932,7 +2936,8 @@ async def update_action_item(project_id: str, index: int, payload: ActionUpdate)
     it["actionedAt"] = datetime.now(timezone.utc).isoformat()
     items[index] = it
     await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
-    return {"itemsBeforeIssue": items}
+    _snap = await _project_snapshot(project_id)
+    return {"itemsBeforeIssue": items, **_snap}
 
 
 class ActionCreate(BaseModel):
@@ -2956,7 +2961,8 @@ async def add_action_item(project_id: str, payload: ActionCreate):
     items.append({"text": text, "measure": (payload.measure or "").strip() or "General",
                   "severity": sev, "custom": True})
     await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
-    return {"itemsBeforeIssue": items}
+    _snap = await _project_snapshot(project_id)
+    return {"itemsBeforeIssue": items, **_snap}
 
 
 @api_router.delete("/projects/{project_id}/items/{index}")
@@ -2972,7 +2978,8 @@ async def delete_action_item(project_id: str, index: int):
         raise HTTPException(status_code=422, detail="Only custom actions can be deleted")
     items.pop(index)
     await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
-    return {"itemsBeforeIssue": items}
+    _snap = await _project_snapshot(project_id)
+    return {"itemsBeforeIssue": items, **_snap}
 
 
 class DefectIn(BaseModel):
@@ -3600,7 +3607,8 @@ async def confirm_all_items(project_id: str, payload: Optional[ItemConfirm] = No
             it.pop("confirmedBy", None)
             it.pop("confirmedAt", None)
     await db.projects.update_one({"id": project_id}, {"$set": {"itemsBeforeIssue": items}})
-    return {"itemsBeforeIssue": items}
+    _snap = await _project_snapshot(project_id)
+    return {"itemsBeforeIssue": items, **_snap}
 
 
 @api_router.put("/projects/{project_id}/photos")
@@ -3797,9 +3805,49 @@ async def _compute_full_readiness(project_id):
     return readiness, signed
 
 
+async def _project_snapshot(project_id):
+    """Freshly recomputed readiness + per-measure completion, mirroring get_project. Returned by the
+    action-item endpoints so the UI can live-update the QA bar, overall readiness and completion
+    without a full page refresh."""
+    doc = await db.projects.find_one({"id": project_id}, {"_id": 0})
+    if not doc:
+        return {}
+    _ensure_uvalues(doc)
+    try:
+        _has_solar, _survey_missing = await _solar_survey_state(project_id, doc.get("measures"))
+        if _survey_missing:
+            _items = list(doc.get("itemsBeforeIssue") or [])
+            if not any(isinstance(it, dict) and it.get("id") == "auto-solar-survey" for it in _items):
+                _items.insert(0, {"id": "auto-solar-survey", "text": "Solar technical survey not yet received",
+                                  "measure": "Solar PV", "severity": "warning", "auto": True})
+            doc["itemsBeforeIssue"] = _items
+    except Exception:
+        pass
+    _ds_files = [(x.get("original_filename") or "").lower() for x in
+                 await db.documents.find({"project_id": project_id, "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                         {"_id": 0, "original_filename": 1}).to_list(100)]
+    _cname = (doc.get("client") or "").strip()
+    if _cname:
+        _cl = await db.clients.find_one({"name": {"$regex": f"^{re.escape(_cname)}$", "$options": "i"}}, {"id": 1})
+        if _cl:
+            _ds_files += [(x.get("original_filename") or "").lower() for x in
+                          await db.documents.find({"client_id": _cl["id"], "doc_type": "Datasheet", "is_deleted": {"$ne": True}},
+                                                  {"_id": 0, "original_filename": 1}).to_list(200)]
+    _auto_resolve_datasheet_items(doc, _ds_files)
+    from pdf_builder import _is_handover_item
+    doc["itemsBeforeIssue"] = [it for it in (doc.get("itemsBeforeIssue") or [])
+                               if not _is_handover_item(it.get("text") if isinstance(it, dict) else it)]
+    _apply_measure_progress(doc)
+    readiness = _compute_readiness(doc, _datasheet_families(doc, _ds_files))
+    measures = doc.get("measures") or []
+    comps = [m.get("completion") for m in measures if isinstance(m.get("completion"), (int, float))]
+    completion = round(sum(comps) / len(comps)) if comps else doc.get("completion", 0)
+    return {"readiness": readiness, "measures": measures, "completion": completion}
+
+
 @api_router.post("/projects/{project_id}/pack/generate")
 async def start_pack_job(project_id: str, origin: Optional[str] = Query(None)):
-    p = await db.projects.find_one({"id": project_id}, {"_id": 0, "id": 1})
+    p = await db.projects.find_one({"id": project_id}, {"_id": 0})
     if not p:
         raise HTTPException(status_code=404, detail="Project not found")
     readiness, signed = await _compute_full_readiness(project_id)
@@ -3809,6 +3857,14 @@ async def start_pack_job(project_id: str, origin: Optional[str] = Query(None)):
             parts = list(incomplete) + ([] if signed else ["design sign-off"])
             raise HTTPException(status_code=422, detail=f"Design not ready to issue — complete: {', '.join(parts)}")
     job_id = str(uuid.uuid4())
+    # Instant re-export: if a pack was already built and nothing that affects it has changed since,
+    # serve the cached PDF immediately instead of rebuilding from scratch.
+    if p.get("packPath") and _pack_content_hash(p) == p.get("packHash"):
+        await db.pack_jobs.insert_one({"id": job_id, "_id": job_id, "project_id": project_id,
+            "status": "done", "progress": 100, "stage": "Ready (cached)",
+            "path": p["packPath"], "filename": p.get("packFilename") or "design-pack.pdf",
+            "error": None, "created_at": datetime.now(timezone.utc).isoformat()})
+        return {"job_id": job_id}
     await db.pack_jobs.insert_one({"id": job_id, "_id": job_id, "project_id": project_id,
         "status": "queued", "progress": 0, "stage": "Queued", "path": None, "filename": None,
         "error": None, "created_at": datetime.now(timezone.utc).isoformat()})

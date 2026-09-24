@@ -56,7 +56,7 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
     setSaving(true);
     try {
       const r = await updateActionItem(pid, a._i, patch);
-      onItemsChange(r.itemsBeforeIssue);
+      onItemsChange(r.itemsBeforeIssue, r);
     } catch (e) {
       toast.error("Could not save action", { description: e?.response?.data?.detail });
     } finally { setSaving(false); }
@@ -68,7 +68,7 @@ function ActionRow({ pid, act, measureCodes, onOpen, onItemsChange }) {
   const dismiss = async () => { await persist({ dismissed: true }); toast.success("Item dismissed as N/A"); };
   const restore = async () => { await persist({ dismissed: false }); toast.success("Item restored"); };
   const remove = async () => {
-    try { const r = await deleteActionItem(pid, a._i); onItemsChange(r.itemsBeforeIssue); toast.success("Action removed"); }
+    try { const r = await deleteActionItem(pid, a._i); onItemsChange(r.itemsBeforeIssue, r); toast.success("Action removed"); }
     catch (e) { toast.error("Could not remove", { description: e?.response?.data?.detail }); }
   };
 
@@ -204,7 +204,7 @@ export function ActionItems({ p, measure, onOpen, onItemsChange }) {
     setBusy(true);
     try {
       const r = await addActionItem(p.id, { text, measure: measure ? measure.code : "General", severity: newSev });
-      onItemsChange(r.itemsBeforeIssue);
+      onItemsChange(r.itemsBeforeIssue, r);
       setNewText(""); setNewSev("info_required"); setAdding(false); setShowList(true);
       toast.success("Action added");
     } catch (e) {
