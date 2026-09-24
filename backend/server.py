@@ -764,9 +764,16 @@ def _compute_readiness(p, ds_fams=None):
                 j_missing.append(m.get("name") or m.get("code"))
     bars.append(_rd_frac_bar("Junctions", "junctions", j_pass, j_total, j_missing, "junction set"))
 
-    # Evidence — every claim backed by a photo or datasheet
+    # Evidence — every claim backed by a photo or datasheet.
+    # Loft-specific site conditions (downlights, cross-flow, loft storage, tank, ESH cable) are only
+    # relevant when a loft/room-in-roof insulation measure is in scope — otherwise don't require them.
+    has_loft = any((m.get("code") or "").upper() in ("LOFT", "RIR", "RIRI")
+                   or "loft" in (m.get("name") or "").lower() for m in ms)
+    _LOFT_EV_KEYS = {"loft_storage", "esh_cable_over_insulation", "downlights", "loft_crossflow", "loft_tank"}
     e_pass, e_total, e_missing = 0, 0, []
     for e in ev:
+        if not has_loft and (e.get("key") in _LOFT_EV_KEYS):
+            continue
         e_total += 1
         if e.get("url") or e.get("photos") or e.get("_data") or e.get("na"):
             e_pass += 1
