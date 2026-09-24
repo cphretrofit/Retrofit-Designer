@@ -152,38 +152,40 @@ export function MeasureEvidence({ projectId, mi, m, onSaveField }) {
       </div>
 
       {pick && (
-        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="evidence-photo-picker" onClick={() => setPick(false)}>
-          <div className="max-w-4xl w-full mx-auto flex items-center justify-between mb-4" onClick={(e) => e.stopPropagation()}>
-            <div>
-              <div className="text-[14px] font-medium">Attach an evidence photo</div>
-              <div className="text-[11.5px] text-muted-foreground mt-0.5">Pick any survey photo from the photopack, or upload one from your device.</div>
+        <div className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-sm flex flex-col p-6" data-testid="evidence-photo-picker" onClick={() => setPick(false)}>
+          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto pb-2" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="evidence-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
+            <div className="sticky top-0 z-[3] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-3 py-2.5 mb-3 border-b border-border">
+              <div className="min-w-0">
+                <div className="text-[14px] font-medium">Attach an evidence photo</div>
+                <div className="text-[11.5px] text-muted-foreground mt-0.5 truncate">Pick any survey photo from the photopack, or upload one from your device. Saves automatically.</div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => fileRef.current?.click()} data-testid="evidence-picker-upload"
+                  className="h-9 px-3.5 text-[13px] rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-sm flex items-center gap-1.5"><ImagePlus className="h-4 w-4" strokeWidth={2} /> Upload</button>
+                <button onClick={() => setPick(false)} data-testid="evidence-photo-picker-close"
+                  className="h-9 px-4 text-[13px] font-medium rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-sm flex items-center gap-1.5"><X className="h-4 w-4" strokeWidth={2} /> Done</button>
+              </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <button onClick={() => fileRef.current?.click()} data-testid="evidence-picker-upload"
-                className="h-8 px-3 text-[12px] border border-border rounded-sm hover:bg-secondary flex items-center gap-1.5"><ImagePlus className="h-3.5 w-3.5" /> Upload from device</button>
-              <button onClick={() => setPick(false)} data-testid="evidence-photo-picker-close"
-                className="h-8 px-3 text-[12px] text-muted-foreground hover:text-foreground flex items-center gap-1"><X className="h-4 w-4" /> Close</button>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }}>
+              {pool == null ? (
+                <div className="col-span-full text-center text-[13px] text-muted-foreground py-10 flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading the photopack…</div>
+              ) : pool.length === 0 ? (
+                <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available yet — import survey photos first, or upload from your device.</div>
+              ) : pool.map((ph, pi) => {
+                const selected = photos.some((x) => x.url === ph.url);
+                return (
+                <button key={ph.url || pi} data-testid={`evidence-photo-option-${pi}`} disabled={attaching}
+                  onClick={() => attachFromUrl(ph)}
+                  className={`rounded-sm overflow-hidden transition-colors text-left disabled:opacity-50 bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
+                  <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
+                    <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
+                    {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`evidence-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
+                  </div>
+                  <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
+                </button>
+                );
+              })}
             </div>
-          </div>
-          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto grid grid-cols-2 sm:grid-cols-3 gap-3 content-start" style={{ gridAutoRows: "210px" }} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="evidence-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
-            {pool == null ? (
-              <div className="col-span-full text-center text-[13px] text-muted-foreground py-10 flex items-center justify-center gap-2"><Loader2 className="h-4 w-4 animate-spin" /> Loading the photopack…</div>
-            ) : pool.length === 0 ? (
-              <div className="col-span-full text-center text-[13px] text-muted-foreground py-10">No survey photos available yet — import survey photos first, or upload from your device.</div>
-            ) : pool.map((ph, pi) => {
-              const selected = photos.some((x) => x.url === ph.url);
-              return (
-              <button key={ph.url || pi} data-testid={`evidence-photo-option-${pi}`} disabled={attaching}
-                onClick={() => attachFromUrl(ph)}
-                className={`rounded-sm overflow-hidden transition-colors text-left disabled:opacity-50 bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${selected ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
-                <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
-                  <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover" loading="lazy" />
-                  {selected && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`evidence-photo-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
-                </div>
-                <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
-              </button>
-              );
-            })}
           </div>
         </div>
       )}

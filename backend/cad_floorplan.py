@@ -595,6 +595,15 @@ def _render_single(d: dict):
             parts.append(_circle_label(ccx, ccy + rhpx * 0.24, wc, r=11))
 
     # windows: flat gap on the wall, OR a projecting bay (box / canted / bow) drawn outward.
+    # Anchor to the ACTUAL building perimeter (tight bounds of the rooms) rather than the outer size
+    # envelope, so a window / bay sits on the real external wall even when the guide box is larger.
+    if rooms:
+        _bx0 = min(_num(r.get("x")) for r in rooms)
+        _by0 = min(_num(r.get("y")) for r in rooms)
+        _bx1 = max(_num(r.get("x")) + _num(r.get("w")) for r in rooms)
+        _by1 = max(_num(r.get("y")) + _num(r.get("h")) for r in rooms)
+    else:
+        _bx0, _by0, _bx1, _by1 = 0.0, 0.0, W, H
     for wdw in (d.get("windows") or []):
         wall = (wdw.get("wall") or "").lower()
         lbl = wdw.get("label") or ""
@@ -602,13 +611,13 @@ def _render_single(d: dict):
         wln = _num(wdw.get("w")) or 1.2
         prj = _num(wdw.get("proj")) or 0.5
         if wall == "top":
-            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(0), 1, 0, 0, -1
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_by0), 1, 0, 0, -1
         elif wall == "bottom":
-            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(H), 1, 0, 0, 1
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_by1), 1, 0, 0, 1
         elif wall == "left":
-            cx, cy, adx, ady, ndx, ndy = mx(0), my(_num(wdw.get("y"))), 0, 1, -1, 0
+            cx, cy, adx, ady, ndx, ndy = mx(_bx0), my(_num(wdw.get("y"))), 0, 1, -1, 0
         elif wall == "right":
-            cx, cy, adx, ady, ndx, ndy = mx(W), my(_num(wdw.get("y"))), 0, 1, 1, 0
+            cx, cy, adx, ady, ndx, ndy = mx(_bx1), my(_num(wdw.get("y"))), 0, 1, 1, 0
         else:
             continue
         hw = max(8.0, (wln / 2) * S)

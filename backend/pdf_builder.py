@@ -2777,21 +2777,14 @@ def _adf1_ventilation_pages(p, measures):
     inner1 = (data_tbl
               + _sub("Wet-Room Extract Schedule (Proposed vs ADF1 Minimum)") + sched
               + _sub("ADF1 Minimum Extract Rates (Table 1.1 / 1.2)") + ex_tbl)
-    page1 = _np("Approved Document F &middot; ADF1", "Ventilation Strategy Sheet",
-                inner1,
-                "The dwelling's ventilation strategy assessed against Approved Document F (Volume 1: Dwellings, 2021). "
-                "The selected system, wet-room extract schedule and the applicable ADF1 minimum rates are set out below, "
-                "with the whole-dwelling requirement and Table D1 compliance checklist following.")
-
     strat = (_sub("Strategy Statement") + _para(_esc(vent.get("strategy")))) if vent.get("strategy") else ""
     notes = vent.get("notes") or []
     notes_html = (_sub("Strategy Notes") + _spec_list(notes, False)) if notes else ""
     inner1b = (_sub("Whole-Dwelling Ventilation Rate (Table 1.3)") + wd_tbl
                + _sub("Background, Purge &amp; Door Transfer") + ref_tbl
                + strat + notes_html)
-    page1b = _np("Approved Document F &middot; ADF1", "Whole-Dwelling Requirement &amp; Provisions", inner1b)
 
-    # --- Page 2: ADF1 Table D1 compliance checklist (shared, override-aware source) ---
+    # --- ADF1 Table D1 compliance checklist (shared, override-aware source) ---
     cl = _adf1_checklist_items(p)
     crows = ""
     for it in cl["items"]:
@@ -2819,8 +2812,13 @@ def _adf1_ventilation_pages(p, measures):
     inner2 = (f'<div class="muted" style="font-size:11px; margin-bottom:8px;">Selected system: <strong>{_esc(STYPE_LBL.get(stype))}</strong>. '
               'All references are to Approved Document F, Volume 1: Dwellings (2021).</div>'
               + _sub("ADF1 Table D1 Checklist") + checklist + verdict)
-    page2 = _np("Approved Document F &middot; ADF1 Table D1", "Ventilation Compliance Checklist", inner2)
-    return [page1, page1b, page2]
+    # Single flowing page — strategy, provisions and the Table D1 checklist together, so content
+    # fills each sheet consecutively instead of three part-empty pages.
+    return [_np("Approved Document F &middot; ADF1", "Ventilation Strategy &amp; ADF1 Compliance",
+                inner1 + inner1b + inner2,
+                "The dwelling's ventilation strategy assessed against Approved Document F (Volume 1: Dwellings, 2021) — "
+                "selected system, wet-room extract schedule, ADF1 minimum rates, the whole-dwelling requirement, "
+                "provisions and the Table D1 compliance checklist.")]
 
 
 
@@ -3297,25 +3295,23 @@ def build_pack_html(p, photo_uris, hero_uri, qr_uri=None, issued_date="", hero_i
 
     # (per-measure technical specifications are built below)
 
-    # Photographic schedule (paginated, 6 per page) — exclude logos / document scans (EPC, floor
-    # plans, datasheets etc.); those belong on the cover / in their own sections, not the schedule.
+    # Photographic schedule — exclude logos / document scans (EPC, floor plans, datasheets etc.).
+    # Render every card in ONE flowing grid (break-inside:avoid per card) so rows/columns fill each
+    # sheet consecutively instead of a rigid 6-per-page chunk that leaves half-empty pages.
     ph_list = [ph for ph in (photo_uris or []) if not _is_nonphoto_img(ph)]
     photo_pages = []
     if ph_list:
-        for gi in range(0, len(ph_list), 6):
-            grp = ph_list[gi:gi + 6]
-            figs = ""
-            for ph in grp:
-                img = (f'<img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;">' if ph.get("data")
-                       else '<span class="faint mono" style="font-size:9px;">No image</span>')
-                figs += (f'<div style="display:inline-block; width:31.5%; vertical-align:top; margin:0 1% 16px 0;">'
-                         f'<div style="height:118px; border:1px solid #e5e5e5; overflow:hidden; display:flex; align-items:center; justify-content:center;">{img}</div>'
-                         f'<div style="margin-top:6px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span>'
-                         f'<span style="font-size:10px; font-weight:500; color:#262626;">{_esc(ph.get("caption"))}</span></div></div>')
-            title = "Photographic Schedule" + (" (cont.)" if gi else "")
-            photo_pages.append(f'<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 · Survey Record</div>'
-                               f'<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">{title}</div>'
-                               f'<div style="margin-top:18px;">{figs}</div>')
+        figs = ""
+        for ph in ph_list:
+            img = (f'<img src="{ph["data"]}" style="width:100%; height:100%; object-fit:cover;">' if ph.get("data")
+                   else '<span class="faint mono" style="font-size:9px;">No image</span>')
+            figs += (f'<div style="display:inline-block; width:31.5%; vertical-align:top; margin:0 1% 16px 0; break-inside:avoid;">'
+                     f'<div style="height:130px; border:1px solid #e5e5e5; overflow:hidden; display:flex; align-items:center; justify-content:center;">{img}</div>'
+                     f'<div style="margin-top:6px;"><span class="mono faint" style="font-size:8.5px; margin-right:6px;">FIG {_esc(ph.get("fig"))}</span>'
+                     f'<span style="font-size:10px; font-weight:500; color:#262626;">{_esc(ph.get("caption"))}</span></div></div>')
+        photo_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 &middot; Survey Record</div>'
+                           '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>'
+                           f'<div style="margin-top:18px;">{figs}</div>')
     else:
         photo_pages.append('<div class="faint upper" style="font-size:10px; letter-spacing:0.24em;">Section 06 · Survey Record</div>'
                            '<div style="font-weight:400; font-size:22px; letter-spacing:-0.01em; margin-top:4px;">Photographic Schedule</div>'

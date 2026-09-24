@@ -37,6 +37,12 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
   const roomMaxH = Math.max(1, ...rooms.map((r) => num(r.y) + num(r.h)));
   const ow = num(floor.overall?.w) || roomMaxW;
   const oh = num(floor.overall?.h) || roomMaxH;
+  // Tight bounds of the ACTUAL building (rooms union). Windows snap to / render on THIS perimeter,
+  // not the outer size-guide box, so they sit on the real external walls even when the guide is larger.
+  const bx0 = rooms.length ? Math.min(...rooms.map((r) => num(r.x))) : 0;
+  const by0 = rooms.length ? Math.min(...rooms.map((r) => num(r.y))) : 0;
+  const bx1 = rooms.length ? roomMaxW : ow;
+  const by1 = rooms.length ? roomMaxH : oh;
   const PAD = 30;
   const scale = CW / ow;
   const CH = oh * scale;
@@ -87,8 +93,8 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
       if (d.mode.includes("h")) patch.h = Number(clamp(snap(d.ovh + dym), roomMaxH, 60).toFixed(2));
       onOverall(patch);
     } else if (d.kind === "win") {
-      if (d.wall === "top" || d.wall === "bottom") onPatchWin(d.wi, { x: Number(clamp(snap(d.ox + dxm), 0, ow).toFixed(2)) });
-      else onPatchWin(d.wi, { y: Number(clamp(snap(d.oy + dym), 0, oh).toFixed(2)) });
+      if (d.wall === "top" || d.wall === "bottom") onPatchWin(d.wi, { x: Number(clamp(snap(d.ox + dxm), bx0, bx1).toFixed(2)) });
+      else onPatchWin(d.wi, { y: Number(clamp(snap(d.oy + dym), by0, by1).toFixed(2)) });
     } else if (d.mode === "move") {
       onPatch(d.ri, {
         x: clamp(snap(d.ox + dxm), 0, Math.max(0, ow - d.ow)),
@@ -105,10 +111,10 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
     const sx = (e.clientX - rect.left) * (VW / rect.width);
     const sy = (e.clientY - rect.top) * (VH / rect.height);
     const mx = (sx - PAD) / scale, my = (sy - PAD) / scale;
-    const dists = [["top", Math.abs(my)], ["bottom", Math.abs(my - oh)], ["left", Math.abs(mx)], ["right", Math.abs(mx - ow)]];
+    const dists = [["top", Math.abs(my - by0)], ["bottom", Math.abs(my - by1)], ["left", Math.abs(mx - bx0)], ["right", Math.abs(mx - bx1)]];
     dists.sort((a, b) => a[1] - b[1]);
     const wall = dists[0][0];
-    const pos = (wall === "left" || wall === "right") ? clamp(my, 0, oh) : clamp(mx, 0, ow);
+    const pos = (wall === "left" || wall === "right") ? clamp(my, by0, by1) : clamp(mx, bx0, bx1);
     onPlace(wall, pos);
   };
 
@@ -160,10 +166,10 @@ function FloorCanvas({ floor, onPatch, onOverall, onPatchWin, placing, placeKind
         const hw = Math.max(6, (num(w.w) || 1.2) / 2 * scale);
         const pp = Math.max(8, (num(w.proj) || 0.5) * scale);
         let cx, cy, adx, ady, ndx, ndy;
-        if (wall === "top") { cx = PAD + num(w.x) * scale; cy = PAD; adx = 1; ady = 0; ndx = 0; ndy = -1; }
-        else if (wall === "bottom") { cx = PAD + num(w.x) * scale; cy = PAD + CH; adx = 1; ady = 0; ndx = 0; ndy = 1; }
-        else if (wall === "left") { cx = PAD; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = -1; ndy = 0; }
-        else { cx = PAD + CW; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = 1; ndy = 0; }
+        if (wall === "top") { cx = PAD + num(w.x) * scale; cy = PAD + by0 * scale; adx = 1; ady = 0; ndx = 0; ndy = -1; }
+        else if (wall === "bottom") { cx = PAD + num(w.x) * scale; cy = PAD + by1 * scale; adx = 1; ady = 0; ndx = 0; ndy = 1; }
+        else if (wall === "left") { cx = PAD + bx0 * scale; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = -1; ndy = 0; }
+        else { cx = PAD + bx1 * scale; cy = PAD + num(w.y) * scale; adx = 0; ady = 1; ndx = 1; ndy = 0; }
         const plx = cx - adx * hw, ply = cy - ady * hw, prx = cx + adx * hw, pry = cy + ady * hw;
         const fr = Math.max(2, Math.min(5, pp * 0.28));
         let outer = null, inner = null;

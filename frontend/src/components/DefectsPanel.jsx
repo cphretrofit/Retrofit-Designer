@@ -277,39 +277,39 @@ export function DefectsPanel({ projectId, initial, onChange, photos = [] }) {
         const pdef = defects.find((x) => x.id === picking);
         const attached = new Set((pdef ? galleryOf(pdef) : []).map((g) => g.url));
         return (
-        <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-6" data-testid="defect-gallery-modal" onClick={() => setPicking(null)}>
-          <div className="bg-card border border-border rounded-md max-w-3xl w-full max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="sticky top-0 z-[3] bg-card/95 backdrop-blur-sm flex items-center justify-between gap-3 px-5 py-3 border-b border-border">
+        <div className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-sm flex flex-col p-6" data-testid="defect-gallery-modal" onClick={() => setPicking(null)}>
+          <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto pb-2" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 z-[3] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-3 py-2.5 mb-3 border-b border-border">
               <div className="min-w-0">
-                <div className="text-[13px] font-medium">Add survey photos{attached.size ? ` · ${attached.size} attached` : ""}</div>
-                <div className="text-[10.5px] text-muted-foreground mt-0.5">Tap photos to add or remove — attach as many as you need, then close.</div>
+                <div className="text-[14px] font-medium">Add survey photos{attached.size ? ` · ${attached.size} attached` : ""}</div>
+                <div className="text-[11.5px] text-muted-foreground mt-0.5 truncate">Tap photos to add or remove — attach as many as you need, then close. Saves automatically.</div>
               </div>
-              <button onClick={() => setPicking(null)} data-testid="gallery-close" className="shrink-0 h-8 px-3.5 text-[12px] font-medium rounded-full bg-background border border-border text-foreground hover:bg-secondary flex items-center gap-1.5"><X className="h-3.5 w-3.5" strokeWidth={2} /> Done</button>
+              <button onClick={() => setPicking(null)} data-testid="gallery-close" className="shrink-0 h-9 px-4 text-[13px] font-medium rounded-full bg-card border border-border text-foreground hover:bg-secondary shadow-sm flex items-center gap-1.5"><X className="h-4 w-4" strokeWidth={2} /> Done</button>
             </div>
-            <div className="p-5">
-              {pool.length === 0 ? (
-                <div className="text-center text-[12.5px] text-muted-foreground py-8">No survey photos available — import survey photos first.</div>
-              ) : buildPhotoGroups(pool).map((grp) => (
-                <div key={grp.key} className="mb-5" data-testid={`gallery-group-${grp.key}`}>
-                  <div className="sticky top-[57px] z-[1] bg-card/95 backdrop-blur-sm py-1.5 mb-2 flex items-center gap-2 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {grp.label}<span className="text-[9.5px] normal-case tracking-normal text-muted-foreground/70">({grp.items.length})</span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    {grp.items.map(({ ph, pi }) => {
-                      const on = attached.has(ph.url);
-                      return (
-                      <button key={ph.url || pi} onClick={() => toggleSurvey(picking, ph, on)} data-testid={`gallery-photo-${pi}`}
-                        className={`relative text-left border rounded-sm overflow-hidden transition-colors ${on ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/40"}`}>
-                        <img src={thumbUrl(ph.url)} alt={ph.caption} className="w-full h-24 object-cover opacity-0 transition-opacity duration-300 bg-neutral-100" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} />
-                        {on && <span className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`gallery-selected-${pi}`}><Check className="h-3.5 w-3.5" strokeWidth={2.5} /></span>}
-                        <div className="px-2 py-1.5 text-[11px] leading-tight">{ph.fig ? <span className="font-mono text-muted-foreground mr-1">{ph.fig}</span> : null}{ph.caption}</div>
-                      </button>
-                      );
-                    })}
-                  </div>
+            {pool.length === 0 ? (
+              <div className="text-center text-[13px] text-muted-foreground py-10">No survey photos available — import survey photos first.</div>
+            ) : buildPhotoGroups(pool).map((grp) => (
+              <div key={grp.key} className="mb-6" data-testid={`gallery-group-${grp.key}`}>
+                <div className="sticky top-[52px] z-[1] bg-background/90 backdrop-blur-sm py-1.5 mb-2 flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {grp.label}<span className="text-[10px] normal-case tracking-normal text-muted-foreground/70">({grp.items.length})</span>
                 </div>
-              ))}
-            </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3" style={{ gridAutoRows: "210px" }}>
+                  {grp.items.map(({ ph, pi }) => {
+                    const on = attached.has(ph.url);
+                    return (
+                    <button key={ph.url || pi} onClick={() => toggleSurvey(picking, ph, on)} data-testid={`gallery-photo-${pi}`}
+                      className={`rounded-sm overflow-hidden transition-colors text-left bg-card border focus:outline-none focus:ring-2 focus:ring-[var(--c-action)] ${on ? "border-[var(--c-action)] ring-1 ring-[var(--c-action)]" : "border-border hover:border-foreground/50"}`}>
+                      <div className="relative bg-neutral-100 overflow-hidden" style={{ height: 180 }}>
+                        <img src={thumbUrl(ph.url)} alt={ph.caption} className="absolute inset-0 w-full h-full object-cover opacity-0 transition-opacity duration-300" loading="lazy" onLoad={(e) => e.currentTarget.classList.remove("opacity-0")} />
+                        {on && <span className="absolute top-1.5 right-1.5 h-6 w-6 rounded-full bg-[var(--c-action)] text-white flex items-center justify-center" data-testid={`gallery-selected-${pi}`}><Check className="h-4 w-4" strokeWidth={2.5} /></span>}
+                      </div>
+                      <div className="px-2 py-1 text-[10px] text-muted-foreground truncate">{ph.fig ? `FIG ${ph.fig} · ` : ""}{ph.caption || "Photo"}</div>
+                    </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
         );

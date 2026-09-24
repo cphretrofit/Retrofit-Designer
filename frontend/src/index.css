@@ -127,7 +127,7 @@
     }
 
     .anim-in {
-        animation: animIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+        animation: animIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) backwards;
     }
     @keyframes animIn {
         from { opacity: 0; transform: translateY(6px); }

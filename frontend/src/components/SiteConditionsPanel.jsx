@@ -293,7 +293,7 @@ export function SiteConditionsPanel({ projectId, project, onChange }) {
       )}
 
       {pick !== null && (
-        <div className="fixed inset-0 z-50 bg-background/90 backdrop-blur-sm flex flex-col p-6" data-testid="site-photo-picker" onClick={() => setPick(null)}>
+        <div className="fixed inset-0 z-[70] bg-background/95 backdrop-blur-sm flex flex-col p-6" data-testid="site-photo-picker" onClick={() => setPick(null)}>
           <div className="max-w-5xl w-full mx-auto flex-1 min-h-0 overflow-auto pb-2" onKeyDown={(e) => { if(!["ArrowRight","ArrowLeft","ArrowUp","ArrowDown"].includes(e.key))return; const b=Array.from(e.currentTarget.querySelectorAll('[data-testid^="site-photo-option-"]')); if(!b.length)return; e.preventDefault(); const cols=window.innerWidth>=640?3:2; let i=b.indexOf(document.activeElement); if(i<0)i=0; else if(e.key==="ArrowRight")i=Math.min(b.length-1,i+1); else if(e.key==="ArrowLeft")i=Math.max(0,i-1); else if(e.key==="ArrowDown")i=Math.min(b.length-1,i+cols); else if(e.key==="ArrowUp")i=Math.max(0,i-cols); b[i].focus(); }}>
             <div className="sticky top-0 z-[3] bg-background/95 backdrop-blur-sm flex items-center justify-between gap-3 py-2.5 mb-3 border-b border-border" onClick={(ev) => ev.stopPropagation()}>
               <div className="min-w-0">
