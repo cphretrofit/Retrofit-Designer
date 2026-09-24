@@ -1,0 +1,966 @@
+"""Render a hand-drawn survey floor plan (AI-reconstructed geometry) as a clean
+professional CAD-style floor plan, as inline SVG."""
+import html
+import re
+
+
+def _esc(s):
+    return html.escape(str(s if s is not None else ""))
+
+
+def _num(v, d=0.0):
+    try:
+        return float(v)
+    except Exception:
+        return d
+
+
+def _wrap(text, maxchars):
+    words = str(text or "").split()
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > maxchars:
+            lines.append(cur); cur = w
+        else:
+            cur = (cur + " " + w).strip()
+    if cur:
+        lines.append(cur)
+    return lines or [""]
+
+
+def _resolve_overlaps(rooms):
+    """Split rooms that the AI traced on top of each other (e.g. two bedrooms in one
+    rectangle) so every room occupies its own space and labels never collide."""
+    rooms = [dict(r) for r in (rooms or [])]
+    n = len(rooms)
+    if n < 2:
+        return rooms
+
+    def R(r):
+        return (_num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h")))
+
+    def ov(a, b):
+        ax, ay, aw, ah = R(a); bx, by, bw, bh = R(b)
+        return max(0.0, min(ax + aw, bx + bw) - max(ax, bx)) * max(0.0, min(ay + ah, by + bh) - max(ay, by))
+
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]; i = parent[i]
+        return i
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            amin = min(_num(rooms[i].get("w")) * _num(rooms[i].get("h")),
+                       _num(rooms[j].get("w")) * _num(rooms[j].get("h")))
+            if amin > 0 and ov(rooms[i], rooms[j]) / amin > 0.35:
+                parent[find(i)] = find(j)
+    groups = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(i)
+    for idxs in groups.values():
+        if len(idxs) < 2:
+            continue
+        ux = min(_num(rooms[i].get("x")) for i in idxs)
+        uy = min(_num(rooms[i].get("y")) for i in idxs)
+        uw = max(_num(rooms[i].get("x")) + _num(rooms[i].get("w")) for i in idxs) - ux
+        uh = max(_num(rooms[i].get("y")) + _num(rooms[i].get("h")) for i in idxs) - uy
+        k = len(idxs)
+        if uw >= uh:
+            for c, i in enumerate(sorted(idxs, key=lambda i: _num(rooms[i].get("x")))):
+                rooms[i]["x"], rooms[i]["y"], rooms[i]["w"], rooms[i]["h"] = ux + uw * c / k, uy, uw / k, uh
+        else:
+            for c, i in enumerate(sorted(idxs, key=lambda i: _num(rooms[i].get("y")))):
+                rooms[i]["x"], rooms[i]["y"], rooms[i]["w"], rooms[i]["h"] = ux, uy + uh * c / k, uw, uh / k
+    return rooms
+
+
+def _normalize_geometry(rooms, W, H):
+    """Turn loosely AI-traced room rectangles into a tidy tiling of the building
+    envelope so the plan reads as one clean polygon. Steps: resolve overlaps,
+    clamp to the envelope, snap near-equal edges to shared grid lines, then grow
+    boundary rooms to close dead-space gaps (removes stepped/doubled walls,
+    protrusions and empty corners)."""
+    rooms = _resolve_overlaps(rooms)
+    if not rooms:
+        return rooms, W, H
+    W = W or 8.0
+    H = H or 6.0
+
+    def R(r):
+        return (_num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h")))
+
+    # 1. clamp every room into the envelope
+    for r in rooms:
+        x, y, w, h = R(r)
+        x1, y1 = max(0.0, min(x, W)), max(0.0, min(y, H))
+        x2, y2 = max(0.0, min(x + w, W)), max(0.0, min(y + h, H))
+        r["x"], r["y"] = x1, y1
+        r["w"], r["h"] = max(0.1, x2 - x1), max(0.1, y2 - y1)
+
+    # 2. snap near-equal edges to shared grid lines
+    tol = max(0.30, 0.06 * max(W, H))
+
+    def cluster(vals):
+        vals = sorted(set(round(v, 3) for v in vals))
+        groups = []
+        for v in vals:
+            if groups and v - groups[-1][-1] <= tol:
+                groups[-1].append(v)
+            else:
+                groups.append([v])
+        m = {}
+        for g in groups:
+            c = round(sum(g) / len(g), 3)
+            for v in g:
+                m[v] = c
+        return m
+
+    xs, ys = [0.0, round(W, 3)], [0.0, round(H, 3)]
+    for r in rooms:
+        x, y, w, h = R(r)
+        xs += [round(x, 3), round(x + w, 3)]
+        ys += [round(y, 3), round(y + h, 3)]
+    mxs, mys = cluster(xs), cluster(ys)
+    for r in rooms:
+        x, y, w, h = R(r)
+        nx1, nx2 = mxs[round(x, 3)], mxs[round(x + w, 3)]
+        ny1, ny2 = mys[round(y, 3)], mys[round(y + h, 3)]
+        r["x"], r["w"] = nx1, max(0.1, nx2 - nx1)
+        r["y"], r["h"] = ny1, max(0.1, ny2 - ny1)
+
+    # 3. grow boundary rooms to close dead-space gaps (up to ~30% of the envelope)
+    def band(a1, a2, b1, b2):
+        return min(a2, b2) - max(a1, b1) > 0.1
+
+    gx, gy = 0.30 * W, 0.30 * H
+    for r in rooms:
+        x, y, w, h = R(r)
+        if not any(R(o)[0] >= x + w - 1e-6 and band(y, y + h, R(o)[1], R(o)[1] + R(o)[3])
+                   for o in rooms if o is not r) and 0 < W - (x + w) <= gx:
+            r["w"] = W - x
+        x, y, w, h = R(r)
+        if not any(R(o)[0] + R(o)[2] <= x + 1e-6 and band(y, y + h, R(o)[1], R(o)[1] + R(o)[3])
+                   for o in rooms if o is not r) and 0 < x <= gx:
+            r["x"], r["w"] = 0.0, w + x
+        x, y, w, h = R(r)
+        if not any(R(o)[1] >= y + h - 1e-6 and band(x, x + w, R(o)[0], R(o)[0] + R(o)[2])
+                   for o in rooms if o is not r) and 0 < H - (y + h) <= gy:
+            r["h"] = H - y
+        x, y, w, h = R(r)
+        if not any(R(o)[1] + R(o)[3] <= y + 1e-6 and band(x, x + w, R(o)[0], R(o)[0] + R(o)[2])
+                   for o in rooms if o is not r) and 0 < y <= gy:
+            r["y"], r["h"] = 0.0, h + y
+    return rooms, W, H
+
+
+
+
+def _dim_h(x1, x2, y, text, above=True):
+    """Horizontal dimension segment with arrowheads + centred label."""
+    ah = 5
+    xs = min(x1, x2); xe = max(x1, x2)
+    ty = y - 6 if above else y + 15
+    return (
+        f'<line x1="{xs:.1f}" y1="{y:.1f}" x2="{xe:.1f}" y2="{y:.1f}" stroke="#111" stroke-width="1"/>'
+        f'<path d="M{xs:.1f},{y:.1f} l{ah},-{ah*0.7:.1f} l0,{ah*1.4:.1f} z" fill="#111"/>'
+        f'<path d="M{xe:.1f},{y:.1f} l-{ah},-{ah*0.7:.1f} l0,{ah*1.4:.1f} z" fill="#111"/>'
+        f'<text x="{(xs+xe)/2:.1f}" y="{ty:.1f}" font-size="15" text-anchor="middle" fill="#111" font-family="Georgia,serif">{_esc(text)}</text>'
+    )
+
+
+def _dim_v(y1, y2, x, text):
+    ah = 5
+    ys = min(y1, y2); ye = max(y1, y2)
+    tx = x - 8
+    my = (ys + ye) / 2
+    return (
+        f'<line x1="{x:.1f}" y1="{ys:.1f}" x2="{x:.1f}" y2="{ye:.1f}" stroke="#111" stroke-width="1"/>'
+        f'<path d="M{x:.1f},{ys:.1f} l-{ah*0.7:.1f},{ah} l{ah*1.4:.1f},0 z" fill="#111"/>'
+        f'<path d="M{x:.1f},{ye:.1f} l-{ah*0.7:.1f},-{ah} l{ah*1.4:.1f},0 z" fill="#111"/>'
+        f'<text x="{tx:.1f}" y="{my:.1f}" font-size="15" text-anchor="middle" fill="#111" '
+        f'font-family="Georgia,serif" transform="rotate(-90 {tx:.1f} {my:.1f})">{_esc(text)}</text>'
+    )
+
+
+def _fit(txt, box_w, base=12, minf=7):
+    n = max(1, len(str(txt or "")))
+    return max(minf, min(base, box_w * 1.7 / n))
+
+
+def _circle_label(cx, cy, txt, r=12):
+    fs = _fit(txt, r * 1.9, base=12)
+    return (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r}" fill="#fff" stroke="#111" stroke-width="1.2"/>'
+            f'<text x="{cx:.1f}" y="{cy+fs*0.35:.1f}" font-size="{fs:.0f}" text-anchor="middle" fill="#111" font-family="Georgia,serif">{_esc(txt)}</text>')
+
+
+def _north(odeg=0):
+    """North point: the needle rotates to indicate true north, but the N/S/E/W letters are placed
+    at their rotated positions yet kept UPRIGHT so they always read the right way."""
+    import math
+    rad = math.radians(-odeg)
+    cx = cy = 40
+    needle = (f'<g transform="rotate({-odeg:.0f},{cx},{cy})">'
+              '<line x1="40" y1="8" x2="40" y2="72" stroke="#111" stroke-width="1.4"/>'
+              '<line x1="12" y1="40" x2="68" y2="40" stroke="#111" stroke-width="1.4"/>'
+              '<path d="M40,4 l7,20 l-14,0 z" fill="#111"/>'
+              '</g>')
+    labels = []
+    for txt, dx, dy in (("N", 0, -42), ("S", 0, 42), ("W", -40, 0), ("E", 40, 0)):
+        rx = cx + dx * math.cos(rad) - dy * math.sin(rad)
+        ry = cy + dx * math.sin(rad) + dy * math.cos(rad)
+        labels.append(f'<text x="{rx:.1f}" y="{ry + 4.5:.1f}" font-size="13" '
+                      f'text-anchor="middle" font-family="Georgia,serif">{txt}</text>')
+    return f'<g>{needle}{"".join(labels)}</g>'
+
+
+def _hatch_rect(x, y, w, h, gap=15, color="#B45309", sw=1.0, opacity=0.5):
+    """45-degree diagonal hatch clipped to a rectangle, as explicit <line>s
+    (SVG <pattern> is not reliably supported by WeasyPrint / PyMuPDF)."""
+    segs = []
+    c = y - (x + w)
+    cmax = y + h - x
+    while c <= cmax:
+        xlo = max(x, y - c); xhi = min(x + w, y + h - c)
+        if xhi > xlo:
+            segs.append(f'<line x1="{xlo:.1f}" y1="{xlo+c:.1f}" x2="{xhi:.1f}" y2="{xhi+c:.1f}" stroke="{color}" stroke-width="{sw}" opacity="{opacity}"/>')
+        c += gap
+    return "".join(segs)
+
+
+_WET_ROOMS = ("bath", "wc", "toilet", "shower", "en-suite", "ensuite", "cloak", "utility")
+_CIRC_ROOMS = ("hall", "hallway", "landing", "corridor", "lobby", "entrance", "porch", "stair")
+
+
+def _label_unnamed(rooms, upper):
+    """Give empty/circulation spaces a sensible name so the plan reads correctly."""
+    fill = "Landing" if upper else "Hall"
+    for r in rooms:
+        nm = (r.get("name") or "").strip()
+        if not nm or nm.lower() in ("room", "space", "-", "unknown", "n/a", "?"):
+            r["name"] = fill
+
+
+def _front_door_placement(rooms, fd, W, H, upper):
+    """Return (x_m, y_m, wall) for the front door, anchored to the EXTERNAL wall of a circulation
+    space (Hall/Landing) so the entrance always opens into circulation and reads at a glance.
+    On upper floors only draw when the survey explicitly gave a door."""
+    if not rooms:
+        return None
+    fdx = _num(fd.get("x")) if (fd and fd.get("x") is not None) else None
+    circ = [r for r in rooms if any(w in (r.get("name") or "").lower() for w in _CIRC_ROOMS)]
+    if not fd and (upper or not circ):
+        return None
+    target = None
+    if circ:
+        target = (min(circ, key=lambda r: abs((_num(r.get("x")) + _num(r.get("w")) / 2) - fdx))
+                  if fdx is not None else max(circ, key=lambda r: _num(r.get("w")) * _num(r.get("h"))))
+    if target is None and fdx is not None:
+        cur = next((r for r in rooms if _num(r.get("x")) <= fdx <= _num(r.get("x")) + _num(r.get("w"))), None)
+        if cur and not any(w in (cur.get("name") or "").lower() for w in _WET_ROOMS):
+            target = cur
+    if target is None:
+        nonwet = [r for r in rooms if not any(w in (r.get("name") or "").lower() for w in _WET_ROOMS)] or rooms
+        target = max(nonwet, key=lambda r: _num(r.get("w")) * _num(r.get("h")))
+    rx, ry, rw, rh = _num(target.get("x")), _num(target.get("y")), _num(target.get("w")), _num(target.get("h"))
+    tol = 0.3
+    cands = []
+    if abs((ry + rh) - H) <= tol: cands.append(("bottom", min(max(rx + rw / 2, 0.4), W - 0.4), H))
+    if abs(ry) <= tol:            cands.append(("top", min(max(rx + rw / 2, 0.4), W - 0.4), 0.0))
+    if abs(rx) <= tol:            cands.append(("left", 0.0, min(max(ry + rh / 2, 0.4), H - 0.4)))
+    if abs((rx + rw) - W) <= tol: cands.append(("right", W, min(max(ry + rh / 2, 0.4), H - 0.4)))
+    if not cands:
+        return (min(max(rx + rw / 2, 0.4), W - 0.4), H, "bottom")
+    wall, ax, ay = cands[0]
+    return (ax, ay, wall)
+
+
+def _largest_empty_rect(rooms, W, H, step=0.1):
+    """Largest axis-aligned rectangle (in metres) inside the WxH envelope not covered by any room."""
+    if W <= 0 or H <= 0:
+        return None
+    nx = min(max(1, int(round(W / step))), 200)
+    ny = min(max(1, int(round(H / step))), 200)
+    cw, ch = W / nx, H / ny
+    cov = [[False] * nx for _ in range(ny)]
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        i0 = max(0, int((rx + 1e-6) / cw)); i1 = min(nx, int((rx + rw - 1e-6) / cw) + 1)
+        j0 = max(0, int((ry + 1e-6) / ch)); j1 = min(ny, int((ry + rh - 1e-6) / ch) + 1)
+        for j in range(j0, j1):
+            row = cov[j]
+            for i in range(i0, i1):
+                row[i] = True
+    heights = [0] * nx
+    best = None  # (area_cells, i0, j0, i1, j1)
+    for j in range(ny):
+        for i in range(nx):
+            heights[i] = 0 if cov[j][i] else heights[i] + 1
+        stack = []
+        for i in range(nx + 1):
+            cur = heights[i] if i < nx else 0
+            start = i
+            while stack and stack[-1][1] > cur:
+                si, sh = stack.pop()
+                area = sh * (i - si)
+                if best is None or area > best[0]:
+                    best = (area, si, j - sh + 1, i, j + 1)
+                start = si
+            stack.append((start, cur))
+    if not best or best[0] == 0:
+        return None
+    _, i0, j0, i1, j1 = best
+    return (i0 * cw, j0 * ch, (i1 - i0) * cw, (j1 - j0) * ch)
+
+
+def _carve_hall(rooms, W, H, upper):
+    """If the plan has a clear dead-space gap between rooms and no circulation space,
+    auto-carve it as a labelled Hall (ground) / Landing (upper) so the front door can route to it."""
+    if not rooms:
+        return
+    if any(any(w in (r.get("name") or "").lower() for w in _CIRC_ROOMS) for r in rooms):
+        return
+    rect = _largest_empty_rect(rooms, W, H)
+    if not rect:
+        return
+    x, y, w, h = rect
+    if w < 0.6 or h < 0.6:
+        return
+    foot = W * H
+    frac = (w * h) / foot if foot else 0
+    if frac < 0.03 or frac > 0.45:
+        return
+    rooms.append({"name": "Landing" if upper else "Hall",
+                  "x": round(x, 2), "y": round(y, 2), "w": round(w, 2), "h": round(h, 2), "_carved": True})
+
+
+def _rect(r):
+    return _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+
+
+def _room_kind(name):
+    n = (name or "").lower()
+    if any(w in n for w in _CIRC_ROOMS):
+        return "circ"
+    if "en-suite" in n or "ensuite" in n or "en suite" in n:
+        return "ensuite"
+    if any(w in n for w in _WET_ROOMS):
+        return "wet"
+    if "bed" in n:
+        return "bed"
+    return "other"
+
+
+def _rooms_touching(rooms, dx, dy, tol=0.45):
+    """Rooms whose rectangle boundary passes near a door point, nearest edge first."""
+    hit = []
+    for r in rooms:
+        x, y, w, h = _rect(r)
+        if x - tol <= dx <= x + w + tol and y - tol <= dy <= y + h + tol:
+            near = min(abs(dx - x), abs(dx - (x + w)), abs(dy - y), abs(dy - (y + h)))
+            hit.append((near, r))
+    hit.sort(key=lambda t: t[0])
+    return [r for _, r in hit]
+
+
+def _shared_wall_mid(a, b, tol=0.2):
+    """Midpoint of the wall shared by rooms a and b, or None if they don't share one."""
+    ax, ay, aw, ah = _rect(a); bx, by, bw, bh = _rect(b)
+    for wx in (ax, ax + aw):
+        if abs(wx - bx) <= tol or abs(wx - (bx + bw)) <= tol:
+            y0, y1 = max(ay, by), min(ay + ah, by + bh)
+            if y1 - y0 > 0.5:
+                return (wx, (y0 + y1) / 2)
+    for wy in (ay, ay + ah):
+        if abs(wy - by) <= tol or abs(wy - (by + bh)) <= tol:
+            x0, x1 = max(ax, bx), min(ax + aw, bx + bw)
+            if x1 - x0 > 0.5:
+                return ((x0 + x1) / 2, wy)
+    return None
+
+
+def _room_doorway(room, rooms, tol=0.2):
+    """Likely internal doorway of `room`: (x_m, y_m, 'v'|'h', span_m) at the midpoint of the wall it
+    shares with a circulation space (preferred) or, failing that, its widest shared internal wall.
+    Orientation 'v' = opening runs vertically (door on a left/right wall), 'h' = horizontal."""
+    ax, ay, aw, ah = _rect(room)
+    circ = [r for r in rooms if r is not room and _room_kind(r.get("name")) == "circ"]
+    best = None  # (overlap, x, y, orient, span)
+    for pool in (circ, [r for r in rooms if r is not room]):
+        for b in pool:
+            bx, by, bw, bh = _rect(b)
+            for wx in (ax, ax + aw):
+                if abs(wx - bx) <= tol or abs(wx - (bx + bw)) <= tol:
+                    y0, y1 = max(ay, by), min(ay + ah, by + bh)
+                    if y1 - y0 > 0.5 and (best is None or (y1 - y0) > best[0]):
+                        best = (y1 - y0, wx, (y0 + y1) / 2, "v", min(y1 - y0, 0.85))
+            for wy in (ay, ay + ah):
+                if abs(wy - by) <= tol or abs(wy - (by + bh)) <= tol:
+                    x0, x1 = max(ax, bx), min(ax + aw, bx + bw)
+                    if x1 - x0 > 0.5 and (best is None or (x1 - x0) > best[0]):
+                        best = (x1 - x0, (x0 + x1) / 2, wy, "h", min(x1 - x0, 0.85))
+        if best:
+            return best[1], best[2], best[3], best[4]
+    return None
+
+
+def _sanitise_doors(rooms, doors):
+    """Drop / relocate physically-impossible internal doors. A family bathroom or WC is entered
+    from circulation (hall/landing), NEVER straight from a bedroom — only an en-suite opens off a
+    bedroom. Where the AI traced a bathroom→bedroom door, re-anchor it onto the wall the wet room
+    shares with a circulation space, or drop it if there is none."""
+    out = []
+    for dr in (doors or []):
+        dx, dy = _num(dr.get("x")), _num(dr.get("y"))
+        touch = _rooms_touching(rooms, dx, dy)[:2]
+        kinds = {_room_kind(r.get("name")) for r in touch}
+        if "wet" in kinds and "bed" in kinds and "circ" not in kinds:
+            wet = next((r for r in touch if _room_kind(r.get("name")) == "wet"), None)
+            mid = None
+            for c in [r for r in rooms if _room_kind(r.get("name")) == "circ"]:
+                mid = _shared_wall_mid(wet, c) if wet else None
+                if mid:
+                    break
+            if mid:
+                nd = dict(dr); nd["x"], nd["y"] = round(mid[0], 2), round(mid[1], 2)
+                out.append(nd)
+            continue  # else: drop the impossible door entirely
+        out.append(dr)
+    return out
+
+
+def _bay_render(cx, cy, adx, ady, ndx, ndy, hw, pp, kind):
+    """Bay projection drawn as a double line (outer wall + inner window frame) so it reads
+    like an architectural bay symbol. (cx,cy)=wall centre; (adx,ady)=along wall; (ndx,ndy)=outward normal."""
+    fr = max(2.5, min(6.0, pp * 0.28))
+    plx, ply = cx - adx * hw, cy - ady * hw
+    prx, pry = cx + adx * hw, cy + ady * hw
+    out = []
+    if kind == "bow":
+        o = f'M{plx:.1f},{ply:.1f} C{plx+ndx*pp*1.33:.1f},{ply+ndy*pp*1.33:.1f} {prx+ndx*pp*1.33:.1f},{pry+ndy*pp*1.33:.1f} {prx:.1f},{pry:.1f}'
+        iLx, iLy = plx + adx * fr + ndx * fr, ply + ady * fr + ndy * fr
+        iRx, iRy = prx - adx * fr + ndx * fr, pry - ady * fr + ndy * fr
+        pi = pp - fr
+        i = f'M{iLx:.1f},{iLy:.1f} C{iLx+ndx*pi*1.3:.1f},{iLy+ndy*pi*1.3:.1f} {iRx+ndx*pi*1.3:.1f},{iRy+ndy*pi*1.3:.1f} {iRx:.1f},{iRy:.1f}'
+        out.append(f'<path d="{o}" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+        out.append(f'<path d="{i}" fill="none" stroke="#111" stroke-width="0.9"/>')
+    else:
+        ins = hw * 0.45 if kind == "canted" else 0.0
+        oL2x, oL2y = plx + ndx * pp + adx * ins, ply + ndy * pp + ady * ins
+        oR2x, oR2y = prx + ndx * pp - adx * ins, pry + ndy * pp - ady * ins
+        out.append(f'<path d="M{plx:.1f},{ply:.1f} L{oL2x:.1f},{oL2y:.1f} L{oR2x:.1f},{oR2y:.1f} L{prx:.1f},{pry:.1f}" fill="#fff" stroke="#111" stroke-width="1.4"/>')
+        iLx, iLy = plx + adx * fr + ndx * fr, ply + ady * fr + ndy * fr
+        iRx, iRy = prx - adx * fr + ndx * fr, pry - ady * fr + ndy * fr
+        ins2 = (hw - fr) * 0.45 if kind == "canted" else 0.0
+        iL2x, iL2y = iLx + ndx * (pp - fr) + adx * ins2, iLy + ndy * (pp - fr) + ady * ins2
+        iR2x, iR2y = iRx + ndx * (pp - fr) - adx * ins2, iRy + ndy * (pp - fr) - ady * ins2
+        out.append(f'<path d="M{iLx:.1f},{iLy:.1f} L{iL2x:.1f},{iL2y:.1f} L{iR2x:.1f},{iR2y:.1f} L{iRx:.1f},{iRy:.1f}" fill="none" stroke="#111" stroke-width="0.9"/>')
+    return "".join(out)
+
+
+def _render_single(d: dict):
+    ov = d.get("overall") or {}
+    W = _num(ov.get("w"), 8.0) or 8.0
+    H = _num(ov.get("h"), 6.0) or 6.0
+    # When the designer has hand-shaped the geometry in the visual editor, trust it
+    # verbatim — skip the auto-tidy that squares off funky / L-shaped outlines and
+    # skip auto-carving a hall, so bespoke layouts survive the save & re-render.
+    _manual = bool(d.get("manualEdit"))
+    if _manual:
+        rooms = [dict(r) for r in (d.get("rooms") or [])]
+    else:
+        rooms, W, H = _normalize_geometry(d.get("rooms") or [], W, H)
+    _title_l = (d.get("title") or "").lower()
+    _upper = any(k in _title_l for k in ("first", "second", "third", "upper", "1st", "2nd", " f.", "landing"))
+    _label_unnamed(rooms, _upper)
+    if not _manual:
+        _carve_hall(rooms, W, H, _upper)
+    _fd = d.get("frontDoor") or {}
+    _fdp = _front_door_placement(rooms, _fd if _fd else None, W, H, _upper)
+    _doors = _sanitise_doors(rooms, d.get("doors"))
+
+    col_x = 745                      # right column divider
+    X0 = 150                         # plan origin x (left dims to the left)
+    plan_right = 690
+    Y0 = 210                         # plan origin y
+    plan_bottom = 1090
+    S = min((plan_right - X0) / W, (plan_bottom - Y0) / H)
+    pw, ph = W * S, H * S
+    # centre plan horizontally within the available band
+    X0 = X0 + max(0, ((plan_right - X0) - pw) / 2)
+
+    def mx(x): return X0 + _num(x) * S
+    def my(y): return Y0 + _num(y) * S
+
+    parts = []
+
+    # --- header strip ---
+    wt = d.get("wallType") or ""
+    cav = "cavity" in wt.lower()
+    parts.append('<rect x="30" y="26" width="150" height="30" fill="none" stroke="#111" stroke-width="1"/>')
+    parts.append('<text x="105" y="46" font-size="14" text-anchor="middle" font-family="Georgia,serif">NOT TO SCALE</text>')
+    parts.append(f'<text x="255" y="46" font-size="14" font-family="Georgia,serif">Wall type:</text>')
+    parts.append(f'<rect x="335" y="34" width="14" height="14" fill="none" stroke="#111" stroke-width="1"/>' +
+                 ('<path d="M336,41 l4,4 l7,-9" fill="none" stroke="#111" stroke-width="1.6"/>' if cav else '') +
+                 '<text x="355" y="46" font-size="14" font-family="Georgia,serif">100% cavity</text>')
+    parts.append(f'<rect x="490" y="34" width="14" height="14" fill="none" stroke="#111" stroke-width="1"/>' +
+                 ('<path d="M491,41 l4,4 l7,-9" fill="none" stroke="#111" stroke-width="1.6"/>' if not cav else '') +
+                 '<text x="510" y="46" font-size="14" font-family="Georgia,serif">100% solid/timber/system</text>')
+    parts.append('<text x="1010" y="40" font-size="12" text-anchor="end" font-family="Georgia,serif" fill="#333">July 2021 Version 3.5</text>')
+
+    # floor label — placed in the left margin above the left dimension (clear of walls)
+    parts.append(f'<text x="44" y="{Y0-18:.0f}" font-size="19" font-style="italic" font-family="Georgia,serif">{_esc(d.get("title") or "GF")}</text>')
+
+    # --- walls: classify each room edge exterior/interior by sampling just outside ---
+    eps = 0.06
+
+    def covered(px, py):
+        for r in rooms:
+            rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            if rx - 1e-6 <= px <= rx + rw + 1e-6 and ry - 1e-6 <= py <= ry + rh + 1e-6:
+                return True
+        return False
+
+    wall_segs = []  # (x1,y1,x2,y2,exterior)
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        edges = [
+            ((rx, ry), (rx + rw, ry), (rx + rw / 2, ry - eps)),        # top
+            ((rx, ry + rh), (rx + rw, ry + rh), (rx + rw / 2, ry + rh + eps)),  # bottom
+            ((rx, ry), (rx, ry + rh), (rx - eps, ry + rh / 2)),        # left
+            ((rx + rw, ry), (rx + rw, ry + rh), (rx + rw + eps, ry + rh / 2)),  # right
+        ]
+        for (a, b, mid) in edges:
+            ext = not covered(mid[0], mid[1])
+            wall_segs.append((a[0], a[1], b[0], b[1], ext))
+
+    # room fills (subtle)
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        parts.append(f'<rect x="{mx(rx):.1f}" y="{my(ry):.1f}" width="{rw*S:.1f}" height="{rh*S:.1f}" fill="#f6f5f2" stroke="#e4e1da" stroke-width="0.6"/>')
+    # loft insulation — hatch the whole top-floor footprint (covers every ceiling)
+    loft_note = next((n for n in (d.get("notes") or []) if "loft insul" in str(n).lower()), None)
+    loft_on = bool(d.get("loftCoverage")) or bool(loft_note)
+    _m = re.search(r"(\d+\s?mm)", " ".join(str(x) for x in (d.get("loftCoverage"), loft_note) if x))
+    _loft_depth = f" ({_m.group(1)})" if _m else ""
+    legend = list(d.get("legend") or [])
+    if loft_on:
+        for r in rooms:
+            rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            X, Y, WW, HH = mx(rx), my(ry), rw * S, rh * S
+            # insulated ceiling coverage: 10% highlighter fill + dashed outline + diagonal hatch
+            parts.append(f'<rect x="{X:.1f}" y="{Y:.1f}" width="{WW:.1f}" height="{HH:.1f}" fill="#B45309" fill-opacity="0.10" stroke="#B45309" stroke-width="1.2" stroke-dasharray="6 4" stroke-opacity="0.55"/>')
+            parts.append(_hatch_rect(X, Y, WW, HH, gap=18, opacity=0.32))
+        _txt = " ".join(str(x) for x in (d.get("loftCoverage"), loft_note) if x).lower()
+        _roof = "warm roof" if ("warm" in _txt or "room" in _txt or "rir" in _txt) else "cold roof"
+        legend.append(f"Loft insulation \u2014 full ceiling coverage{_loft_depth} ({_roof})")
+    _alltxt = " ".join(str(x) for x in ((d.get("notes") or []) + list(legend) + (d.get("measuresKey") or []))).lower()
+    tvr = bool(d.get("trickleVentsRemoved")) or ("trickle" in _alltxt and ("remov" in _alltxt or "delet" in _alltxt or "block" in _alltxt))
+    if tvr:
+        legend.append("Trickle vents removed (TVR) \u2014 tagged at affected windows")
+    # interior walls
+    for (x1, y1, x2, y2, ext) in wall_segs:
+        if ext:
+            continue
+        parts.append(f'<line x1="{mx(x1):.1f}" y1="{my(y1):.1f}" x2="{mx(x2):.1f}" y2="{my(y2):.1f}" stroke="#1a1a1a" stroke-width="3.5" stroke-linecap="round"/>')
+    # exterior walls — solid poché
+    for (x1, y1, x2, y2, ext) in wall_segs:
+        if not ext:
+            continue
+        parts.append(f'<line x1="{mx(x1):.1f}" y1="{my(y1):.1f}" x2="{mx(x2):.1f}" y2="{my(y2):.1f}" stroke="#111" stroke-width="9" stroke-linecap="square"/>')
+
+    # room labels + area (clean sans)
+    FF = "Helvetica,Arial,sans-serif"
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        ccx, ccy = mx(rx + rw / 2), my(ry + rh / 2)
+        rhpx = rh * S
+        name = (r.get("name") or "").strip()
+        area = rw * rh
+        name_y = ccy - rhpx * 0.12
+        words = name.split()
+        if len(name) > 11 and len(words) > 1:
+            half = (len(words) + 1) // 2
+            parts.append(f'<text x="{ccx:.1f}" y="{name_y-8:.1f}" font-size="15" font-weight="600" text-anchor="middle" fill="#1a1a1a" font-family="{FF}">{_esc(" ".join(words[:half]))}</text>')
+            parts.append(f'<text x="{ccx:.1f}" y="{name_y+9:.1f}" font-size="15" font-weight="600" text-anchor="middle" fill="#1a1a1a" font-family="{FF}">{_esc(" ".join(words[half:]))}</text>')
+            ay = name_y + 27
+        else:
+            parts.append(f'<text x="{ccx:.1f}" y="{name_y:.1f}" font-size="15" font-weight="600" text-anchor="middle" fill="#1a1a1a" font-family="{FF}">{_esc(name)}</text>')
+            ay = name_y + 18
+        if area > 0.5:
+            parts.append(f'<text x="{ccx:.1f}" y="{ay:.1f}" font-size="11" text-anchor="middle" fill="#6b6b6b" font-family="{FF}">{area:.1f} m&#178;</text>')
+        wc = r.get("window_circle")
+        if wc:
+            parts.append(_circle_label(ccx, ccy + rhpx * 0.24, wc, r=11))
+
+    # windows: flat gap on the wall, OR a projecting bay (box / canted / bow) drawn outward.
+    # Anchor to the ACTUAL building perimeter (tight bounds of the rooms) rather than the outer size
+    # envelope, so a window / bay sits on the real external wall even when the guide box is larger.
+    if rooms:
+        _bx0 = min(_num(r.get("x")) for r in rooms)
+        _by0 = min(_num(r.get("y")) for r in rooms)
+        _bx1 = max(_num(r.get("x")) + _num(r.get("w")) for r in rooms)
+        _by1 = max(_num(r.get("y")) + _num(r.get("h")) for r in rooms)
+    else:
+        _bx0, _by0, _bx1, _by1 = 0.0, 0.0, W, H
+    for wdw in (d.get("windows") or []):
+        wall = (wdw.get("wall") or "").lower()
+        lbl = wdw.get("label") or ""
+        kind = (wdw.get("bay") or wdw.get("bayType") or "flat").lower()
+        wln = _num(wdw.get("w")) or 1.2
+        prj = _num(wdw.get("proj")) or 0.5
+        if wall == "top":
+            _wy = wdw.get("wy")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_num(_wy) if _wy not in (None, "") else _by0), 1, 0, 0, -1
+        elif wall == "bottom":
+            _wy = wdw.get("wy")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(wdw.get("x"))), my(_num(_wy) if _wy not in (None, "") else _by1), 1, 0, 0, 1
+        elif wall == "left":
+            _wx = wdw.get("wx")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(_wx) if _wx not in (None, "") else _bx0), my(_num(wdw.get("y"))), 0, 1, -1, 0
+        elif wall == "right":
+            _wx = wdw.get("wx")
+            cx, cy, adx, ady, ndx, ndy = mx(_num(_wx) if _wx not in (None, "") else _bx1), my(_num(wdw.get("y"))), 0, 1, 1, 0
+        else:
+            continue
+        hw = max(8.0, (wln / 2) * S)
+        # cut the external wall across the opening so the building outline follows the window / bay
+        parts.append(f'<line x1="{cx-adx*hw:.1f}" y1="{cy-ady*hw:.1f}" x2="{cx+adx*hw:.1f}" y2="{cy+ady*hw:.1f}" stroke="#fff" stroke-width="3.2"/>')
+        if kind in ("box", "canted", "bow"):
+            pp = max(10.0, prj * S)
+            parts.append(_bay_render(cx, cy, adx, ady, ndx, ndy, hw, pp, kind))
+            lx, ly = cx + ndx * (pp + 22), cy + ndy * (pp + 22)
+            tdy = -18 if wall == "top" else 15
+        else:
+            if wall in ("top", "bottom"):
+                parts.append(f'<rect x="{cx-hw:.1f}" y="{cy-3:.1f}" width="{2*hw:.1f}" height="6" fill="#fff" stroke="#111" stroke-width="1.2"/>')
+            else:
+                parts.append(f'<rect x="{cx-3:.1f}" y="{cy-hw:.1f}" width="6" height="{2*hw:.1f}" fill="#fff" stroke="#111" stroke-width="1.2"/>')
+            lx = cx + ndx * 26
+            ly = cy + ndy * 26
+            tdy = -18 if wall == "top" else 15
+        parts.append(_circle_label(lx, ly, lbl, r=11))
+        if tvr:
+            parts.append(f'<text x="{lx:.1f}" y="{ly+tdy:.1f}" font-size="8.5" font-weight="bold" text-anchor="middle" fill="#DC2626" font-family="Helvetica,Arial,sans-serif">TVR</text>')
+
+    # doors: quarter-circle swing (sanitised so a bathroom never opens straight into a bedroom)
+    for dr in _doors:
+        x, y = mx(_num(dr.get("x"))), my(_num(dr.get("y")))
+        rr = 26
+        parts.append(f'<path d="M{x:.1f},{y:.1f} l{rr},0 a{rr},{rr} 0 0 1 -{rr},{rr}" fill="none" stroke="#111" stroke-width="1.2"/>')
+
+    # internal door undercut markers — a thin dashed teal air-gap line drawn ACROSS the doorway of
+    # each room the designer flagged as requiring an ADF1 para 1.25 undercut (with end ticks + UC tag)
+    uc_names = {str(n).strip().lower() for n in (d.get("undercutRooms") or []) if str(n).strip()}
+    uc_drawn = False
+    if uc_names:
+        for r in rooms:
+            nm = (r.get("name") or "").strip().lower()
+            if not nm or not any(u == nm or u in nm or nm in u for u in uc_names):
+                continue
+            rx, ryv, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            dw = _room_doorway(r, rooms)
+            if dw:
+                dxm, dym, orient, span = dw
+                half = max(10.0, (span * S) / 2)
+                TEAL = "#0D9488"
+                if orient == "v":
+                    dirn = 1 if abs(dxm - rx) < 1e-3 else -1
+                    lx = mx(dxm) + dirn * 7
+                    y1p, y2p = my(dym) - half, my(dym) + half
+                    parts.append(f'<line x1="{lx:.1f}" y1="{y1p:.1f}" x2="{lx:.1f}" y2="{y2p:.1f}" stroke="{TEAL}" stroke-width="2.4" stroke-dasharray="4 3" stroke-linecap="round"/>')
+                    parts.append(f'<line x1="{lx-4:.1f}" y1="{y1p:.1f}" x2="{lx+4:.1f}" y2="{y1p:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<line x1="{lx-4:.1f}" y1="{y2p:.1f}" x2="{lx+4:.1f}" y2="{y2p:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<text x="{lx+dirn*11:.1f}" y="{my(dym)+3:.1f}" font-size="10" font-weight="700" fill="{TEAL}" text-anchor="{"start" if dirn>0 else "end"}" font-family="{FF}">UC</text>')
+                else:
+                    dirn = 1 if abs(dym - ryv) < 1e-3 else -1
+                    ly = my(dym) + dirn * 7
+                    x1p, x2p = mx(dxm) - half, mx(dxm) + half
+                    parts.append(f'<line x1="{x1p:.1f}" y1="{ly:.1f}" x2="{x2p:.1f}" y2="{ly:.1f}" stroke="{TEAL}" stroke-width="2.4" stroke-dasharray="4 3" stroke-linecap="round"/>')
+                    parts.append(f'<line x1="{x1p:.1f}" y1="{ly-4:.1f}" x2="{x1p:.1f}" y2="{ly+4:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<line x1="{x2p:.1f}" y1="{ly-4:.1f}" x2="{x2p:.1f}" y2="{ly+4:.1f}" stroke="{TEAL}" stroke-width="1.6"/>')
+                    parts.append(f'<text x="{mx(dxm):.1f}" y="{ly+(14 if dirn>0 else -8):.1f}" font-size="10" font-weight="700" fill="{TEAL}" text-anchor="middle" font-family="{FF}">UC</text>')
+            else:
+                cxp, cyp = mx(rx + rw / 2), my(ryv + rh) - 15
+                parts.append(
+                    f'<g font-family="{FF}">'
+                    f'<rect x="{cxp-21:.1f}" y="{cyp-11:.1f}" width="42" height="19" rx="9.5" fill="#0D9488"/>'
+                    f'<text x="{cxp:.1f}" y="{cyp+3.5:.1f}" font-size="10.5" font-weight="700" text-anchor="middle" fill="#fff">UC</text>'
+                    f'</g>')
+            uc_drawn = True
+    if uc_drawn:
+        legend.append("UC = internal door undercut \u2014 dashed line marks the air gap under the door leaf (ADF1 para 1.25)")
+
+    # symbols — nudged clear of each room's name/area label zone
+    def _nudge_sym_y(sx, syy):
+        for r in rooms:
+            rx, ryy, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+            x0, y0, wpx, hpx = mx(rx), my(ryy), rw * S, rh * S
+            if x0 <= sx <= x0 + wpx and y0 <= syy <= y0 + hpx:
+                cy = y0 + hpx / 2
+                bt, bb = cy - hpx * 0.24, cy + hpx * 0.34
+                if bt <= syy <= bb:
+                    cand = y0 + hpx - max(18, hpx * 0.14)
+                    return cand if cand > bb + 6 else max(y0 + 16, bt - 16)
+                return syy
+        return syy
+
+    for sy in (d.get("symbols") or []):
+        t = (sy.get("type") or "").lower()
+        x = mx(_num(sy.get("x")))
+        y = _nudge_sym_y(x, my(_num(sy.get("y"))))
+        lbl = sy.get("label") or ""
+        if t == "radiator":
+            parts.append(f'<rect x="{x-22:.1f}" y="{y-6:.1f}" width="44" height="12" fill="#fff" stroke="#111" stroke-width="1"/>')
+            for i in range(1, 7):
+                lx = x - 22 + i * 44 / 7
+                parts.append(f'<line x1="{lx:.1f}" y1="{y-6:.1f}" x2="{lx:.1f}" y2="{y+6:.1f}" stroke="#111" stroke-width="0.7"/>')
+            parts.append(f'<text x="{x:.1f}" y="{y-10:.1f}" font-size="{_fit(lbl,52,base=11):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
+        elif t == "cylinder":
+            parts.append(f'<rect x="{x-9:.1f}" y="{y-9:.1f}" width="18" height="18" fill="none" stroke="#111" stroke-width="1"/>')
+            if len(lbl) > 2:
+                parts.append(f'<text x="{x:.1f}" y="{y+22:.1f}" font-size="{_fit(lbl,64,base=11):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl)}</text>')
+            else:
+                parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="{_fit(lbl or "C",18,base=12):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "C")}</text>')
+        elif t == "lofthatch":
+            parts.append(f'<rect x="{x-16:.1f}" y="{y-11:.1f}" width="32" height="22" fill="#fff" stroke="#111" stroke-width="1.2"/>')
+            parts.append(f'<text x="{x:.1f}" y="{y+4:.1f}" font-size="{_fit(lbl or "LH",30,base=12):.0f}" text-anchor="middle" font-family="Georgia,serif">{_esc(lbl or "LH")}</text>')
+
+    # front door — bold swing symbol on the external wall of the circulation space (reads at a glance)
+    if _fdp:
+        _fw, _fdxm, _fdym = _fdp[2], _fdp[0], _fdp[1]
+        fx, fy = mx(_fdxm), my(_fdym)
+        rot = {"bottom": 0, "top": 180, "left": 90, "right": 270}[_fw]
+        # local door (hinge left jamb, leaf opens up-into-room); rotated so it opens inward on any wall
+        door = ('<rect x="-22" y="-5" width="44" height="10" fill="#fff" stroke="#111" stroke-width="1.4"/>'
+                '<path d="M-22,0 a44,44 0 0 1 44,0" fill="none" stroke="#111" stroke-width="1.1"/>'
+                '<line x1="-22" y1="0" x2="-22" y2="-44" stroke="#111" stroke-width="2.6"/>')
+        parts.append(f'<g transform="translate({fx:.1f},{fy:.1f}) rotate({rot})">{door}</g>')
+        loff = {"bottom": (0, 82), "top": (0, -74), "left": (-64, 4), "right": (64, 4)}[_fw]
+        anch = "middle" if _fw in ("bottom", "top") else ("end" if _fw == "left" else "start")
+        parts.append(f'<text x="{fx+loff[0]:.1f}" y="{fy+loff[1]:.1f}" font-size="12" text-anchor="{anch}" font-family="Georgia,serif">Front Door</text>')
+
+    # --- dimension chains ---
+    def chain_h(dims, yline, above, fit_px, normalize=True):
+        dims = [s for s in (dims or []) if _num(s.get("span")) > 0]
+        tot = sum(_num(s.get("span")) for s in dims)
+        sf = (fit_px / (tot * S)) if (normalize and tot > 0) else 1.0
+        cx = X0
+        for seg in dims:
+            span = _num(seg.get("span")); L = span * S * sf
+            parts.append(_dim_h(cx, cx + L, yline, seg.get("label") or f'{span:.2f} m', above=above))
+            cx += L
+
+    def chain_v(dims, xline, fit_px, normalize=True):
+        dims = [s for s in (dims or []) if _num(s.get("span")) > 0]
+        tot = sum(_num(s.get("span")) for s in dims)
+        sf = (fit_px / (tot * S)) if (normalize and tot > 0) else 1.0
+        cy = Y0
+        for seg in dims:
+            span = _num(seg.get("span")); L = span * S * sf
+            parts.append(_dim_v(cy, cy + L, xline, seg.get("label") or f'{span:.2f} m'))
+            cy += L
+
+    chain_h(d.get("topDims"), Y0 - 46, True, pw)
+    chain_h(d.get("topDims2"), Y0 - 90, True, pw, normalize=False)
+    chain_h(d.get("bottomDims"), Y0 + ph + 52, False, pw)
+    chain_v(d.get("leftDims"), X0 - 44, ph)
+    chain_v(d.get("rightDims"), X0 + pw + 44, ph)
+
+    # --- right column (all text wrapped to the column width) ---
+    ry = 70
+    RCX = col_x + 22
+    for line in (d.get("address") or []):
+        for wl in _wrap(line, 26):
+            parts.append(f'<text x="{RCX}" y="{ry}" font-size="18" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+            ry += 25
+    # north arrow
+    _odeg = float(d.get("orientationDeg") or 0)
+    parts.append(f'<g transform="translate({col_x+120},{ry+20})">{_north(_odeg)}</g>')
+    ry += 150
+    db = d.get("dataBox") or {}
+    if db:
+        for tl in _wrap(db.get("title") or "Main GF", 22):
+            parts.append(f'<text x="{col_x+120}" y="{ry}" font-size="20" font-style="italic" text-anchor="middle" font-family="Georgia,serif">{_esc(tl)}</text>')
+            ry += 26
+        parts.append(f'<line x1="{col_x+55}" y1="{ry-16}" x2="{col_x+185}" y2="{ry-16}" stroke="#111" stroke-width="1"/>')
+        ry += 10
+        for row in (db.get("rows") or []):
+            if isinstance(row, (list, tuple)) and len(row) == 2:
+                for wl in _wrap(f"{row[0]} = {row[1]}", 28):
+                    parts.append(f'<text x="{RCX}" y="{ry}" font-size="17" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+                    ry += 27
+    ry += 22
+    for note in (d.get("notes") or []):
+        for wl in _wrap(note, 32):
+            parts.append(f'<text x="{RCX}" y="{ry}" font-size="15" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+            ry += 23
+    ry += 10
+    for lg in legend:
+        if "loft insulation" in str(lg).lower():
+            parts.append(f'<rect x="{RCX}" y="{ry-11:.0f}" width="16" height="12" fill="#fff" stroke="#B45309" stroke-width="0.8"/>')
+            parts.append(_hatch_rect(RCX, ry - 11, 16, 12, gap=5))
+            for k, wl in enumerate(_wrap(lg, 27)):
+                parts.append(f'<text x="{RCX+22}" y="{ry}" font-size="14" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+                ry += 22
+        else:
+            for wl in _wrap(lg, 32):
+                parts.append(f'<text x="{RCX}" y="{ry}" font-size="14.5" font-style="italic" font-family="Georgia,serif">{_esc(wl)}</text>')
+                ry += 22
+
+    mk = d.get("measuresKey") or []
+    if mk:
+        ry += 16
+        parts.append(f'<text x="{RCX}" y="{ry}" font-size="14" font-weight="bold" font-family="Georgia,serif">Measures on this design</text>')
+        parts.append(f'<line x1="{RCX}" y1="{ry+6}" x2="{RCX+160}" y2="{ry+6}" stroke="#111" stroke-width="0.8"/>')
+        ry += 24
+        for mm in mk:
+            for wl in _wrap(f"\u2022 {mm}", 30):
+                parts.append(f'<text x="{RCX}" y="{ry}" font-size="13.5" font-family="Georgia,serif">{_esc(wl)}</text>')
+                ry += 20
+
+    # --- right-column divider runs the full height of the plan / right-hand content.
+    #     No assessor confirmation / signature block — this is a design drawing, not an RdSAP form. ---
+    col_bottom = max(ry + 6, Y0 + ph + 20)
+    parts.append(f'<line x1="{col_x}" y1="24" x2="{col_x}" y2="{col_bottom:.0f}" stroke="#111" stroke-width="1"/>')
+
+    # measure-placement anchors (SVG coords here; caller converts to percent)
+    room_anchors = []
+    for r in rooms:
+        rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+        nm = (r.get("name") or "").strip()
+        room_anchors.append({
+            "name": nm,
+            "cx": mx(rx + rw / 2),
+            "cy": my(ry + rh / 2),
+            "wet": any(w in nm.lower() for w in _WET_ROOMS),
+        })
+    win_anchors = []
+    for wdw in (d.get("windows") or []):
+        wall = (wdw.get("wall") or "").lower()
+        if wall == "top":
+            ax, ay = mx(_num(wdw.get("x"))), my(0)
+        elif wall == "bottom":
+            ax, ay = mx(_num(wdw.get("x"))), my(H)
+        elif wall == "left":
+            ax, ay = mx(0), my(_num(wdw.get("y")))
+        elif wall == "right":
+            ax, ay = mx(W), my(_num(wdw.get("y")))
+        else:
+            continue
+        win_anchors.append({"cx": ax, "cy": ay, "wall": wall, "label": wdw.get("label") or ""})
+
+    VB_H = col_bottom + 28
+    return "".join(parts), VB_H, {"rooms": room_anchors, "windows": win_anchors}
+
+
+def build_cad_floorplan_svg(d: dict, with_anchors: bool = False):
+    """Render one sheet, or — when `d` has a `floors` list — a separate labelled
+    plan per floor stacked vertically (Ground Floor, First Floor, ...).
+    When `with_anchors=True`, also returns measure-placement anchors (percent coords)."""
+    VB_W = 1040
+    floors = d.get("floors")
+    if isinstance(floors, list) and floors and all(isinstance(f, dict) and f.get("rooms") for f in floors):
+        shared = {k: d.get(k) for k in ("address", "wallType", "date", "legend", "measuresKey", "orientationDeg", "manualEdit", "undercutRooms") if d.get(k)}
+        # Loft insulation covers the ceilings beneath the roof — draw it on the TOP floor only,
+        # from any available signal (top-level loftCoverage or a per-floor value).
+        loft_signal = d.get("loftCoverage") or next((f.get("loftCoverage") for f in floors if f.get("loftCoverage")), None)
+        groups, total = [], 0.0
+        raw = {"rooms": [], "windows": []}
+        for i, fl in enumerate(floors):
+            fl = {k: v for k, v in fl.items() if k != "loftCoverage"}
+            if loft_signal and i == len(floors) - 1:
+                fl["loftCoverage"] = loft_signal
+            inner, h, anc = _render_single({**shared, **fl})
+            groups.append(f'<g transform="translate(0,{total:.0f})">{inner}</g>')
+            for a in anc["rooms"]:
+                raw["rooms"].append({**a, "cy": a["cy"] + total})
+            for a in anc["windows"]:
+                raw["windows"].append({**a, "cy": a["cy"] + total})
+            total += h + 28
+        VB_H = total
+        head = (f'<svg viewBox="0 0 {VB_W} {VB_H:.0f}" xmlns="http://www.w3.org/2000/svg" '
+                f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
+                f'<rect x="0" y="0" width="{VB_W}" height="{VB_H:.0f}" fill="#fff"/>')
+        svg = head + "".join(groups) + '</svg>'
+    else:
+        inner, VB_H, raw = _render_single(d)
+        head = (f'<svg viewBox="0 0 {VB_W} {VB_H:.0f}" xmlns="http://www.w3.org/2000/svg" '
+                f'style="width:100%;height:auto;background:#fff;font-family:Georgia,serif;">'
+                f'<rect x="0" y="0" width="{VB_W}" height="{VB_H:.0f}" fill="#fff"/>')
+        svg = head + inner + '</svg>'
+    if not with_anchors:
+        return svg
+
+    def _pct(a):
+        return {"x": round(a["cx"] / VB_W * 100, 2), "y": round(a["cy"] / (VB_H or 1) * 100, 2)}
+    anchors = {
+        "rooms": [{"name": a["name"], "wet": a["wet"], **_pct(a)} for a in raw["rooms"]],
+        "windows": [{"wall": a["wall"], "label": a["label"], **_pct(a)} for a in raw["windows"]],
+    }
+    return svg, anchors
+
+
+def _floorplan_quality(geo):
+    """Geometry sanity check on reconstructed CAD data. Returns
+    {ok, score, reasons:[...]} — reasons are human-readable so a designer can act on them
+    and correct the geometry before the pack is issued."""
+    if not isinstance(geo, dict):
+        return {"ok": False, "score": 0, "reasons": ["No floor-plan geometry was reconstructed."]}
+    floors = geo.get("floors") if (isinstance(geo.get("floors"), list) and geo.get("floors")) else [geo]
+    reasons = []
+    for fi, fl in enumerate(floors):
+        lbl = (fl.get("title") or f"Floor {fi + 1}") if len(floors) > 1 else "Plan"
+        rooms = [r for r in (fl.get("rooms") or []) if isinstance(r, dict)]
+        if len(rooms) < 2:
+            reasons.append(f"{lbl}: only {len(rooms)} room(s) traced \u2014 the plan looks incomplete.")
+            continue
+        ov = fl.get("overall") or {}
+        W, H = _num(ov.get("w")), _num(ov.get("h"))
+        names = [(r.get("name") or "").lower() for r in rooms]
+        if not any(any(w in n for w in ("hall", "landing", "corridor", "lobby", "stair")) for n in names):
+            reasons.append(f"{lbl}: no hall / landing / circulation space \u2014 the front door may open straight into a room.")
+
+        def _chain(key, target, axis):
+            spans = [_num(s.get("span")) for s in (fl.get(key) or []) if _num(s.get("span"))]
+            if spans and target:
+                s = sum(spans)
+                if abs(s - target) > max(0.4, 0.1 * target):
+                    reasons.append(f"{lbl}: {axis} dimensions add up to {s:.2f}\u00a0m but the plan overall is {target:.2f}\u00a0m \u2014 the dimensions look wrong.")
+        _chain("topDims", W, "top-edge")
+        _chain("leftDims", H, "left-edge")
+        if W and H:
+            for r in rooms:
+                rx, ry, rw, rh = _num(r.get("x")), _num(r.get("y")), _num(r.get("w")), _num(r.get("h"))
+                if rx + rw > W * 1.12 + 0.3 or ry + rh > H * 1.12 + 0.3:
+                    reasons.append(f"{lbl}: room '{r.get('name') or '?'}' extends beyond the building outline.")
+                    break
+        over = False
+        for i in range(len(rooms)):
+            for j in range(i + 1, len(rooms)):
+                a, b = rooms[i], rooms[j]
+                ax, ay, aw, ah = _num(a.get("x")), _num(a.get("y")), _num(a.get("w")), _num(a.get("h"))
+                bx, by, bw, bh = _num(b.get("x")), _num(b.get("y")), _num(b.get("w")), _num(b.get("h"))
+                ox = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+                oy = max(0, min(ay + ah, by + bh) - max(ay, by))
+                if aw * ah > 0 and bw * bh > 0 and ox * oy > 0.35 * min(aw * ah, bw * bh):
+                    over = True
+                    break
+            if over:
+                break
+        if over:
+            reasons.append(f"{lbl}: two or more rooms overlap significantly \u2014 the layout may be wrong.")
+        db = fl.get("dataBox") or {}
+        stated = None
+        for row in (db.get("rows") or []):
+            if len(row) >= 2 and "area" in str(row[0]).lower():
+                m = re.search(r"([\d.]+)", str(row[1]))
+                if m:
+                    stated = float(m.group(1))
+        if stated:
+            calc = sum(_num(r.get("w")) * _num(r.get("h")) for r in rooms)
+            if calc and abs(calc - stated) > max(6.0, 0.2 * stated):
+                reasons.append(f"{lbl}: traced area {calc:.1f}\u00a0m\u00b2 differs from the stated {stated:.1f}\u00a0m\u00b2 by more than 20%.")
+    score = max(0, 100 - 22 * len(reasons))
+    return {"ok": len(reasons) == 0, "score": score, "reasons": reasons}
